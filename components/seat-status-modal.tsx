@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 
 interface SeatStatusModalProps {
   seat: Seat | null
@@ -63,46 +64,46 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-4 md:p-6 rounded-lg md:rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl">{seat.id}</DialogTitle>
+          <DialogTitle className="text-xl md:text-2xl">{seat.id}</DialogTitle>
           <DialogDescription>
-            {seat.zone && <span className="block text-base font-medium">{seat.zone}</span>}
+            {seat.zone && <span className="block text-sm md:text-base font-medium">{seat.zone}</span>}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-4 md:space-y-6">
           {seat.image && (
-            <div className="w-full h-48 rounded-lg overflow-hidden bg-muted">
+            <div className="w-full h-40 md:h-48 rounded-lg overflow-hidden bg-muted">
               <img src={seat.image || "/placeholder.svg"} alt={seat.id} className="w-full h-full object-cover" />
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 p-3 md:p-4 bg-muted/50 rounded-lg">
             <div>
-              <div className="text-sm text-muted-foreground">Estado</div>
-              <div className="font-semibold">{seatStatusLabels[seat.status]}</div>
+              <div className="text-xs md:text-sm text-muted-foreground">Estado</div>
+              <div className="text-sm md:text-base font-semibold">{seatStatusLabels[seat.status]}</div>
             </div>
             {seat.capacity && (
               <div>
-                <div className="text-sm text-muted-foreground">Capacidad</div>
-                <div className="font-semibold">{seat.capacity} personas</div>
+                <div className="text-xs md:text-sm text-muted-foreground">Capacidad</div>
+                <div className="text-sm md:text-base font-semibold">{seat.capacity} personas</div>
               </div>
             )}
             {seat.zone && (
-              <div className="col-span-2">
-                <div className="text-sm text-muted-foreground">Zona</div>
-                <div className="font-semibold">{seat.zone}</div>
+              <div className="col-span-1 sm:col-span-2">
+                <div className="text-xs md:text-sm text-muted-foreground">Zona</div>
+                <div className="text-sm md:text-base font-semibold">{seat.zone}</div>
               </div>
             )}
           </div>
 
           {seat.amenities && seat.amenities.length > 0 && (
             <div>
-              <h3 className="font-semibold mb-2">Comodidades</h3>
+              <h3 className="font-semibold text-sm md:text-base mb-2">Comodidades</h3>
               <div className="flex flex-wrap gap-2">
                 {seat.amenities.map((amenity, idx) => (
-                  <div key={idx} className="px-3 py-1 bg-primary/10 rounded-full text-sm">
+                  <div key={idx} className="px-3 py-1 bg-primary/10 rounded-full text-xs md:text-sm">
                     {amenity}
                   </div>
                 ))}
@@ -111,9 +112,9 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
           )}
 
           {seat.status !== "available" && seat.status !== "out-of-service" && (
-            <div className="p-4 bg-primary/5 rounded-lg border border-primary/20">
-              <h3 className="font-semibold mb-3">Información de Reserva</h3>
-              <div className="space-y-2">
+            <div className="p-3 md:p-4 bg-primary/5 rounded-lg border border-primary/20">
+              <h3 className="font-semibold text-sm md:text-base mb-3">Información de Reserva</h3>
+              <div className="space-y-2 text-sm md:text-base">
                 {seat.userName && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Reservado por:</span>
@@ -144,7 +145,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                         <span className="text-muted-foreground">Compartido por:</span>
                         <div className="mt-1 space-y-1">
                           {seat.sharedUsers.map((user, idx) => (
-                            <div key={idx} className="text-sm font-medium pl-2">
+                            <div key={idx} className="text-xs md:text-sm font-medium pl-2">
                               • {user}
                             </div>
                           ))}
@@ -158,7 +159,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
           )}
 
           {seat.mapPdfUrl && (
-            <Button variant="outline" className="w-full bg-transparent" asChild>
+            <Button variant="outline" className="w-full bg-transparent text-xs md:text-sm" asChild>
               <a href={seat.mapPdfUrl} target="_blank" rel="noopener noreferrer">
                 Ver Mapa Completo del Coworking (PDF)
               </a>
@@ -166,19 +167,20 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
           )}
 
           {!isAdmin && canOccupySeat(seat.status) && (
-            <div className="space-y-4 p-4 bg-card border rounded-lg">
-              <h3 className="font-semibold">Crear Reserva</h3>
+            <div className="space-y-4 p-3 md:p-4 bg-card border rounded-lg">
+              <h3 className="font-semibold text-sm md:text-base">Crear Reserva</h3>
               <div className="space-y-2">
-                <Label htmlFor="userName">Tu nombre</Label>
+                <Label htmlFor="userName" className="text-xs md:text-sm">Tu nombre</Label>
                 <Input
                   id="userName"
                   placeholder="Ingresa tu nombre"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
+                  className="text-sm"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="peopleCount">Número de personas</Label>
+                <Label htmlFor="peopleCount" className="text-xs md:text-sm">Número de personas</Label>
                 <Input
                   id="peopleCount"
                   type="number"
@@ -186,12 +188,13 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                   max="10"
                   value={peopleCount}
                   onChange={(e) => setPeopleCount(e.target.value)}
+                  className="text-sm"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="assignStatus">Estado del área</Label>
+                <Label htmlFor="assignStatus" className="text-xs md:text-sm">Estado del área</Label>
                 <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as SeatStatus)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -206,7 +209,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
               </div>
               {selectedStatus === "for-share" && (
                 <div className="space-y-2">
-                  <Label htmlFor="shareLimit">Límite de personas</Label>
+                  <Label htmlFor="shareLimit" className="text-xs md:text-sm">Límite de personas</Label>
                   <Input
                     id="shareLimit"
                     type="number"
@@ -214,28 +217,29 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                     max="10"
                     value={shareLimit}
                     onChange={(e) => setShareLimit(e.target.value)}
+                    className="text-sm"
                   />
                 </div>
               )}
-              <Button onClick={handleOccupySeat} className="w-full" disabled={!userName.trim()}>
-                Asignar asiento y crear reserva
+              <Button onClick={handleOccupySeat} className="w-full text-sm" disabled={!userName.trim()}>
+                Asignar asiento
               </Button>
             </div>
           )}
 
           {!isAdmin && seat.status !== "available" && seat.status !== "out-of-service" && (
-            <Button onClick={handleFreeSeat} variant="destructive" className="w-full">
-              Liberar asiento (completar todas las reservas)
+            <Button onClick={handleFreeSeat} variant="destructive" className="w-full text-sm">
+              Liberar asiento
             </Button>
           )}
 
           {isAdmin && (
-            <div className="space-y-4 p-4 bg-card border rounded-lg">
-              <h3 className="font-semibold">Modo Administrador</h3>
+            <div className="space-y-4 p-3 md:p-4 bg-card border rounded-lg">
+              <h3 className="font-semibold text-sm md:text-base">Modo Administrador</h3>
               <div className="space-y-2">
-                <Label htmlFor="status">Cambiar estado del área</Label>
+                <Label htmlFor="status" className="text-xs md:text-sm">Cambiar estado del área</Label>
                 <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as SeatStatus)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -247,24 +251,24 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={handleAdminUpdate} className="w-full">
+              <Button onClick={handleAdminUpdate} className="w-full text-sm">
                 Actualizar estado
               </Button>
             </div>
           )}
 
           {(seat.status === "available" || seat.status === "for-share") && !isAdmin && (
-            <div className="p-4 bg-primary/10 border border-primary/30 rounded-lg text-center">
-              <p className="font-semibold text-lg mb-2">Este espacio está disponible</p>
-              <p className="text-sm text-muted-foreground">
-                Acércate a recepción para ocupar este lugar o completa el formulario arriba para crear tu reserva.
+            <div className="p-3 md:p-4 bg-primary/10 border border-primary/30 rounded-lg text-center">
+              <p className="font-semibold text-sm md:text-base mb-1">Este espacio está disponible</p>
+              <p className="text-xs md:text-sm text-muted-foreground">
+                Acércate a recepción para ocupar este lugar o completa el formulario arriba.
               </p>
             </div>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="outline" onClick={onClose} className="text-sm bg-transparent">
             Cerrar
           </Button>
         </DialogFooter>

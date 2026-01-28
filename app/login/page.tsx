@@ -38,21 +38,21 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="space-y-4">
+        <CardHeader className="space-y-4 p-6 md:p-8">
           <div className="flex justify-center">
             <div className="w-16 h-16 bg-primary rounded-lg flex items-center justify-center">
               <Building2 className="w-8 h-8 text-primary-foreground" />
             </div>
           </div>
           <div className="text-center">
-            <CardTitle className="text-2xl">Sistema de Coworking</CardTitle>
-            <CardDescription>Ingresa tus credenciales para continuar</CardDescription>
+            <CardTitle className="text-xl md:text-2xl">Sistema de Coworking</CardTitle>
+            <CardDescription className="text-xs md:text-sm">Ingresa tus credenciales para continuar</CardDescription>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6 md:p-8">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-sm md:text-base">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -61,11 +61,12 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={loading}
+                className="text-sm md:text-base"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password" className="text-sm md:text-base">Contraseña</Label>
               <Input
                 id="password"
                 type="password"
@@ -74,10 +75,11 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 disabled={loading}
+                className="text-sm md:text-base"
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full text-sm md:text-base" disabled={loading}>
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />

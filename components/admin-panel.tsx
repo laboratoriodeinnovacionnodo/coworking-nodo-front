@@ -29,42 +29,48 @@ export function AdminPanel({ isBlocked, eventName, onToggleBlock }: AdminPanelPr
 
   return (
     <Card className="border-2">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+      <CardHeader className="p-4 md:p-6">
+        <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
           {isBlocked ? (
             <>
-              <AlertCircle className="w-5 h-5 text-destructive" />
+              <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
               <span>Área bloqueada</span>
             </>
           ) : (
             <>
-              <CheckCircle className="w-5 h-5 text-primary" />
-              <span>Panel de Administración</span>
+              <CheckCircle className="w-5 h-5 text-primary flex-shrink-0" />
+              <span>Administración</span>
             </>
           )}
         </CardTitle>
-        <CardDescription>
-          {isBlocked ? `Evento activo: ${eventName}` : "Gestiona eventos y bloquea el área cuando sea necesario"}
+        <CardDescription className="text-xs md:text-sm">
+          {isBlocked ? `Evento activo: ${eventName}` : "Gestiona eventos y bloquea el área"}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="p-4 md:p-6 space-y-4">
         {!isBlocked ? (
           <>
             <div className="space-y-2">
-              <Label htmlFor="eventName">Nombre del evento</Label>
+              <Label htmlFor="eventName" className="text-sm md:text-base">Nombre del evento</Label>
               <Input
                 id="eventName"
                 placeholder="Ej: Conferencia anual"
                 value={newEventName}
                 onChange={(e) => setNewEventName(e.target.value)}
+                className="text-sm"
               />
             </div>
-            <Button onClick={handleBlock} variant="destructive" className="w-full" disabled={!newEventName.trim()}>
-              Bloquear área por evento
+            <Button 
+              onClick={handleBlock} 
+              variant="destructive" 
+              className="w-full text-sm md:text-base" 
+              disabled={!newEventName.trim()}
+            >
+              Bloquear área
             </Button>
           </>
         ) : (
-          <Button onClick={handleUnblock} className="w-full">
+          <Button onClick={handleUnblock} className="w-full text-sm md:text-base">
             Desbloquear área
           </Button>
         )}

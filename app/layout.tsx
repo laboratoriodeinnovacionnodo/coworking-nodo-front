@@ -12,22 +12,23 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "Sistema de Asientos Coworking",
   description: "Gestión de asientos en tiempo real para espacios de coworking",
-  generator: "",
+  generator: "v0.app",
   icons: {
     icon: [
       {
-        url: "",
+        url: "/icon-light-32x32.png",
         media: "(prefers-color-scheme: light)",
       },
       {
-        url: "",
+        url: "/icon-dark-32x32.png",
         media: "(prefers-color-scheme: dark)",
       },
       {
-        url: "",
+        url: "/icon.svg",
         type: "image/svg+xml",
       },
     ],
+    apple: "/apple-icon.png",
   },
 }
 
