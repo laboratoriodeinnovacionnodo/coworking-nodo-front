@@ -69,23 +69,23 @@ export const usuariosApi = {
 export const areasApi = {
   getAll: async (): Promise<BackendArea[]> => {
     try {
-      console.log("[v0] Fetching areas from:", `${API_BASE_URL}/areas`)
+      console.log("Fetching areas from:", `${API_BASE_URL}/areas`)
       const response = await fetch(`${API_BASE_URL}/areas`, {
         headers: { "Content-Type": "application/json" },
       })
-      console.log("[v0] Response status:", response.status)
+      console.log("Response status:", response.status)
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error("[v0] Error response:", errorText)
+        console.error("Error response:", errorText)
         throw new Error(`HTTP ${response.status}: ${errorText}`)
       }
 
       const data = await response.json()
-      console.log("[v0] Areas fetched:", data)
+      console.log("Areas fetched:", data)
       return data
     } catch (error) {
-      console.error("[v0] Fetch error:", error)
+      console.error("Fetch error:", error)
       throw error
     }
   },
@@ -129,7 +129,7 @@ export const areasApi = {
 
   bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
     const estado = bloquear ? "OCUPADO" : "LIBRE"
-    console.log(`[v0] ${bloquear ? "Bloqueando" : "Desbloqueando"} todas las áreas con estado:`, estado)
+    console.log(`${bloquear ? "Bloqueando" : "Desbloqueando"} todas las áreas con estado:`, estado)
 
     // Primero obtener todas las áreas
     const areas = await areasApi.getAll()
@@ -146,10 +146,10 @@ export const areasApi = {
 
     try {
       const updatedAreas = await Promise.all(promises)
-      console.log("[v0] Áreas actualizadas:", updatedAreas)
+      console.log("Áreas actualizadas:", updatedAreas)
       return updatedAreas
     } catch (error) {
-      console.error("[v0] Error al bloquear áreas:", error)
+      console.error("Error al bloquear áreas:", error)
       throw error
     }
   },

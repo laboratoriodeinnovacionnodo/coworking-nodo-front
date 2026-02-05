@@ -6,9 +6,7 @@ import { useState } from "react"
 import { useAuth } from "@/contexts/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Building2, Loader2 } from "lucide-react"
+import { Loader2, Lock, Mail, Armchair } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export default function LoginPage() {
@@ -36,62 +34,71 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-4 p-6 md:p-8">
-          <div className="flex justify-center">
-            <div className="w-16 h-16 bg-primary rounded-lg flex items-center justify-center">
-              <Building2 className="w-8 h-8 text-primary-foreground" />
+    <div className="min-h-screen bg-gradient-to-b from-background to-secondary flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-lg p-8 md:p-10 space-y-8">
+          {/* Header */}
+          <div className="flex flex-col items-center space-y-4">
+            <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center">
+              <Armchair className="w-8 h-8 text-primary" />
+            </div>
+            <div className="text-center">
+              <h1 className="text-2xl md:text-3xl font-bold text-foreground">Gestión de Asientos</h1>
+              <p className="text-sm md:text-base text-primary mt-2">Ingresa tu contraseña para acceder</p>
             </div>
           </div>
-          <div className="text-center">
-            <CardTitle className="text-xl md:text-2xl">Sistema de Coworking</CardTitle>
-            <CardDescription className="text-xs md:text-sm">Ingresa tus credenciales para continuar</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="p-6 md:p-8">
+
+          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm md:text-base">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="tu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={loading}
-                className="text-sm md:text-base"
-              />
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="tu@email.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                  className="pl-12 h-12 border-2 border-primary text-base rounded-lg focus-visible:ring-0 focus-visible:border-primary focus-visible:bg-blue-50"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm md:text-base">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                disabled={loading}
-                className="text-sm md:text-base"
-              />
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Contraseña"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  className="pl-12 h-12 border-2 border-primary text-base rounded-lg focus-visible:ring-0 focus-visible:border-primary focus-visible:bg-blue-50"
+                />
+              </div>
             </div>
 
-            <Button type="submit" className="w-full text-sm md:text-base" disabled={loading}>
+            <Button 
+              type="submit" 
+              className="w-full h-12 text-base font-semibold rounded-lg mt-6" 
+              disabled={loading}
+            >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Iniciando sesión...
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Accediendo...
                 </>
               ) : (
-                "Iniciar Sesión"
+                "Acceder al Sistema"
               )}
             </Button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }

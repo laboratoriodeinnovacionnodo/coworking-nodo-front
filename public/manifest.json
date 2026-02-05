@@ -1,0 +1,60 @@
+{
+  "name": "NODO - Sistema de Gestión de Asientos",
+  "short_name": "NODO",
+  "description": "Gestión de asientos en tiempo real para espacios de coworking NODO Tecnológico",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f0fdff",
+  "theme_color": "#26a7fc",
+  "icons": [
+    {
+      "src": "/nodo-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/nodo-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/nodo-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/nodo-logo.png",
+      "sizes": "540x720",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/nodo-logo.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Ver asientos",
+      "short_name": "Asientos",
+      "description": "Ver mapa de asientos disponibles",
+      "url": "/?mode=seats",
+      "icons": [
+        {
+          "src": "/nodo-logo.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

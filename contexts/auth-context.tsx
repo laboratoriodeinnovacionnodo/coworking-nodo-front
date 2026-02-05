@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         setAdmin(JSON.parse(storedAdmin))
       } catch (error) {
-        console.error("[v0] Error parsing stored admin:", error)
+        console.error("Error parsing stored admin:", error)
         localStorage.removeItem("coworking_admin")
       }
     }
@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       router.push("/")
     } catch (error) {
-      console.error("[v0] Login error:", error)
+      console.error("Login error:", error)
       throw error
     }
   }
