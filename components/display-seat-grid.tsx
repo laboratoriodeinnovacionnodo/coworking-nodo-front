@@ -46,37 +46,47 @@ export function DisplaySeatGrid({ seats, onSeatClick }: DisplaySeatGridProps) {
 
   return (
     <div className="space-y-4">
-      {rows.map((row) => (
-        <div key={row} className="flex items-center gap-3">
-          <div className="w-10 text-lg font-semibold text-muted-foreground">{row}</div>
-          <div className="flex gap-3 flex-wrap">
-            {seatsByRow[row]
-              .sort((a, b) => a.number - b.number)
-              .map((seat) => (
-                <div
-                  key={seat.id}
-                  onClick={() => onSeatClick?.(seat)}
-                  className={cn(
-                    "relative flex flex-col items-center justify-center w-20 h-20 rounded-lg transition-all cursor-pointer hover:scale-105 hover:shadow-lg",
-                    seatStatusColors[seat.status],
-                  )}
-                >
-                  {(seat.status === "for-share" || seat.status === "shared") && seat.peopleCount ? (
-                    <Users className="w-6 h-6" />
-                  ) : (
-                    <Armchair className="w-6 h-6" />
-                  )}
-                  <span className="text-sm font-bold mt-1">{seat.number}</span>
-                  {seat.peopleCount && seat.peopleCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                      {seat.peopleCount}
-                    </span>
-                  )}
-                </div>
-              ))}
+    {/* 
+        {rows.map((row) => (
+          <div key={row} className="flex items-center gap-3">
+            <div className="w-10 text-lg font-semibold text-muted-foreground">{row}</div>
+            <div className="flex gap-3 flex-wrap">
+              {seatsByRow[row]
+                .sort((a, b) => a.number - b.number)
+                .map((seat) => (
+                  <div
+                    key={seat.id}
+                    onClick={() => onSeatClick?.(seat)}
+                    className={cn(
+                      "relative flex flex-col items-center justify-center w-20 h-20 rounded-lg transition-all cursor-pointer hover:scale-105 hover:shadow-lg",
+                      seatStatusColors[seat.status],
+                    )}
+                  >
+                    {(seat.status === "for-share" || seat.status === "shared") && seat.peopleCount ? (
+                      <Users className="w-6 h-6" />
+                    ) : (
+                      <Armchair className="w-6 h-6" />
+                    )}
+                    <span className="text-sm font-bold mt-1">{seat.number}</span>
+                    {seat.peopleCount && seat.peopleCount > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                        {seat.peopleCount}
+                      </span>
+                    )}
+                  </div>
+                ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+    */}
+
+      <img
+        src="/NODO-PLANO-P1.svg"
+        alt=""
+        width="auto"
+        height="auto"
+        style={{ transform: "rotate(90deg)" }}
+      />
     </div>
   )
 }
