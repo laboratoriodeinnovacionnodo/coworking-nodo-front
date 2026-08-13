@@ -1,57 +1,57 @@
 #!/bin/bash
-set -e
- 
-echo "🚀 [v4] Moviendo EVENTOS_API a variable de entorno..."
- 
-# ──────────────────────────────────────────────
-# 1. Reemplazar la constante hardcodeada en la página
-# ──────────────────────────────────────────────
-sed -i 's|const EVENTOS_API = "https://api.eventos.nodo.cc.gob.ar/api"|const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://api.eventos.nodo.cc.gob.ar/api"|' app/calendario/page.tsx
- 
-echo "✅ app/calendario/page.tsx actualizado"
- 
-# ──────────────────────────────────────────────
-# 2. Agregar la variable al .env.example si existe,
-#    o crearlo si no existe
-# ──────────────────────────────────────────────
-if [ -f ".env.example" ]; then
-  if ! grep -q "NEXT_PUBLIC_EVENTOS_API_URL" .env.example; then
-    echo "" >> .env.example
-    echo "# API pública de eventos NODO" >> .env.example
-    echo "NEXT_PUBLIC_EVENTOS_API_URL=https://api.eventos.nodo.cc.gob.ar/api" >> .env.example
-    echo "✅ .env.example actualizado"
-  else
-    echo "ℹ️  NEXT_PUBLIC_EVENTOS_API_URL ya está en .env.example"
-  fi
-else
-  cat > .env.example << 'EOF'
-# API pública de eventos NODO
-NEXT_PUBLIC_EVENTOS_API_URL=https://api.eventos.nodo.cc.gob.ar/api
+set -euo pipefail
+
+echo "🔧 Corrigiendo pnpm-workspace.yaml inválido..."
+
+if [ ! -f "pnpm-workspace.yaml" ]; then
+  echo "ℹ️  No existe pnpm-workspace.yaml, nada que hacer."
+  exit 0
+fi
+
+if [ ! -f "package.json" ]; then
+  echo "❌ No se encontró package.json en el directorio actual."
+  exit 1
+fi
+
+cp package.json package.json.bak
+
+node <<'EOF'
+const fs = require("fs");
+
+const pkgPath = "package.json";
+const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+
+const overrides = {
+  "next@>=16.0.0-beta.0 <16.1.7": ">=16.1.7",
+  "next@>=16.0.1 <16.1.7": ">=16.1.7",
+  "lodash@>=4.0.0 <=4.17.23": ">=4.18.0",
+  "lodash@<=4.17.23": ">=4.18.0",
+  "next@>=16.0.0-beta.0 <16.2.3": ">=16.2.3",
+  "postcss@<8.5.10": ">=8.5.10",
+  "next@>=16.0.0 <16.2.5": ">=16.2.5",
+  "next@>=16.0.0 <16.2.6": ">=16.2.6",
+  "sharp@<0.35.0": ">=0.35.0",
+  "next@>=16.0.0 <16.2.11": ">=16.2.11",
+  "postcss@<=8.5.11": ">=8.5.12",
+  "postcss@<=8.5.17": ">=8.5.18",
+  "postcss@<=8.5.22": ">=8.5.23",
+  "nanoid@<3.3.16": ">=3.3.16",
+  "nanoid@<3.3.17": ">=3.3.17"
+};
+
+pkg.pnpm = pkg.pnpm || {};
+pkg.pnpm.overrides = { ...(pkg.pnpm.overrides || {}), ...overrides };
+
+fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
+console.log("✅ overrides movidos a package.json → pnpm.overrides");
 EOF
-  echo "✅ .env.example creado"
-fi
- 
-# ──────────────────────────────────────────────
-# 3. Agregar al deploy.yml como build-arg y -e en docker run
-# ──────────────────────────────────────────────
-DEPLOY=".github/workflows/deploy.yml"
- 
-if grep -q "NEXT_PUBLIC_EVENTOS_API_URL" "$DEPLOY"; then
-  echo "ℹ️  NEXT_PUBLIC_EVENTOS_API_URL ya está en deploy.yml"
-else
-  # build-args block
-  sed -i 's|            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}|            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}\n            NEXT_PUBLIC_EVENTOS_API_URL=${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}|' "$DEPLOY"
- 
-  # docker run -e block
-  sed -i 's|              -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \\|              -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \\\n              -e NEXT_PUBLIC_EVENTOS_API_URL="${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}" \\|' "$DEPLOY"
- 
-  echo "✅ deploy.yml actualizado con build-arg y docker run -e"
-fi
- 
+
+rm pnpm-workspace.yaml
+echo "✅ pnpm-workspace.yaml eliminado"
+
 echo ""
-echo "⚠️  Acordate de agregar el secret en GitHub:"
-echo "   Settings → Secrets → Actions → New secret"
-echo "   Nombre: NEXT_PUBLIC_EVENTOS_API_URL"
-echo "   Valor:  https://api.eventos.nodo.cc.gob.ar/api"
+echo "🔍 Verificá que package.json quedó bien:"
+grep -A 20 '"pnpm"' package.json || true
+
 echo ""
-echo "git add . && git commit -m \"feat: EVENTOS_API como variable de entorno\" && git push origin main"
+echo "✅ Listo. Corré 'pnpm install' localmente para regenerar el lockfile antes de commitear."
