@@ -51,9 +51,8 @@ const MESES = [
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function toLocalDate(iso: string) {
-  // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
-  const datePart = iso.split("T")[0]
-  const [y, m, d] = datePart.split("-").map(Number)
+  // evita off-by-one por timezone al parsear "YYYY-MM-DD"
+  const [y, m, d] = iso.split("-").map(Number)
   return new Date(y, m - 1, d)
 }
 

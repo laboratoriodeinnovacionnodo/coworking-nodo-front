@@ -3,7 +3,7 @@ set -euo pipefail
 
 FILE="app/calendario/page.tsx"
 
-echo "🔧 Corrigiendo endpoint de eventos en $FILE..."
+echo "🔧 Corrigiendo toLocalDate() para soportar ISO completo del endpoint /calendar..."
 
 if [ ! -f "$FILE" ]; then
   echo "❌ No se encontró $FILE. Ejecutá este script desde la raíz de coworking-nodo-front."
@@ -12,26 +12,32 @@ fi
 
 cp "$FILE" "$FILE.bak"
 
-# Reemplazar la URL del fetch
-sed -i \
-  -e "s|\`\${EVENTOS_API}/events/public?fechaDesde=\${desde}&fechaHasta=\${hasta}\`|\`\${EVENTOS_API}/calendar?year=\${anio}\&month=\${mes + 1}\`|" \
-  "$FILE"
-
-# Reemplazar el parseo de la respuesta y el filtro de estado
-python3 -c "" 2>/dev/null || true  # noop, aseguramos que no usamos python
-
 node <<'EOF'
 const fs = require("fs");
 const path = "app/calendario/page.tsx";
 let content = fs.readFileSync(path, "utf8");
 
-content = content.replace(
-  `const data: Evento[] = await res.json()\n      setEventos(data.filter((e) => e.estado === "APROBADO"))`,
-  `const data = await res.json()\n      setEventos((data.events ?? []).filter((e: Evento) => e.tipoEvento !== "CANCELADO"))`
-);
+const oldFn = `function toLocalDate(iso: string) {
+  // evita off-by-one por timezone al parsear "YYYY-MM-DD"
+  const [y, m, d] = iso.split("-").map(Number)
+  return new Date(y, m - 1, d)
+}`;
 
+const newFn = `function toLocalDate(iso: string) {
+  // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
+  const datePart = iso.split("T")[0]
+  const [y, m, d] = datePart.split("-").map(Number)
+  return new Date(y, m - 1, d)
+}`;
+
+if (!content.includes(oldFn)) {
+  console.error("⚠️  No se encontró el bloque exacto de toLocalDate. Revisar manualmente.");
+  process.exit(1);
+}
+
+content = content.replace(oldFn, newFn);
 fs.writeFileSync(path, content);
-console.log("✅ Parseo de respuesta y filtro actualizados.");
+console.log("✅ toLocalDate() corregida.");
 EOF
 
 echo ""
@@ -39,4 +45,4 @@ echo "🔍 Revisá el diff antes de commitear:"
 diff "$FILE.bak" "$FILE" || true
 
 echo ""
-echo "✅ Listo. Corré 'pnpm dev' o 'pnpm build' para confirmar antes de subir."
+echo "✅ Listo. Corré 'pnpm build' para confirmar antes de subir."
