@@ -1,50 +1,42 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "🔧 Configurando onlyBuiltDependencies para permitir scripts de sharp y otros binarios nativos..."
+FILE="app/calendario/page.tsx"
 
-if [ ! -f "package.json" ]; then
-  echo "❌ No se encontró package.json en el directorio actual."
+echo "🔧 Corrigiendo endpoint de eventos en $FILE..."
+
+if [ ! -f "$FILE" ]; then
+  echo "❌ No se encontró $FILE. Ejecutá este script desde la raíz de coworking-nodo-front."
   exit 1
 fi
 
-cp package.json package.json.bak
+cp "$FILE" "$FILE.bak"
+
+# Reemplazar la URL del fetch
+sed -i \
+  -e "s|\`\${EVENTOS_API}/events/public?fechaDesde=\${desde}&fechaHasta=\${hasta}\`|\`\${EVENTOS_API}/calendar?year=\${anio}\&month=\${mes + 1}\`|" \
+  "$FILE"
+
+# Reemplazar el parseo de la respuesta y el filtro de estado
+python3 -c "" 2>/dev/null || true  # noop, aseguramos que no usamos python
 
 node <<'EOF'
 const fs = require("fs");
+const path = "app/calendario/page.tsx";
+let content = fs.readFileSync(path, "utf8");
 
-const pkgPath = "package.json";
-const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+content = content.replace(
+  `const data: Evento[] = await res.json()\n      setEventos(data.filter((e) => e.estado === "APROBADO"))`,
+  `const data = await res.json()\n      setEventos((data.events ?? []).filter((e: Evento) => e.tipoEvento !== "CANCELADO"))`
+);
 
-pkg.pnpm = pkg.pnpm || {};
-
-const existing = new Set(pkg.pnpm.onlyBuiltDependencies || []);
-
-// Paquetes comunes con binarios nativos que necesitan correr postinstall
-[
-  "sharp",
-  "@tailwindcss/oxide",
-  "unrs-resolver"
-].forEach(dep => existing.add(dep));
-
-pkg.pnpm.onlyBuiltDependencies = Array.from(existing).sort();
-
-fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-console.log("✅ onlyBuiltDependencies configurado:", pkg.pnpm.onlyBuiltDependencies);
+fs.writeFileSync(path, content);
+console.log("✅ Parseo de respuesta y filtro actualizados.");
 EOF
 
 echo ""
-echo "📦 Regenerando lockfile con la nueva config..."
-pnpm install --no-frozen-lockfile
+echo "🔍 Revisá el diff antes de commitear:"
+diff "$FILE.bak" "$FILE" || true
 
 echo ""
-echo "🔍 Verificando que no queden builds ignorados..."
-pnpm install --frozen-lockfile 2>&1 | tee /tmp/pnpm-check.log
-
-if grep -q "ERR_PNPM_IGNORED_BUILDS" /tmp/pnpm-check.log; then
-  echo "❌ Todavía hay builds ignorados. Revisá el log arriba y agregá el paquete faltante al script."
-  exit 1
-fi
-
-echo ""
-echo "✅ Listo. pnpm install --frozen-lockfile pasa limpio, igual que en Docker."
+echo "✅ Listo. Corré 'pnpm dev' o 'pnpm build' para confirmar antes de subir."

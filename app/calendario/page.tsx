@@ -84,16 +84,14 @@ export default function CalendarioPage() {
     setLoading(true)
     setError(null)
     try {
-      const desde = `${anio}-${String(mes + 1).padStart(2, "0")}-01`
-      const ultimo = new Date(anio, mes + 1, 0).getDate()
-      const hasta  = `${anio}-${String(mes + 1).padStart(2, "0")}-${ultimo}`
       const res = await fetch(
-        `${EVENTOS_API}/events/public?fechaDesde=${desde}&fechaHasta=${hasta}`,
+        `${EVENTOS_API}/calendar?year=${anio}&month=${mes + 1}`,
         { cache: "no-store" }
       )
       if (!res.ok) throw new Error(`Error ${res.status}`)
-      const data: Evento[] = await res.json()
-      setEventos(data.filter((e) => e.estado === "APROBADO"))
+      const data = await res.json()
+      // El endpoint /calendar devuelve { events: Evento[], ... }, no un array directo
+      setEventos(data.events.filter((e: Evento) => e.tipoEvento !== "CANCELADO"))
     } catch (err) {
       setError("No se pudieron cargar los eventos")
     } finally {
