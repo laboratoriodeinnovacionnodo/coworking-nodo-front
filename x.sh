@@ -1,12 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "🔧 Corrigiendo pnpm-workspace.yaml inválido..."
-
-if [ ! -f "pnpm-workspace.yaml" ]; then
-  echo "ℹ️  No existe pnpm-workspace.yaml, nada que hacer."
-  exit 0
-fi
+echo "🔧 Corrigiendo formato de 'overrides' en package.json..."
 
 if [ ! -f "package.json" ]; then
   echo "❌ No se encontró package.json en el directorio actual."
@@ -21,7 +16,8 @@ const fs = require("fs");
 const pkgPath = "package.json";
 const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
 
-const overrides = {
+// Tomar overrides desde donde estén (pnpm.overrides o ya en top-level)
+const overrides = (pkg.pnpm && pkg.pnpm.overrides) || pkg.overrides || {
   "next@>=16.0.0-beta.0 <16.1.7": ">=16.1.7",
   "next@>=16.0.1 <16.1.7": ">=16.1.7",
   "lodash@>=4.0.0 <=4.17.23": ">=4.18.0",
@@ -39,19 +35,28 @@ const overrides = {
   "nanoid@<3.3.17": ">=3.3.17"
 };
 
-pkg.pnpm = pkg.pnpm || {};
-pkg.pnpm.overrides = { ...(pkg.pnpm.overrides || {}), ...overrides };
+// Mover a top-level "overrides" (formato que pnpm moderno lee)
+pkg.overrides = overrides;
+
+// Limpiar el campo pnpm.overrides obsoleto
+if (pkg.pnpm) {
+  delete pkg.pnpm.overrides;
+  if (Object.keys(pkg.pnpm).length === 0) {
+    delete pkg.pnpm;
+  }
+}
 
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-console.log("✅ overrides movidos a package.json → pnpm.overrides");
+console.log("✅ overrides movidos a package.json → overrides (top-level)");
 EOF
 
-rm pnpm-workspace.yaml
-echo "✅ pnpm-workspace.yaml eliminado"
+echo ""
+echo "📦 Regenerando pnpm-lock.yaml (esto puede tardar unos segundos)..."
+pnpm install --no-frozen-lockfile
 
 echo ""
-echo "🔍 Verificá que package.json quedó bien:"
-grep -A 20 '"pnpm"' package.json || true
+echo "🔍 Verificá el resultado:"
+grep -A 20 '"overrides"' package.json || true
 
 echo ""
-echo "✅ Listo. Corré 'pnpm install' localmente para regenerar el lockfile antes de commitear."
+echo "✅ Listo. Revisá que 'pnpm build' funcione localmente antes de commitear."
