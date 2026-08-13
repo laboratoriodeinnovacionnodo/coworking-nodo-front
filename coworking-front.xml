@@ -42,15 +42,20 @@ The content is organized as follows:
   workflows/
     deploy.yml
 app/
+  calendario/
+    page.tsx
   display/
     page.tsx
   login/
+    page.tsx
+  pagina-2/
     page.tsx
   globals.css
   layout.tsx
   page.tsx
 components/
   admin-panel.tsx
+  bottom-navbar.tsx
   cors-info-banner.tsx
   display-seat-grid.tsx
   display-seat-info-modal.tsx
@@ -83,9 +88,126 @@ pnpm-workspace.yaml
 postcss.config.mjs
 repomix.config.json
 tsconfig.json
+x.sh
 ```
 
 # Files
+
+## File: app/pagina-2/page.tsx
+```typescript
+ 1: "use client"
+ 2: 
+ 3: export default function Pagina2() {
+ 4:   return (
+ 5:     <div className="min-h-screen flex items-center justify-center pb-24"
+ 6:          style={{ background: "var(--background)" }}>
+ 7:       <p className="text-slate-500 text-sm"
+ 8:          style={{ fontFamily: "'Inter', sans-serif" }}>
+ 9:         Página 2
+10:       </p>
+11:     </div>
+12:   )
+13: }
+```
+
+## File: components/bottom-navbar.tsx
+```typescript
+ 1: "use client"
+ 2: 
+ 3: import Link from "next/link"
+ 4: import { usePathname } from "next/navigation"
+ 5: import { Armchair, CalendarDays } from "lucide-react"
+ 6: import { cn } from "@/lib/utils"
+ 7: 
+ 8: const navItems = [
+ 9:   { label: "Coworking",   href: "/",            icon: Armchair     },
+10:   { label: "Calendario",  href: "/calendario",  icon: CalendarDays },
+11: ]
+12: 
+13: export function BottomNavbar() {
+14:   const pathname = usePathname()
+15: 
+16:   return (
+17:     <nav
+18:       className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50"
+19:       style={{ fontFamily: "'Inter', sans-serif" }}
+20:     >
+21:       <div
+22:         className="flex items-center gap-1 px-3 py-2 rounded-2xl"
+23:         style={{
+24:           background: "rgba(255, 255, 255, 0.18)",
+25:           backdropFilter: "blur(24px) saturate(180%)",
+26:           WebkitBackdropFilter: "blur(24px) saturate(180%)",
+27:           border: "1px solid rgba(255, 255, 255, 0.45)",
+28:           boxShadow:
+29:             "0 8px 32px rgba(38,167,252,0.10), 0 2px 8px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.55)",
+30:         }}
+31:       >
+32:         {navItems.map(({ label, href }) => {
+33:           const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href)
+34: 
+35:           return (
+36:             <Link
+37:               key={href}
+38:               href={href}
+39:               className={cn(
+40:                 "group relative flex flex-col items-center gap-1 px-5 py-2.5 rounded-xl transition-all duration-200 min-w-[72px]",
+41:                 isActive ? "text-[#26a7fc]" : "text-slate-500"
+42:               )}
+43:             >
+44:               {/* Hover encuadre */}
+45:               <span
+46:                 className={cn(
+47:                   "absolute inset-0 rounded-xl transition-all duration-200",
+48:                   isActive ? "opacity-0" : "opacity-0 group-hover:opacity-100"
+49:                 )}
+50:                 style={{
+51:                   background: "rgba(38,167,252,0.07)",
+52:                   border: "1px solid rgba(38,167,252,0.18)",
+53:                 }}
+54:               />
+55: 
+56:               {/* Active background */}
+57:               {isActive && (
+58:                 <span
+59:                   className="absolute inset-0 rounded-xl"
+60:                   style={{
+61:                     background: "rgba(38,167,252,0.12)",
+62:                     border: "1px solid rgba(38,167,252,0.22)",
+63:                     boxShadow: "inset 0 1px 0 rgba(255,255,255,0.5)",
+64:                   }}
+65:                 />
+66:               )}
+67: 
+68:               <span
+69:                 className={cn(
+70:                   "relative text-xs font-medium tracking-wide transition-all duration-200",
+71:                   isActive
+72:                     ? "font-semibold text-[#26a7fc]"
+73:                     : "text-slate-500 group-hover:text-slate-700"
+74:                 )}
+75:               >
+76:                 {label}
+77:               </span>
+78:             </Link>
+79:           )
+80:         })}
+81:       </div>
+82:     </nav>
+83:   )
+84: }
+```
+
+## File: .dockerignore
+```
+1: node_modules
+2: .next
+3: .env
+4: .env.*
+5: coverage
+6: *.log
+7: .pnpm-store
+```
 
 ## File: pnpm-workspace.yaml
 ```yaml
@@ -145,15 +267,344 @@ tsconfig.json
 34: }
 ```
 
-## File: .dockerignore
-```
-1: node_modules
-2: .next
-3: .env
-4: .env.*
-5: coverage
-6: *.log
-7: .pnpm-store
+## File: app/calendario/page.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect, useCallback } from "react"
+  4: import { ChevronLeft, ChevronRight, Loader2, CalendarDays } from "lucide-react"
+  5: import { cn } from "@/lib/utils"
+  6: 
+  7: // ── Tipos ────────────────────────────────────────────────────────────────────
+  8: 
+  9: interface Evento {
+ 10:   id: number
+ 11:   titulo: string
+ 12:   fechaDesde: string
+ 13:   fechaHasta: string
+ 14:   horaDesde: string
+ 15:   horaHasta: string
+ 16:   tipoEvento: string
+ 17:   areas: string[]
+ 18:   organizadorSolicitante: string
+ 19:   descripcion?: string
+ 20:   estado: string
+ 21: }
+ 22: 
+ 23: // ── Constantes ───────────────────────────────────────────────────────────────
+ 24: 
+ 25: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+ 26: 
+ 27: const TIPO_COLORES: Record<string, string> = {
+ 28:   REUNION:          "bg-blue-50   border-l-[3px] border-blue-400   text-blue-800",
+ 29:   CAPACITACION:     "bg-green-50  border-l-[3px] border-green-500  text-green-800",
+ 30:   EVENTO:           "bg-purple-50 border-l-[3px] border-purple-400 text-purple-800",
+ 31:   CONFERENCIA:      "bg-orange-50 border-l-[3px] border-orange-400 text-orange-800",
+ 32:   TALLER:           "bg-pink-50   border-l-[3px] border-pink-400   text-pink-800",
+ 33:   EXPOSICION:       "bg-yellow-50 border-l-[3px] border-yellow-500 text-yellow-800",
+ 34: }
+ 35: 
+ 36: const TIPO_BADGE: Record<string, string> = {
+ 37:   REUNION:      "bg-blue-100   text-blue-800",
+ 38:   CAPACITACION: "bg-green-100  text-green-800",
+ 39:   EVENTO:       "bg-purple-100 text-purple-800",
+ 40:   CONFERENCIA:  "bg-orange-100 text-orange-800",
+ 41:   TALLER:       "bg-pink-100   text-pink-800",
+ 42:   EXPOSICION:   "bg-yellow-100 text-yellow-800",
+ 43: }
+ 44: 
+ 45: const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
+ 46: const MESES = [
+ 47:   "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+ 48:   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
+ 49: ]
+ 50: 
+ 51: // ── Helpers ──────────────────────────────────────────────────────────────────
+ 52: 
+ 53: function toLocalDate(iso: string) {
+ 54:   // evita off-by-one por timezone al parsear "YYYY-MM-DD"
+ 55:   const [y, m, d] = iso.split("-").map(Number)
+ 56:   return new Date(y, m - 1, d)
+ 57: }
+ 58: 
+ 59: function isSameDay(a: Date, b: Date) {
+ 60:   return a.getFullYear() === b.getFullYear() &&
+ 61:          a.getMonth()    === b.getMonth()    &&
+ 62:          a.getDate()     === b.getDate()
+ 63: }
+ 64: 
+ 65: function eventoCaeEnDia(ev: Evento, dia: Date) {
+ 66:   const desde = toLocalDate(ev.fechaDesde)
+ 67:   const hasta  = toLocalDate(ev.fechaHasta)
+ 68:   return dia >= desde && dia <= hasta
+ 69: }
+ 70: 
+ 71: // ── Componente ───────────────────────────────────────────────────────────────
+ 72: 
+ 73: export default function CalendarioPage() {
+ 74:   const hoy = new Date()
+ 75:   const [mes, setMes]       = useState(hoy.getMonth())
+ 76:   const [anio, setAnio]     = useState(hoy.getFullYear())
+ 77:   const [eventos, setEventos]         = useState<Evento[]>([])
+ 78:   const [loading, setLoading]         = useState(true)
+ 79:   const [error, setError]             = useState<string | null>(null)
+ 80:   const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
+ 81: 
+ 82:   // Fetch eventos del mes visible
+ 83:   const fetchEventos = useCallback(async () => {
+ 84:     setLoading(true)
+ 85:     setError(null)
+ 86:     try {
+ 87:       const desde = `${anio}-${String(mes + 1).padStart(2, "0")}-01`
+ 88:       const ultimo = new Date(anio, mes + 1, 0).getDate()
+ 89:       const hasta  = `${anio}-${String(mes + 1).padStart(2, "0")}-${ultimo}`
+ 90:       const res = await fetch(
+ 91:         `${EVENTOS_API}/events/public?fechaDesde=${desde}&fechaHasta=${hasta}`,
+ 92:         { cache: "no-store" }
+ 93:       )
+ 94:       if (!res.ok) throw new Error(`Error ${res.status}`)
+ 95:       const data: Evento[] = await res.json()
+ 96:       setEventos(data.filter((e) => e.estado === "APROBADO"))
+ 97:     } catch (err) {
+ 98:       setError("No se pudieron cargar los eventos")
+ 99:     } finally {
+100:       setLoading(false)
+101:     }
+102:   }, [mes, anio])
+103: 
+104:   useEffect(() => { fetchEventos() }, [fetchEventos])
+105: 
+106:   // Construir grilla
+107:   const primerDia  = new Date(anio, mes, 1).getDay()
+108:   const diasEnMes  = new Date(anio, mes + 1, 0).getDate()
+109:   const celdas     = primerDia + diasEnMes
+110:   const totalFilas = Math.ceil(celdas / 7)
+111: 
+112:   const anterior = () => {
+113:     if (mes === 0) { setMes(11); setAnio(a => a - 1) }
+114:     else setMes(m => m - 1)
+115:   }
+116:   const siguiente = () => {
+117:     if (mes === 11) { setMes(0); setAnio(a => a + 1) }
+118:     else setMes(m => m + 1)
+119:   }
+120: 
+121:   return (
+122:     <div className="min-h-screen pb-28" style={{ background: "var(--background)" }}>
+123: 
+124:       {/* Header */}
+125:       <div
+126:         className="sticky top-0 z-30 px-4 py-4 border-b border-white/40"
+127:         style={{
+128:           background: "rgba(240,253,255,0.80)",
+129:           backdropFilter: "blur(16px)",
+130:           WebkitBackdropFilter: "blur(16px)",
+131:         }}
+132:       >
+133:         <div className="max-w-3xl mx-auto flex items-center justify-between">
+134:           <div className="flex items-center gap-2">
+135:             <div className="w-8 h-8 rounded-lg bg-[#26a7fc]/10 flex items-center justify-center">
+136:               <CalendarDays className="w-4 h-4 text-[#26a7fc]" />
+137:             </div>
+138:             <div>
+139:               <h1 className="text-base font-bold text-foreground leading-none">Agenda NODO</h1>
+140:               <p className="text-[10px] text-muted-foreground mt-0.5">Eventos públicos</p>
+141:             </div>
+142:           </div>
+143: 
+144:           {/* Navegador de mes */}
+145:           <div className="flex items-center gap-2">
+146:             <button
+147:               onClick={anterior}
+148:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
+149:             >
+150:               <ChevronLeft className="w-4 h-4" />
+151:             </button>
+152:             <span className="text-sm font-semibold min-w-[120px] text-center">
+153:               {MESES[mes]} {anio}
+154:             </span>
+155:             <button
+156:               onClick={siguiente}
+157:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
+158:             >
+159:               <ChevronRight className="w-4 h-4" />
+160:             </button>
+161:           </div>
+162:         </div>
+163:       </div>
+164: 
+165:       <div className="max-w-3xl mx-auto px-2 pt-4">
+166: 
+167:         {/* Días de semana */}
+168:         <div className="grid grid-cols-7 mb-1">
+169:           {DIAS_SEMANA.map((d) => (
+170:             <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground py-1">
+171:               {d}
+172:             </div>
+173:           ))}
+174:         </div>
+175: 
+176:         {/* Loading */}
+177:         {loading && (
+178:           <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+179:             <Loader2 className="w-5 h-5 animate-spin text-[#26a7fc]" />
+180:             <span className="text-sm">Cargando eventos...</span>
+181:           </div>
+182:         )}
+183: 
+184:         {/* Error */}
+185:         {error && !loading && (
+186:           <div className="text-center py-12 text-sm text-muted-foreground">
+187:             {error}
+188:           </div>
+189:         )}
+190: 
+191:         {/* Grilla */}
+192:         {!loading && !error && (
+193:           <div className="grid grid-cols-7 gap-px bg-border rounded-xl overflow-hidden border border-border">
+194:             {Array.from({ length: totalFilas * 7 }).map((_, idx) => {
+195:               const numeroDia = idx - primerDia + 1
+196:               const esValido  = numeroDia >= 1 && numeroDia <= diasEnMes
+197:               const diaFecha  = esValido ? new Date(anio, mes, numeroDia) : null
+198:               const esHoy     = diaFecha ? isSameDay(diaFecha, hoy) : false
+199:               const eventosDia = diaFecha
+200:                 ? eventos.filter((e) => eventoCaeEnDia(e, diaFecha))
+201:                 : []
+202: 
+203:               return (
+204:                 <div
+205:                   key={idx}
+206:                   className={cn(
+207:                     "min-h-[80px] p-1 bg-card flex flex-col",
+208:                     !esValido && "bg-muted/30"
+209:                   )}
+210:                 >
+211:                   {esValido && (
+212:                     <>
+213:                       {/* Número del día */}
+214:                       <span
+215:                         className={cn(
+216:                           "text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 self-end",
+217:                           esHoy
+218:                             ? "bg-[#26a7fc] text-white font-bold"
+219:                             : "text-foreground"
+220:                         )}
+221:                       >
+222:                         {numeroDia}
+223:                       </span>
+224: 
+225:                       {/* Pills de eventos */}
+226:                       <div className="flex flex-col gap-0.5 overflow-hidden">
+227:                         {eventosDia.slice(0, 2).map((ev) => (
+228:                           <button
+229:                             key={ev.id}
+230:                             onClick={() => setEventoSeleccionado(ev)}
+231:                             className={cn(
+232:                               "w-full text-left text-[9px] md:text-[10px] px-1 py-0.5 rounded-sm font-medium truncate transition-colors",
+233:                               TIPO_COLORES[ev.tipoEvento] ?? "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800"
+234:                             )}
+235:                           >
+236:                             {ev.horaDesde} {ev.titulo}
+237:                           </button>
+238:                         ))}
+239:                         {eventosDia.length > 2 && (
+240:                           <span className="text-[9px] text-muted-foreground pl-1">
+241:                             +{eventosDia.length - 2} más
+242:                           </span>
+243:                         )}
+244:                       </div>
+245:                     </>
+246:                   )}
+247:                 </div>
+248:               )
+249:             })}
+250:           </div>
+251:         )}
+252: 
+253:         {/* Leyenda */}
+254:         {!loading && !error && (
+255:           <div className="flex flex-wrap gap-2 mt-4 px-1">
+256:             {Object.entries(TIPO_BADGE).map(([tipo, cls]) => (
+257:               <span key={tipo} className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", cls)}>
+258:                 {tipo.charAt(0) + tipo.slice(1).toLowerCase()}
+259:               </span>
+260:             ))}
+261:           </div>
+262:         )}
+263:       </div>
+264: 
+265:       {/* Modal detalle */}
+266:       {eventoSeleccionado && (
+267:         <div
+268:           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+269:           style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
+270:           onClick={() => setEventoSeleccionado(null)}
+271:         >
+272:           <div
+273:             className="w-full max-w-lg rounded-2xl p-5 space-y-3"
+274:             style={{
+275:               background: "rgba(255,255,255,0.92)",
+276:               backdropFilter: "blur(20px)",
+277:               WebkitBackdropFilter: "blur(20px)",
+278:               border: "1px solid rgba(255,255,255,0.6)",
+279:               boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+280:             }}
+281:             onClick={(e) => e.stopPropagation()}
+282:           >
+283:             <div className="flex items-start justify-between gap-3">
+284:               <h2 className="text-base font-bold text-foreground leading-snug">
+285:                 {eventoSeleccionado.titulo}
+286:               </h2>
+287:               <button
+288:                 onClick={() => setEventoSeleccionado(null)}
+289:                 className="text-muted-foreground hover:text-foreground text-lg leading-none flex-shrink-0"
+290:               >
+291:                 ✕
+292:               </button>
+293:             </div>
+294: 
+295:             <span className={cn(
+296:               "inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full",
+297:               TIPO_BADGE[eventoSeleccionado.tipoEvento] ?? "bg-gray-100 text-gray-700"
+298:             )}>
+299:               {eventoSeleccionado.tipoEvento.charAt(0) + eventoSeleccionado.tipoEvento.slice(1).toLowerCase()}
+300:             </span>
+301: 
+302:             <div className="grid grid-cols-2 gap-3 text-sm">
+303:               <div>
+304:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Fecha</p>
+305:                 <p className="font-medium">
+306:                   {toLocalDate(eventoSeleccionado.fechaDesde).toLocaleDateString("es-AR", {
+307:                     day: "numeric", month: "long", year: "numeric",
+308:                   })}
+309:                   {eventoSeleccionado.fechaDesde !== eventoSeleccionado.fechaHasta && (
+310:                     <> — {toLocalDate(eventoSeleccionado.fechaHasta).toLocaleDateString("es-AR", {
+311:                       day: "numeric", month: "long",
+312:                     })}</>
+313:                   )}
+314:                 </p>
+315:               </div>
+316:               <div>
+317:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
+318:                 <p className="font-medium">{eventoSeleccionado.horaDesde} – {eventoSeleccionado.horaHasta}</p>
+319:               </div>
+320:               <div className="col-span-2">
+321:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Organizador</p>
+322:                 <p className="font-medium">{eventoSeleccionado.organizadorSolicitante}</p>
+323:               </div>
+324:               {eventoSeleccionado.descripcion && (
+325:                 <div className="col-span-2">
+326:                   <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Descripción</p>
+327:                   <p className="text-sm text-muted-foreground">{eventoSeleccionado.descripcion}</p>
+328:                 </div>
+329:               )}
+330:             </div>
+331:           </div>
+332:         </div>
+333:       )}
+334:     </div>
+335:   )
+336: }
 ```
 
 ## File: app/display/page.tsx
@@ -272,151 +723,6 @@ tsconfig.json
 112:     </div>
 113:   )
 114: }
-```
-
-## File: app/globals.css
-```css
-  1: @import "tailwindcss";
-  2: @import "tw-animate-css";
-  3: 
-  4: @custom-variant dark (&:is(.dark *));
-  5: 
-  6: :root {
-  7:   --background: #f0fdff;
-  8:   --foreground: #1a1a1a;
-  9:   --card: #ffffff;
- 10:   --card-foreground: #1a1a1a;
- 11:   --popover: #ffffff;
- 12:   --popover-foreground: #1a1a1a;
- 13:   --primary: #26a7fc;
- 14:   --primary-foreground: #ffffff;
- 15:   --secondary: #e6f7ff;
- 16:   --secondary-foreground: #26a7fc;
- 17:   --muted: #d0eef9;
- 18:   --muted-foreground: #666666;
- 19:   --accent: #26a7fc;
- 20:   --accent-foreground: #ffffff;
- 21:   --destructive: oklch(0.577 0.245 27.325);
- 22:   --destructive-foreground: oklch(0.98 0 0);
- 23:   --border: #c5e9f7;
- 24:   --input: #e6f7ff;
- 25:   --ring: #26a7fc;
- 26:   --chart-1: oklch(0.646 0.222 41.116);
- 27:   --chart-2: oklch(0.6 0.118 184.704);
- 28:   --chart-3: oklch(0.398 0.07 227.392);
- 29:   --chart-4: oklch(0.828 0.189 84.429);
- 30:   --chart-5: oklch(0.769 0.188 70.08);
- 31:   --radius: 0.5rem;
- 32:   --sidebar: #f0fdff;
- 33:   --sidebar-foreground: #1a1a1a;
- 34:   --sidebar-primary: #26a7fc;
- 35:   --sidebar-primary-foreground: #ffffff;
- 36:   --sidebar-accent: #e6f7ff;
- 37:   --sidebar-accent-foreground: #26a7fc;
- 38:   --sidebar-border: #c5e9f7;
- 39:   --sidebar-ring: #26a7fc;
- 40: 
- 41:   /* Estados de asientos personalizados */
- 42:   --seat-available: #4ade80;
- 43:   --seat-occupied: #ef4444;
- 44:   --seat-out-of-service: #6b7280;
- 45:   --seat-cleaning: #f59e0b;
- 46:   --seat-for-share: #3b82f6;
- 47:   --seat-shared: #8b5cf6;
- 48: }
- 49: 
- 50: .dark {
- 51:   --background: #0a3a4f;
- 52:   --foreground: #f0fdff;
- 53:   --card: #0f4d63;
- 54:   --card-foreground: #f0fdff;
- 55:   --popover: #0f4d63;
- 56:   --popover-foreground: #f0fdff;
- 57:   --primary: #26a7fc;
- 58:   --primary-foreground: #0a3a4f;
- 59:   --secondary: #1a5a7a;
- 60:   --secondary-foreground: #f0fdff;
- 61:   --muted: #2a6a8a;
- 62:   --muted-foreground: #b0d0e0;
- 63:   --accent: #26a7fc;
- 64:   --accent-foreground: #0a3a4f;
- 65:   --destructive: oklch(0.396 0.141 25.723);
- 66:   --destructive-foreground: oklch(0.637 0.237 25.331);
- 67:   --border: #1a5a7a;
- 68:   --input: #1a5a7a;
- 69:   --ring: #26a7fc;
- 70:   --chart-1: oklch(0.488 0.243 264.376);
- 71:   --chart-2: oklch(0.696 0.17 162.48);
- 72:   --chart-3: oklch(0.769 0.188 70.08);
- 73:   --chart-4: oklch(0.627 0.265 303.9);
- 74:   --chart-5: oklch(0.645 0.246 16.439);
- 75:   --sidebar: #0a3a4f;
- 76:   --sidebar-foreground: #f0fdff;
- 77:   --sidebar-primary: #26a7fc;
- 78:   --sidebar-primary-foreground: #0a3a4f;
- 79:   --sidebar-accent: #1a5a7a;
- 80:   --sidebar-accent-foreground: #f0fdff;
- 81:   --sidebar-border: #1a5a7a;
- 82:   --sidebar-ring: #26a7fc;
- 83: 
- 84:   /* Estados de asientos personalizados */
- 85:   --seat-available: #4ade80;
- 86:   --seat-occupied: #ef4444;
- 87:   --seat-out-of-service: #9ca3af;
- 88:   --seat-cleaning: #fbbf24;
- 89:   --seat-for-share: #60a5fa;
- 90:   --seat-shared: #a78bfa;
- 91: }
- 92: 
- 93: @theme inline {
- 94:   --font-sans: "Geist", "Geist Fallback";
- 95:   --font-mono: "Geist Mono", "Geist Mono Fallback";
- 96:   --color-background: var(--background);
- 97:   --color-foreground: var(--foreground);
- 98:   --color-card: var(--card);
- 99:   --color-card-foreground: var(--card-foreground);
-100:   --color-popover: var(--popover);
-101:   --color-popover-foreground: var(--popover-foreground);
-102:   --color-primary: var(--primary);
-103:   --color-primary-foreground: var(--primary-foreground);
-104:   --color-secondary: var(--secondary);
-105:   --color-secondary-foreground: var(--secondary-foreground);
-106:   --color-muted: var(--muted);
-107:   --color-muted-foreground: var(--muted-foreground);
-108:   --color-accent: var(--accent);
-109:   --color-accent-foreground: var(--accent-foreground);
-110:   --color-destructive: var(--destructive);
-111:   --color-destructive-foreground: var(--destructive-foreground);
-112:   --color-border: var(--border);
-113:   --color-input: var(--input);
-114:   --color-ring: var(--ring);
-115:   --color-chart-1: var(--chart-1);
-116:   --color-chart-2: var(--chart-2);
-117:   --color-chart-3: var(--chart-3);
-118:   --color-chart-4: var(--chart-4);
-119:   --color-chart-5: var(--chart-5);
-120:   --radius-sm: calc(var(--radius) - 4px);
-121:   --radius-md: calc(var(--radius) - 2px);
-122:   --radius-lg: var(--radius);
-123:   --radius-xl: calc(var(--radius) + 4px);
-124:   --color-sidebar: var(--sidebar);
-125:   --color-sidebar-foreground: var(--sidebar-foreground);
-126:   --color-sidebar-primary: var(--sidebar-primary);
-127:   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-128:   --color-sidebar-accent: var(--sidebar-accent);
-129:   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-130:   --color-sidebar-border: var(--sidebar-border);
-131:   --color-sidebar-ring: var(--sidebar-ring);
-132: }
-133: 
-134: @layer base {
-135:   * {
-136:     @apply border-border outline-ring/50;
-137:   }
-138:   body {
-139:     @apply bg-background text-foreground;
-140:   }
-141: }
 ```
 
 ## File: components/cors-info-banner.tsx
@@ -1422,46 +1728,6 @@ tsconfig.json
 27: next-env.d.ts
 ```
 
-## File: Dockerfile
-```dockerfile
- 1: FROM node:22-alpine AS builder
- 2: 
- 3: WORKDIR /app
- 4: 
- 5: RUN npm install -g pnpm
- 6: 
- 7: COPY package.json pnpm-lock.yaml ./
- 8: RUN pnpm install --frozen-lockfile
- 9: 
-10: COPY . .
-11: 
-12: ARG NEXT_PUBLIC_API_URL
-13: ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-14: 
-15: RUN pnpm build
-16: 
-17: FROM node:22-alpine AS runner
-18: 
-19: WORKDIR /app
-20: 
-21: ENV NODE_ENV=production
-22: ENV PORT=3551
-23: ENV HOSTNAME=0.0.0.0
-24: 
-25: RUN addgroup --system --gid 1001 nodejs
-26: RUN adduser --system --uid 1001 nextjs
-27: 
-28: COPY --from=builder /app/public ./public
-29: COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-30: COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-31: 
-32: USER nextjs
-33: 
-34: EXPOSE 3551
-35: 
-36: CMD ["node", "server.js"]
-```
-
 ## File: postcss.config.mjs
 ```javascript
 1: /** @type {import('postcss-load-config').Config} */
@@ -1474,78 +1740,215 @@ tsconfig.json
 8: export default config
 ```
 
-## File: .github/workflows/deploy.yml
-```yaml
- 1: name: CI/CD
- 2: 
- 3: on:
- 4:   push:
- 5:     branches: [main]
- 6: 
- 7: jobs:
- 8:   build-and-deploy:
- 9:     runs-on: ubuntu-latest
-10: 
-11:     steps:
-12:       - name: Checkout código
-13:         uses: actions/checkout@v4
-14: 
-15:       - name: Setup pnpm
-16:         uses: pnpm/action-setup@v3
-17:         with:
-18:           version: 9
-19: 
-20:       - name: Setup Node.js
-21:         uses: actions/setup-node@v4
-22:         with:
-23:           node-version: 22
-24:           cache: 'pnpm'
-25: 
-26:       - name: Instalar dependencias
-27:         run: pnpm install --frozen-lockfile
-28: 
-29:       - name: Setup Docker Buildx
-30:         uses: docker/setup-buildx-action@v3
-31: 
-32:       - name: Login a GitHub Container Registry
-33:         uses: docker/login-action@v3
-34:         with:
-35:           registry: ghcr.io
-36:           username: ${{ github.actor }}
-37:           password: ${{ secrets.GITHUB_TOKEN }}
-38: 
-39:       - name: Build y push imagen
-40:         uses: docker/build-push-action@v5
-41:         with:
-42:           context: .
-43:           push: true
-44:           tags: ghcr.io/${{ github.repository }}:latest
-45:           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:cache
-46:           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:cache,mode=max
-47:           build-args: |
-48:             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
-49: 
-50:       - name: Deploy en Droplet
-51:         uses: appleboy/ssh-action@v1
-52:         with:
-53:           host: ${{ secrets.DO_HOST }}
-54:           username: ${{ secrets.DO_USER }}
-55:           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
-56:           port: ${{ secrets.DO_PORT }}
-57:           script: |
-58:             docker login ghcr.io -u ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
-59:             docker pull ghcr.io/${{ github.repository }}:latest
-60:             docker stop coworking-nodo-front || true
-61:             docker rm coworking-nodo-front || true
-62:             docker run -d \
-63:               --name coworking-nodo-front \
-64:               --restart always \
-65:               --network red_interna \
-66:               -p 3551:3551 \
-67:               --cpus=0.5 \
-68:               --memory=512m \
-69:               -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \
-70:               ghcr.io/${{ github.repository }}:latest
+## File: x.sh
+```bash
+ 1: #!/bin/bash
+ 2: set -e
+ 3:  
+ 4: echo "🚀 [v4] Moviendo EVENTOS_API a variable de entorno..."
+ 5:  
+ 6: # ──────────────────────────────────────────────
+ 7: # 1. Reemplazar la constante hardcodeada en la página
+ 8: # ──────────────────────────────────────────────
+ 9: sed -i 's|const EVENTOS_API = "https://api.eventos.nodo.cc.gob.ar/api"|const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://api.eventos.nodo.cc.gob.ar/api"|' app/calendario/page.tsx
+10:  
+11: echo "✅ app/calendario/page.tsx actualizado"
+12:  
+13: # ──────────────────────────────────────────────
+14: # 2. Agregar la variable al .env.example si existe,
+15: #    o crearlo si no existe
+16: # ──────────────────────────────────────────────
+17: if [ -f ".env.example" ]; then
+18:   if ! grep -q "NEXT_PUBLIC_EVENTOS_API_URL" .env.example; then
+19:     echo "" >> .env.example
+20:     echo "# API pública de eventos NODO" >> .env.example
+21:     echo "NEXT_PUBLIC_EVENTOS_API_URL=https://api.eventos.nodo.cc.gob.ar/api" >> .env.example
+22:     echo "✅ .env.example actualizado"
+23:   else
+24:     echo "ℹ️  NEXT_PUBLIC_EVENTOS_API_URL ya está en .env.example"
+25:   fi
+26: else
+27:   cat > .env.example << 'EOF'
+28: # API pública de eventos NODO
+29: NEXT_PUBLIC_EVENTOS_API_URL=https://api.eventos.nodo.cc.gob.ar/api
+30: EOF
+31:   echo "✅ .env.example creado"
+32: fi
+33:  
+34: # ──────────────────────────────────────────────
+35: # 3. Agregar al deploy.yml como build-arg y -e en docker run
+36: # ──────────────────────────────────────────────
+37: DEPLOY=".github/workflows/deploy.yml"
+38:  
+39: if grep -q "NEXT_PUBLIC_EVENTOS_API_URL" "$DEPLOY"; then
+40:   echo "ℹ️  NEXT_PUBLIC_EVENTOS_API_URL ya está en deploy.yml"
+41: else
+42:   # build-args block
+43:   sed -i 's|            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}|            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}\n            NEXT_PUBLIC_EVENTOS_API_URL=${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}|' "$DEPLOY"
+44:  
+45:   # docker run -e block
+46:   sed -i 's|              -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \\|              -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \\\n              -e NEXT_PUBLIC_EVENTOS_API_URL="${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}" \\|' "$DEPLOY"
+47:  
+48:   echo "✅ deploy.yml actualizado con build-arg y docker run -e"
+49: fi
+50:  
+51: echo ""
+52: echo "⚠️  Acordate de agregar el secret en GitHub:"
+53: echo "   Settings → Secrets → Actions → New secret"
+54: echo "   Nombre: NEXT_PUBLIC_EVENTOS_API_URL"
+55: echo "   Valor:  https://api.eventos.nodo.cc.gob.ar/api"
+56: echo ""
+57: echo "git add . && git commit -m \"feat: EVENTOS_API como variable de entorno\" && git push origin main"
+```
+
+## File: app/globals.css
+```css
+  1: @import "tailwindcss";
+  2: @import "tw-animate-css";
+  3: 
+  4: @custom-variant dark (&:is(.dark *));
+  5: 
+  6: :root {
+  7:   --background: #f0fdff;
+  8:   --foreground: #1a1a1a;
+  9:   --card: #ffffff;
+ 10:   --card-foreground: #1a1a1a;
+ 11:   --popover: #ffffff;
+ 12:   --popover-foreground: #1a1a1a;
+ 13:   --primary: #26a7fc;
+ 14:   --primary-foreground: #ffffff;
+ 15:   --secondary: #e6f7ff;
+ 16:   --secondary-foreground: #26a7fc;
+ 17:   --muted: #d0eef9;
+ 18:   --muted-foreground: #666666;
+ 19:   --accent: #26a7fc;
+ 20:   --accent-foreground: #ffffff;
+ 21:   --destructive: oklch(0.577 0.245 27.325);
+ 22:   --destructive-foreground: oklch(0.98 0 0);
+ 23:   --border: #c5e9f7;
+ 24:   --input: #e6f7ff;
+ 25:   --ring: #26a7fc;
+ 26:   --chart-1: oklch(0.646 0.222 41.116);
+ 27:   --chart-2: oklch(0.6 0.118 184.704);
+ 28:   --chart-3: oklch(0.398 0.07 227.392);
+ 29:   --chart-4: oklch(0.828 0.189 84.429);
+ 30:   --chart-5: oklch(0.769 0.188 70.08);
+ 31:   --radius: 0.5rem;
+ 32:   --sidebar: #f0fdff;
+ 33:   --sidebar-foreground: #1a1a1a;
+ 34:   --sidebar-primary: #26a7fc;
+ 35:   --sidebar-primary-foreground: #ffffff;
+ 36:   --sidebar-accent: #e6f7ff;
+ 37:   --sidebar-accent-foreground: #26a7fc;
+ 38:   --sidebar-border: #c5e9f7;
+ 39:   --sidebar-ring: #26a7fc;
+ 40: 
+ 41:   /* Estados de asientos personalizados */
+ 42:   --seat-available: #4ade80;
+ 43:   --seat-occupied: #ef4444;
+ 44:   --seat-out-of-service: #6b7280;
+ 45:   --seat-cleaning: #f59e0b;
+ 46:   --seat-for-share: #3b82f6;
+ 47:   --seat-shared: #8b5cf6;
+ 48: }
+ 49: 
+ 50: .dark {
+ 51:   --background: #0a3a4f;
+ 52:   --foreground: #f0fdff;
+ 53:   --card: #0f4d63;
+ 54:   --card-foreground: #f0fdff;
+ 55:   --popover: #0f4d63;
+ 56:   --popover-foreground: #f0fdff;
+ 57:   --primary: #26a7fc;
+ 58:   --primary-foreground: #0a3a4f;
+ 59:   --secondary: #1a5a7a;
+ 60:   --secondary-foreground: #f0fdff;
+ 61:   --muted: #2a6a8a;
+ 62:   --muted-foreground: #b0d0e0;
+ 63:   --accent: #26a7fc;
+ 64:   --accent-foreground: #0a3a4f;
+ 65:   --destructive: oklch(0.396 0.141 25.723);
+ 66:   --destructive-foreground: oklch(0.637 0.237 25.331);
+ 67:   --border: #1a5a7a;
+ 68:   --input: #1a5a7a;
+ 69:   --ring: #26a7fc;
+ 70:   --chart-1: oklch(0.488 0.243 264.376);
+ 71:   --chart-2: oklch(0.696 0.17 162.48);
+ 72:   --chart-3: oklch(0.769 0.188 70.08);
+ 73:   --chart-4: oklch(0.627 0.265 303.9);
+ 74:   --chart-5: oklch(0.645 0.246 16.439);
+ 75:   --sidebar: #0a3a4f;
+ 76:   --sidebar-foreground: #f0fdff;
+ 77:   --sidebar-primary: #26a7fc;
+ 78:   --sidebar-primary-foreground: #0a3a4f;
+ 79:   --sidebar-accent: #1a5a7a;
+ 80:   --sidebar-accent-foreground: #f0fdff;
+ 81:   --sidebar-border: #1a5a7a;
+ 82:   --sidebar-ring: #26a7fc;
+ 83: 
+ 84:   /* Estados de asientos personalizados */
+ 85:   --seat-available: #4ade80;
+ 86:   --seat-occupied: #ef4444;
+ 87:   --seat-out-of-service: #9ca3af;
+ 88:   --seat-cleaning: #fbbf24;
+ 89:   --seat-for-share: #60a5fa;
+ 90:   --seat-shared: #a78bfa;
+ 91: }
+ 92: 
+ 93: @theme inline {
+ 94:   --font-sans: "Geist", "Geist Fallback";
+ 95:   --font-mono: "Geist Mono", "Geist Mono Fallback";
+ 96:   --color-background: var(--background);
+ 97:   --color-foreground: var(--foreground);
+ 98:   --color-card: var(--card);
+ 99:   --color-card-foreground: var(--card-foreground);
+100:   --color-popover: var(--popover);
+101:   --color-popover-foreground: var(--popover-foreground);
+102:   --color-primary: var(--primary);
+103:   --color-primary-foreground: var(--primary-foreground);
+104:   --color-secondary: var(--secondary);
+105:   --color-secondary-foreground: var(--secondary-foreground);
+106:   --color-muted: var(--muted);
+107:   --color-muted-foreground: var(--muted-foreground);
+108:   --color-accent: var(--accent);
+109:   --color-accent-foreground: var(--accent-foreground);
+110:   --color-destructive: var(--destructive);
+111:   --color-destructive-foreground: var(--destructive-foreground);
+112:   --color-border: var(--border);
+113:   --color-input: var(--input);
+114:   --color-ring: var(--ring);
+115:   --color-chart-1: var(--chart-1);
+116:   --color-chart-2: var(--chart-2);
+117:   --color-chart-3: var(--chart-3);
+118:   --color-chart-4: var(--chart-4);
+119:   --color-chart-5: var(--chart-5);
+120:   --radius-sm: calc(var(--radius) - 4px);
+121:   --radius-md: calc(var(--radius) - 2px);
+122:   --radius-lg: var(--radius);
+123:   --radius-xl: calc(var(--radius) + 4px);
+124:   --color-sidebar: var(--sidebar);
+125:   --color-sidebar-foreground: var(--sidebar-foreground);
+126:   --color-sidebar-primary: var(--sidebar-primary);
+127:   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+128:   --color-sidebar-accent: var(--sidebar-accent);
+129:   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+130:   --color-sidebar-border: var(--sidebar-border);
+131:   --color-sidebar-ring: var(--sidebar-ring);
+132: }
+133: 
+134: @layer base {
+135:   * {
+136:     @apply border-border outline-ring/50;
+137:   }
+138:   body {
+139:     @apply bg-background text-foreground;
+140:   }
+141: }
+142: 
+143: /* ── Bottom Navbar spacing ── */
+144: body {
+145:   padding-bottom: env(safe-area-inset-bottom, 0px);
+146: }
 ```
 
 ## File: components/admin-panel.tsx
@@ -2523,6 +2926,49 @@ tsconfig.json
 21: }
 ```
 
+## File: Dockerfile
+```dockerfile
+ 1: FROM node:22-alpine AS builder
+ 2: 
+ 3: WORKDIR /app
+ 4: 
+ 5: RUN npm install -g pnpm
+ 6: 
+ 7: COPY package.json pnpm-lock.yaml ./
+ 8: RUN pnpm install --frozen-lockfile
+ 9: 
+10: COPY . .
+11: 
+12: ARG NEXT_PUBLIC_API_URL
+13: ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+14: 
+15: ARG NEXT_PUBLIC_EVENTOS_API_URL
+16: ENV NEXT_PUBLIC_EVENTOS_API_URL=$NEXT_PUBLIC_EVENTOS_API_URL
+17: 
+18: RUN pnpm build
+19: 
+20: FROM node:22-alpine AS runner
+21: 
+22: WORKDIR /app
+23: 
+24: ENV NODE_ENV=production
+25: ENV PORT=3551
+26: ENV HOSTNAME=0.0.0.0
+27: 
+28: RUN addgroup --system --gid 1001 nodejs
+29: RUN adduser --system --uid 1001 nextjs
+30: 
+31: COPY --from=builder /app/public ./public
+32: COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+33: COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+34: 
+35: USER nextjs
+36: 
+37: EXPOSE 3551
+38: 
+39: CMD ["node", "server.js"]
+```
+
 ## File: tsconfig.json
 ```json
  1: {
@@ -2566,6 +3012,84 @@ tsconfig.json
 39:     "node_modules"
 40:   ]
 41: }
+```
+
+## File: .github/workflows/deploy.yml
+```yaml
+ 1: name: CI/CD
+ 2: 
+ 3: on:
+ 4:   push:
+ 5:     branches: [main]
+ 6: 
+ 7: jobs:
+ 8:   build-and-deploy:
+ 9:     runs-on: ubuntu-latest
+10: 
+11:     steps:
+12:       - name: Checkout código
+13:         uses: actions/checkout@v4
+14: 
+15:       # ✅ pnpm PRIMERO, antes del cache de Node
+16:       - name: Setup pnpm
+17:         uses: pnpm/action-setup@v4
+18:         with:
+19:           version: 9
+20: 
+21:       # ✅ Node DESPUÉS de pnpm (así el cache funciona correctamente)
+22:       - name: Setup Node.js
+23:         uses: actions/setup-node@v4
+24:         with:
+25:           node-version: 22
+26:           cache: 'pnpm'
+27: 
+28:       - name: Instalar dependencias
+29:         run: pnpm install --frozen-lockfile
+30: 
+31:       - name: Setup Docker Buildx
+32:         uses: docker/setup-buildx-action@v3
+33: 
+34:       - name: Login a GitHub Container Registry
+35:         uses: docker/login-action@v3
+36:         with:
+37:           registry: ghcr.io
+38:           username: ${{ github.actor }}
+39:           password: ${{ secrets.GITHUB_TOKEN }}
+40: 
+41:       - name: Build y push imagen
+42:         uses: docker/build-push-action@v6
+43:         with:
+44:           context: .
+45:           push: true
+46:           tags: ghcr.io/${{ github.repository }}:latest
+47:           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:cache
+48:           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:cache,mode=max
+49:           build-args: |
+50:             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+51:             NEXT_PUBLIC_EVENTOS_API_URL=${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}
+52: 
+53:       - name: Deploy en Droplet
+54:         uses: appleboy/ssh-action@v1
+55:         with:
+56:           host: ${{ secrets.DO_HOST }}
+57:           username: ${{ secrets.DO_USER }}
+58:           key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+59:           port: ${{ secrets.DO_PORT }}
+60:           script: |
+61:             docker login ghcr.io -u ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
+62:             docker pull ghcr.io/${{ github.repository }}:latest
+63:             docker stop coworking-nodo-front || true
+64:             docker rm coworking-nodo-front || true
+65:             docker run -d \
+66:               --name coworking-nodo-front \
+67:               --restart always \
+68:               --network red_interna \
+69:               -p 3551:3551 \
+70:               --cpus=0.5 \
+71:               --memory=512m \
+72:               -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \
+73:               -e NEXT_PUBLIC_EVENTOS_API_URL="${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}" \
+74:               ghcr.io/${{ github.repository }}:latest
 ```
 
 ## File: app/login/page.tsx
@@ -3038,95 +3562,6 @@ tsconfig.json
 38: export default nextConfig
 ```
 
-## File: app/layout.tsx
-```typescript
- 1: import type React from "react"
- 2: import type { Metadata, Viewport } from "next"
- 3: import { Geist, Geist_Mono } from "next/font/google"
- 4: import { Analytics } from "@vercel/analytics/next"
- 5: import { AuthProvider } from "@/contexts/auth-context"
- 6: import { Toaster } from "@/components/ui/toaster"
- 7: import "./globals.css"
- 8: 
- 9: const _geist = Geist({ subsets: ["latin"] })
-10: const _geistMono = Geist_Mono({ subsets: ["latin"] })
-11: 
-12: export const metadata: Metadata = {
-13:   title: "NODO - Sistema de Gestión de Asientos",
-14:   description: "Gestión de asientos en tiempo real para espacios de coworking NODO",
-15:   manifest: "/manifest.json",
-16:   appleWebApp: {
-17:     capable: true,
-18:     statusBarStyle: "black-translucent",
-19:     title: "NODO",
-20:   },
-21:   formatDetection: {
-22:     telephone: false,
-23:   },
-24:   icons: {
-25:     icon: "/nodo-logo.png",
-26:     apple: "/nodo-logo.png",
-27:   },
-28:     generator: 'v0.app'
-29: }
-30: 
-31: export const viewport: Viewport = {
-32:   width: "device-width",
-33:   initialScale: 1,
-34:   minimumScale: 1,
-35:   maximumScale: 5,
-36:   userScalable: true,
-37:   viewportFit: "cover",
-38:   themeColor: [
-39:     { media: "(prefers-color-scheme: light)", color: "#26a7fc" },
-40:     { media: "(prefers-color-scheme: dark)", color: "#26a7fc" },
-41:   ],
-42: }
-43: 
-44: export default function RootLayout({
-45:   children,
-46: }: Readonly<{
-47:   children: React.ReactNode
-48: }>) {
-49:   return (
-50:     <html lang="es">
-51:       <head>
-52:         <meta name="mobile-web-app-capable" content="yes" />
-53:         <meta name="apple-mobile-web-app-capable" content="yes" />
-54:         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-55:         <meta name="apple-mobile-web-app-title" content="NODO" />
-56:         <link rel="manifest" href="/manifest.json" />
-57:         <link rel="icon" href="/nodo-logo.png" />
-58:         <link rel="apple-touch-icon" href="/nodo-logo.png" />
-59:         <meta name="theme-color" content="#26a7fc" />
-60:       </head>
-61:       <body className={`font-sans antialiased`}>
-62:         <AuthProvider>
-63:           {children}
-64:           <Toaster />
-65:         </AuthProvider>
-66:         <Analytics />
-67:         <script
-68:           dangerouslySetInnerHTML={{
-69:             __html: `
-70:               if ('serviceWorker' in navigator) {
-71:                 window.addEventListener('load', () => {
-72:                   navigator.serviceWorker.register('/sw.js').then((registration) => {
-73:                     console.log('[PWA] Service Worker registered:', registration);
-74:                   }).catch((error) => {
-75:                     console.log('[PWA] Service Worker registration failed:', error);
-76:                   });
-77:                 });
-78:               }
-79:             `,
-80:           }}
-81:         />
-82:       </body>
-83:     </html>
-84:   )
-85: }
-```
-
 ## File: package.json
 ```json
  1: {
@@ -3202,4 +3637,95 @@ tsconfig.json
 71:     "typescript": "^5"
 72:   }
 73: }
+```
+
+## File: app/layout.tsx
+```typescript
+ 1: import type React from "react"
+ 2: import type { Metadata, Viewport } from "next"
+ 3: import { Geist, Geist_Mono } from "next/font/google"
+ 4: import { Analytics } from "@vercel/analytics/next"
+ 5: import { AuthProvider } from "@/contexts/auth-context"
+ 6: import { BottomNavbar } from "@/components/bottom-navbar"
+ 7: import { Toaster } from "@/components/ui/toaster"
+ 8: import "./globals.css"
+ 9: 
+10: const _geist = Geist({ subsets: ["latin"] })
+11: const _geistMono = Geist_Mono({ subsets: ["latin"] })
+12: 
+13: export const metadata: Metadata = {
+14:   title: "NODO - Sistema de Gestión de Asientos",
+15:   description: "Gestión de asientos en tiempo real para espacios de coworking NODO",
+16:   manifest: "/manifest.json",
+17:   appleWebApp: {
+18:     capable: true,
+19:     statusBarStyle: "black-translucent",
+20:     title: "NODO",
+21:   },
+22:   formatDetection: {
+23:     telephone: false,
+24:   },
+25:   icons: {
+26:     icon: "/nodo-logo.png",
+27:     apple: "/nodo-logo.png",
+28:   },
+29:     generator: 'v0.app'
+30: }
+31: 
+32: export const viewport: Viewport = {
+33:   width: "device-width",
+34:   initialScale: 1,
+35:   minimumScale: 1,
+36:   maximumScale: 5,
+37:   userScalable: true,
+38:   viewportFit: "cover",
+39:   themeColor: [
+40:     { media: "(prefers-color-scheme: light)", color: "#26a7fc" },
+41:     { media: "(prefers-color-scheme: dark)", color: "#26a7fc" },
+42:   ],
+43: }
+44: 
+45: export default function RootLayout({
+46:   children,
+47: }: Readonly<{
+48:   children: React.ReactNode
+49: }>) {
+50:   return (
+51:     <html lang="es">
+52:       <head>
+53:         <meta name="mobile-web-app-capable" content="yes" />
+54:         <meta name="apple-mobile-web-app-capable" content="yes" />
+55:         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+56:         <meta name="apple-mobile-web-app-title" content="NODO" />
+57:         <link rel="manifest" href="/manifest.json" />
+58:         <link rel="icon" href="/nodo-logo.png" />
+59:         <link rel="apple-touch-icon" href="/nodo-logo.png" />
+60:         <meta name="theme-color" content="#26a7fc" />
+61:       </head>
+62:       <body className={`font-sans antialiased`}>
+63:         <AuthProvider>
+64:           {children}
+65:           <Toaster />
+66:           <BottomNavbar />
+67:         </AuthProvider>
+68:         <Analytics />
+69:         <script
+70:           dangerouslySetInnerHTML={{
+71:             __html: `
+72:               if ('serviceWorker' in navigator) {
+73:                 window.addEventListener('load', () => {
+74:                   navigator.serviceWorker.register('/sw.js').then((registration) => {
+75:                     console.log('[PWA] Service Worker registered:', registration);
+76:                   }).catch((error) => {
+77:                     console.log('[PWA] Service Worker registration failed:', error);
+78:                   });
+79:                 });
+80:               }
+81:             `,
+82:           }}
+83:         />
+84:       </body>
+85:     </html>
+86:   )
+87: }
 ```
