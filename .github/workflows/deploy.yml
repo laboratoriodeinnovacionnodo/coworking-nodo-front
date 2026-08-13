@@ -12,11 +12,13 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
 
+      # ✅ pnpm PRIMERO, antes del cache de Node
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
           version: 9
 
+      # ✅ Node DESPUÉS de pnpm (así el cache funciona correctamente)
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -37,7 +39,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build y push imagen
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true
@@ -46,6 +48,7 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:cache,mode=max
           build-args: |
             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_EVENTOS_API_URL=${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}
 
       - name: Deploy en Droplet
         uses: appleboy/ssh-action@v1
@@ -67,4 +70,5 @@ jobs:
               --cpus=0.5 \
               --memory=512m \
               -e NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}" \
+              -e NEXT_PUBLIC_EVENTOS_API_URL="${{ secrets.NEXT_PUBLIC_EVENTOS_API_URL }}" \
               ghcr.io/${{ github.repository }}:latest

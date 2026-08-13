@@ -22,7 +22,7 @@ interface Evento {
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 
-const EVENTOS_API = "https://eventos.nodo.cc.gob.ar/api"
+const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
 
 const TIPO_COLORES: Record<string, string> = {
   REUNION:          "bg-blue-50   border-l-[3px] border-blue-400   text-blue-800",
