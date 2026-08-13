@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { AuthProvider } from "@/contexts/auth-context"
+import { BottomNavbar } from "@/components/bottom-navbar"
 import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
 
@@ -62,6 +63,7 @@ export default function RootLayout({
         <AuthProvider>
           {children}
           <Toaster />
+          <BottomNavbar />
         </AuthProvider>
         <Analytics />
         <script

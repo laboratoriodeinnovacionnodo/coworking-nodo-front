@@ -139,3 +139,8 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Bottom Navbar spacing ── */
+body {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
