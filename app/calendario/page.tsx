@@ -1,335 +1,493 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { ChevronLeft, ChevronRight, Loader2, CalendarDays } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Calendar,
+  MapPin,
+  Users,
+  FileText,
+  ExternalLink,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 
-// ── Tipos ────────────────────────────────────────────────────────────────────
+// ── Tipos (alineados con el backend de eventos / calendario-back) ──────────
+
+type EventType =
+  | "PENDIENTE"
+  | "EN_CURSO"
+  | "FINALIZADO"
+  | "CANCELADO"
+  | "MASIVO"
+  | "ESCOLAR"
 
 interface Evento {
-  id: number
+  id: string
   titulo: string
+  descripcion?: string
+  informacion?: string
   fechaDesde: string
   fechaHasta: string
   horaDesde: string
   horaHasta: string
-  tipoEvento: string
-  areas: string[]
-  organizadorSolicitante: string
-  descripcion?: string
-  estado: string
+  tipoEvento: EventType
+  areas?: string[]
+  organizadorSolicitante?: string
+  coberturaPrensaBol?: boolean
+  convocatoria?: number
+  anexos?: string[]
+  solicitudes?: string[]
 }
 
-// ── Constantes ───────────────────────────────────────────────────────────────
+// ── Constantes de estilo (mismas que calendario-front) ──────────────────────
 
 const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
 
-const TIPO_COLORES: Record<string, string> = {
-  REUNION:          "bg-blue-50   border-l-[3px] border-blue-400   text-blue-800",
-  CAPACITACION:     "bg-green-50  border-l-[3px] border-green-500  text-green-800",
-  EVENTO:           "bg-purple-50 border-l-[3px] border-purple-400 text-purple-800",
-  CONFERENCIA:      "bg-orange-50 border-l-[3px] border-orange-400 text-orange-800",
-  TALLER:           "bg-pink-50   border-l-[3px] border-pink-400   text-pink-800",
-  EXPOSICION:       "bg-yellow-50 border-l-[3px] border-yellow-500 text-yellow-800",
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  PENDIENTE: "bg-orange-500",
+  EN_CURSO: "bg-blue-500",
+  FINALIZADO: "bg-green-500",
+  CANCELADO: "bg-red-500",
+  MASIVO: "bg-purple-500",
+  ESCOLAR: "bg-pink-500",
 }
 
-const TIPO_BADGE: Record<string, string> = {
-  REUNION:      "bg-blue-100   text-blue-800",
-  CAPACITACION: "bg-green-100  text-green-800",
-  EVENTO:       "bg-purple-100 text-purple-800",
-  CONFERENCIA:  "bg-orange-100 text-orange-800",
-  TALLER:       "bg-pink-100   text-pink-800",
-  EXPOSICION:   "bg-yellow-100 text-yellow-800",
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  PENDIENTE: "Pendiente",
+  EN_CURSO: "En Curso",
+  FINALIZADO: "Finalizado",
+  CANCELADO: "Cancelado",
+  MASIVO: "Masivo",
+  ESCOLAR: "Escolar",
 }
 
-const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
-const MESES = [
-  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
-  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
-]
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function toLocalDate(iso: string) {
-  // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
-  const datePart = iso.split("T")[0]
-  const [y, m, d] = datePart.split("-").map(Number)
-  return new Date(y, m - 1, d)
+const AREA_LABELS: Record<string, string> = {
+  COWORKING: "Coworking",
+  AUDITORIO: "Auditorio",
+  LABORATORIO: "Laboratorio",
+  AULA_1: "Aula 1",
+  AULA_2: "Aula 2",
+  AULA_3: "Aula 3",
+  AULA_4: "Aula 4",
+  AULA_5: "Aula 5",
+  AULA_6: "Aula 6",
+  RECEPCION_ESTE: "Recepción Este",
+  RECEPCION_OESTE: "Recepción Oeste",
+  EXPLANADA: "Explanada",
+  PLAZA: "Plaza",
+  SALA_REUNIONES: "Sala de Reuniones",
 }
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() &&
-         a.getMonth()    === b.getMonth()    &&
-         a.getDate()     === b.getDate()
+const AREA_COLORS: Record<string, string> = {
+  COWORKING: "bg-teal-500",
+  AUDITORIO: "bg-red-400",
+  LABORATORIO: "bg-blue-600",
+  AULA_1: "bg-yellow-600",
+  AULA_2: "bg-yellow-500",
+  AULA_3: "bg-amber-600",
+  AULA_4: "bg-amber-500",
+  AULA_5: "bg-orange-600",
+  AULA_6: "bg-orange-500",
+  RECEPCION_ESTE: "bg-cyan-500",
+  RECEPCION_OESTE: "bg-cyan-600",
+  EXPLANADA: "bg-lime-600",
+  PLAZA: "bg-lime-500",
+  SALA_REUNIONES: "bg-indigo-500",
 }
 
-function eventoCaeEnDia(ev: Evento, dia: Date) {
-  const desde = toLocalDate(ev.fechaDesde)
-  const hasta  = toLocalDate(ev.fechaHasta)
-  return dia >= desde && dia <= hasta
+const EVENT_PILL_STYLES: Record<string, string> = {
+  PENDIENTE: "bg-amber-50 border-l-[3px] border-amber-500 text-amber-900 hover:bg-amber-100",
+  EN_CURSO: "bg-blue-50  border-l-[3px] border-blue-500  text-blue-900  hover:bg-blue-100",
+  FINALIZADO: "bg-emerald-50 border-l-[3px] border-emerald-500 text-emerald-900 hover:bg-emerald-100",
+  CANCELADO: "bg-red-50   border-l-[3px] border-red-500   text-red-900   hover:bg-red-100",
+  MASIVO: "bg-purple-50 border-l-[3px] border-purple-500 text-purple-900 hover:bg-purple-100",
+  ESCOLAR: "bg-pink-50  border-l-[3px] border-pink-500  text-pink-900  hover:bg-pink-100",
 }
 
-// ── Componente ───────────────────────────────────────────────────────────────
+const EVENT_DOT_COLORS: Record<string, string> = {
+  PENDIENTE: "bg-amber-500",
+  EN_CURSO: "bg-blue-500",
+  FINALIZADO: "bg-emerald-500",
+  CANCELADO: "bg-red-500",
+  MASIVO: "bg-purple-500",
+  ESCOLAR: "bg-pink-500",
+}
+
+// ── Helpers de fecha ─────────────────────────────────────────────────────────
+
+function parseLocalDate(dateString: string): Date {
+  const datePart = dateString.split("T")[0]
+  const [year, month, day] = datePart.split("-").map(Number)
+  return new Date(year, month - 1, day)
+}
+
+function formatDate(dateString: string, options?: Intl.DateTimeFormatOptions): string {
+  const date = parseLocalDate(dateString)
+  return date.toLocaleDateString("es-ES", options ?? { day: "2-digit", month: "short", year: "numeric" })
+}
+
+// ── Página ───────────────────────────────────────────────────────────────────
 
 export default function CalendarioPage() {
-  const hoy = new Date()
-  const [mes, setMes]       = useState(hoy.getMonth())
-  const [anio, setAnio]     = useState(hoy.getFullYear())
-  const [eventos, setEventos]         = useState<Evento[]>([])
-  const [loading, setLoading]         = useState(true)
-  const [error, setError]             = useState<string | null>(null)
-  const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
+  const [events, setEvents] = useState<Evento[]>([])
+  const [loading, setLoading] = useState(true)
+  const [currentDate, setCurrentDate] = useState(new Date())
+  const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null)
 
-  // Fetch eventos del mes visible
-  const fetchEventos = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(
-        `${EVENTOS_API}/calendar?year=${anio}&month=${mes + 1}`,
-        { cache: "no-store" }
-      )
-      if (!res.ok) throw new Error(`Error ${res.status}`)
-      const data = await res.json()
-      // El endpoint /calendar devuelve { events: Evento[], ... }, no un array directo
-      setEventos(data.events.filter((e: Evento) => e.tipoEvento !== "CANCELADO"))
-    } catch (err) {
-      setError("No se pudieron cargar los eventos")
-    } finally {
-      setLoading(false)
-    }
-  }, [mes, anio])
+  const loadEvents = useCallback(
+    async (silencioso = false) => {
+      if (!silencioso) setLoading(true)
+      try {
+        const year = currentDate.getFullYear()
+        const month = currentDate.getMonth() + 1
+        const res = await fetch(`${EVENTOS_API}/calendar?year=${year}&month=${month}`, { cache: "no-store" })
+        if (!res.ok) throw new Error(`Error ${res.status}`)
+        const data = await res.json()
+        setEvents(data.events ?? [])
+      } catch (err) {
+        if (!silencioso) console.error("Error cargando eventos:", err)
+      } finally {
+        if (!silencioso) setLoading(false)
+      }
+    },
+    [currentDate],
+  )
 
-  useEffect(() => { fetchEventos() }, [fetchEventos])
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
 
-  // Construir grilla
-  const primerDia  = new Date(anio, mes, 1).getDay()
-  const diasEnMes  = new Date(anio, mes + 1, 0).getDate()
-  const celdas     = primerDia + diasEnMes
-  const totalFilas = Math.ceil(celdas / 7)
+  // Polling silencioso cada 5 min, igual que el calendario público
+  useEffect(() => {
+    const intervalo = setInterval(() => loadEvents(true), 5 * 60 * 1000)
+    return () => clearInterval(intervalo)
+  }, [loadEvents])
 
-  const anterior = () => {
-    if (mes === 0) { setMes(11); setAnio(a => a - 1) }
-    else setMes(m => m - 1)
+  const getDaysInMonth = () => {
+    const year = currentDate.getFullYear()
+    const month = currentDate.getMonth()
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+    const daysInMonth = lastDay.getDate()
+    const startingDayOfWeek = firstDay.getDay()
+
+    const days: (number | null)[] = []
+    for (let i = 0; i < startingDayOfWeek; i++) days.push(null)
+    for (let i = 1; i <= daysInMonth; i++) days.push(i)
+    return days
   }
-  const siguiente = () => {
-    if (mes === 11) { setMes(0); setAnio(a => a + 1) }
-    else setMes(m => m + 1)
+
+  const getEventsForDay = (day: number) => {
+    const year = currentDate.getFullYear()
+    const month = currentDate.getMonth()
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+
+    return events
+      .filter((event) => {
+        const eventStart = event.fechaDesde.split("T")[0]
+        const eventEnd = event.fechaHasta.split("T")[0]
+        return dateStr >= eventStart && dateStr <= eventEnd
+      })
+      .sort((a, b) => a.horaDesde.localeCompare(b.horaDesde))
   }
+
+  const previousMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))
+  const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))
+  const goToToday = () => setCurrentDate(new Date())
+
+  const days = getDaysInMonth()
+  const monthName = currentDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" })
+  const presentTypes = [...new Set(events.map((e) => e.tipoEvento))]
 
   return (
-    <div className="min-h-screen pb-28" style={{ background: "var(--background)" }}>
-
-      {/* Header */}
-      <div
-        className="sticky top-0 z-30 px-4 py-4 border-b border-white/40"
-        style={{
-          background: "rgba(240,253,255,0.80)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-        }}
-      >
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[#26a7fc]/10 flex items-center justify-center">
-              <CalendarDays className="w-4 h-4 text-[#26a7fc]" />
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-foreground leading-none">Agenda NODO</h1>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Eventos públicos</p>
-            </div>
+    <div className="min-h-screen bg-background p-4 md:p-8 pb-28">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground capitalize">
+              Calendario <span className="text-primary">{monthName}</span>
+            </h1>
+            <p className="text-muted-foreground mt-1">Vista de eventos</p>
           </div>
-
-          {/* Navegador de mes */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={anterior}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-semibold min-w-[120px] text-center">
-              {MESES[mes]} {anio}
-            </span>
-            <button
-              onClick={siguiente}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button className="bg-white" onClick={previousMonth} variant="outline" size="icon">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button className="bg-white" onClick={goToToday} variant="outline">
+              Hoy
+            </Button>
+            <Button className="bg-white" onClick={nextMonth} variant="outline" size="icon">
+              <ChevronRight className="h-4 w-4" />
+            </Button>
           </div>
         </div>
-      </div>
 
-      <div className="max-w-3xl mx-auto px-2 pt-4">
-
-        {/* Días de semana */}
-        <div className="grid grid-cols-7 mb-1">
-          {DIAS_SEMANA.map((d) => (
-            <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground py-1">
-              {d}
-            </div>
-          ))}
-        </div>
-
-        {/* Loading */}
-        {loading && (
-          <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
-            <Loader2 className="w-5 h-5 animate-spin text-[#26a7fc]" />
-            <span className="text-sm">Cargando eventos...</span>
-          </div>
-        )}
-
-        {/* Error */}
-        {error && !loading && (
-          <div className="text-center py-12 text-sm text-muted-foreground">
-            {error}
-          </div>
-        )}
-
-        {/* Grilla */}
-        {!loading && !error && (
-          <div className="grid grid-cols-7 gap-px bg-border rounded-xl overflow-hidden border border-border">
-            {Array.from({ length: totalFilas * 7 }).map((_, idx) => {
-              const numeroDia = idx - primerDia + 1
-              const esValido  = numeroDia >= 1 && numeroDia <= diasEnMes
-              const diaFecha  = esValido ? new Date(anio, mes, numeroDia) : null
-              const esHoy     = diaFecha ? isSameDay(diaFecha, hoy) : false
-              const eventosDia = diaFecha
-                ? eventos.filter((e) => eventoCaeEnDia(e, diaFecha))
-                : []
-
-              return (
-                <div
-                  key={idx}
-                  className={cn(
-                    "min-h-[80px] p-1 bg-card flex flex-col",
-                    !esValido && "bg-muted/30"
-                  )}
-                >
-                  {esValido && (
-                    <>
-                      {/* Número del día */}
-                      <span
-                        className={cn(
-                          "text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 self-end",
-                          esHoy
-                            ? "bg-[#26a7fc] text-white font-bold"
-                            : "text-foreground"
-                        )}
-                      >
-                        {numeroDia}
-                      </span>
-
-                      {/* Pills de eventos */}
-                      <div className="flex flex-col gap-0.5 overflow-hidden">
-                        {eventosDia.slice(0, 2).map((ev) => (
-                          <button
-                            key={ev.id}
-                            onClick={() => setEventoSeleccionado(ev)}
-                            className={cn(
-                              "w-full text-left text-[9px] md:text-[10px] px-1 py-0.5 rounded-sm font-medium truncate transition-colors",
-                              TIPO_COLORES[ev.tipoEvento] ?? "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800"
-                            )}
-                          >
-                            {ev.horaDesde} {ev.titulo}
-                          </button>
-                        ))}
-                        {eventosDia.length > 2 && (
-                          <span className="text-[9px] text-muted-foreground pl-1">
-                            +{eventosDia.length - 2} más
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Leyenda */}
-        {!loading && !error && (
-          <div className="flex flex-wrap gap-2 mt-4 px-1">
-            {Object.entries(TIPO_BADGE).map(([tipo, cls]) => (
-              <span key={tipo} className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", cls)}>
-                {tipo.charAt(0) + tipo.slice(1).toLowerCase()}
-              </span>
+        {/* Leyenda dinámica */}
+        {presentTypes.length > 0 && (
+          <div className="flex flex-wrap gap-3 mb-4">
+            {presentTypes.map((type) => (
+              <div key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className={`w-2.5 h-2.5 rounded-full ${EVENT_DOT_COLORS[type] ?? "bg-gray-400"}`} />
+                {EVENT_TYPE_LABELS[type] ?? type}
+              </div>
             ))}
           </div>
         )}
-      </div>
 
-      {/* Modal detalle */}
-      {eventoSeleccionado && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
-          onClick={() => setEventoSeleccionado(null)}
-        >
-          <div
-            className="w-full max-w-lg rounded-2xl p-5 space-y-3"
-            style={{
-              background: "rgba(255,255,255,0.92)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
-              border: "1px solid rgba(255,255,255,0.6)",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-base font-bold text-foreground leading-snug">
-                {eventoSeleccionado.titulo}
-              </h2>
-              <button
-                onClick={() => setEventoSeleccionado(null)}
-                className="text-muted-foreground hover:text-foreground text-lg leading-none flex-shrink-0"
-              >
-                ✕
-              </button>
-            </div>
-
-            <span className={cn(
-              "inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full",
-              TIPO_BADGE[eventoSeleccionado.tipoEvento] ?? "bg-gray-100 text-gray-700"
-            )}>
-              {eventoSeleccionado.tipoEvento.charAt(0) + eventoSeleccionado.tipoEvento.slice(1).toLowerCase()}
-            </span>
-
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Fecha</p>
-                <p className="font-medium">
-                  {toLocalDate(eventoSeleccionado.fechaDesde).toLocaleDateString("es-AR", {
-                    day: "numeric", month: "long", year: "numeric",
-                  })}
-                  {eventoSeleccionado.fechaDesde !== eventoSeleccionado.fechaHasta && (
-                    <> — {toLocalDate(eventoSeleccionado.fechaHasta).toLocaleDateString("es-AR", {
-                      day: "numeric", month: "long",
-                    })}</>
-                  )}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
-                <p className="font-medium">{eventoSeleccionado.horaDesde} – {eventoSeleccionado.horaHasta}</p>
-              </div>
-              <div className="col-span-2">
-                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Organizador</p>
-                <p className="font-medium">{eventoSeleccionado.organizadorSolicitante}</p>
-              </div>
-              {eventoSeleccionado.descripcion && (
-                <div className="col-span-2">
-                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Descripción</p>
-                  <p className="text-sm text-muted-foreground">{eventoSeleccionado.descripcion}</p>
-                </div>
-              )}
-            </div>
+        {loading ? (
+          <div className="flex items-center justify-center h-64 gap-2 text-muted-foreground">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span className="text-sm">Cargando eventos...</span>
           </div>
-        </div>
-      )}
+        ) : (
+          <Card className="p-4">
+            {/* Días de la semana */}
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => (
+                <div
+                  key={day}
+                  className="text-center font-semibold text-xs text-muted-foreground p-2 uppercase tracking-wide"
+                >
+                  {day}
+                </div>
+              ))}
+            </div>
+
+            {/* Grilla de días */}
+            <div className="grid grid-cols-7 gap-1">
+              {days.map((day, index) => {
+                if (day === null) {
+                  return <div key={`empty-${index}`} className="min-h-[90px] md:min-h-[110px]" />
+                }
+
+                const dayEvents = getEventsForDay(day)
+                const isToday =
+                  day === new Date().getDate() &&
+                  currentDate.getMonth() === new Date().getMonth() &&
+                  currentDate.getFullYear() === new Date().getFullYear()
+
+                return (
+                  <div
+                    key={day}
+                    className={cn(
+                      "min-h-[90px] md:min-h-[110px] border rounded-lg p-1.5 transition-colors",
+                      isToday
+                        ? "bg-primary/5 border-primary ring-1 ring-primary/30"
+                        : "bg-card border-border hover:bg-muted/30",
+                    )}
+                  >
+                    {/* Número del día */}
+                    <div className="flex items-center justify-between mb-1">
+                      <span
+                        className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+                          isToday ? "bg-primary text-primary-foreground" : "text-foreground",
+                        )}
+                      >
+                        {day}
+                      </span>
+                      {dayEvents.length > 4 && (
+                        <span className="text-[10px] text-muted-foreground font-medium">{dayEvents.length}</span>
+                      )}
+                    </div>
+
+                    {/* Eventos del día */}
+                    <div className="space-y-0.5 overflow-y-auto max-h-[120px] md:max-h-[160px] scrollbar-thin">
+                      {dayEvents.map((event) => {
+                        const pillStyle =
+                          EVENT_PILL_STYLES[event.tipoEvento] ??
+                          "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800 hover:bg-gray-100"
+                        return (
+                          <button
+                            key={event.id}
+                            onClick={() => setSelectedEvent(event)}
+                            className={cn(
+                              "w-full text-left text-[10px] md:text-xs px-1.5 py-0.5 rounded-sm font-medium truncate transition-colors",
+                              pillStyle,
+                            )}
+                            title={`${event.titulo} — ${event.horaDesde} a ${event.horaHasta}`}
+                          >
+                            <span className="font-semibold">{event.horaDesde}</span> <span>{event.titulo}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )}
+
+        {/* Modal de detalle del evento */}
+        <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            {selectedEvent && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-2xl">{selectedEvent.titulo}</DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-4">
+                  {/* Badges de tipo y áreas */}
+                  <div className="flex flex-wrap gap-2">
+                    <Badge className={`${EVENT_TYPE_COLORS[selectedEvent.tipoEvento] ?? "bg-gray-500"} text-white border-0`}>
+                      {EVENT_TYPE_LABELS[selectedEvent.tipoEvento] ?? selectedEvent.tipoEvento}
+                    </Badge>
+                    {selectedEvent.areas && selectedEvent.areas.length > 0 ? (
+                      selectedEvent.areas.map((area) => (
+                        <Badge key={area} className={`${AREA_COLORS[area] ?? "bg-gray-500"} text-white border-0`}>
+                          <MapPin className="h-3 w-3 mr-1" />
+                          {AREA_LABELS[area] ?? area}
+                        </Badge>
+                      ))
+                    ) : (
+                      <Badge className="bg-gray-500 text-white border-0">
+                        <MapPin className="h-3 w-3 mr-1" />
+                        Sin área asignada
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedEvent.descripcion && (
+                    <div>
+                      <h3 className="font-semibold mb-1">Descripción</h3>
+                      <p className="text-sm text-muted-foreground">{selectedEvent.descripcion}</p>
+                    </div>
+                  )}
+
+                  {selectedEvent.informacion && (
+                    <div>
+                      <h3 className="font-semibold mb-1">Requerimientos</h3>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                        {selectedEvent.informacion}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <h3 className="font-semibold mb-1 flex items-center gap-2">
+                        <Calendar className="h-4 w-4" />
+                        Fechas
+                      </h3>
+                      <p className="text-sm text-muted-foreground capitalize">
+                        {formatDate(selectedEvent.fechaDesde, {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}
+                      </p>
+                      {selectedEvent.fechaDesde !== selectedEvent.fechaHasta && (
+                        <p className="text-sm text-muted-foreground capitalize">
+                          hasta{" "}
+                          {formatDate(selectedEvent.fechaHasta, {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long",
+                            year: "numeric",
+                          })}
+                        </p>
+                      )}
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {selectedEvent.horaDesde} - {selectedEvent.horaHasta}
+                      </p>
+                    </div>
+
+                    {selectedEvent.organizadorSolicitante && (
+                      <div>
+                        <h3 className="font-semibold mb-1">Organizador</h3>
+                        <p className="text-sm text-muted-foreground">{selectedEvent.organizadorSolicitante}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {(selectedEvent.convocatoria !== undefined || selectedEvent.coberturaPrensaBol !== undefined) && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {selectedEvent.convocatoria !== undefined && (
+                        <div>
+                          <h3 className="font-semibold mb-1 flex items-center gap-2">
+                            <Users className="h-4 w-4" />
+                            Convocatoria
+                          </h3>
+                          <p className="text-sm text-muted-foreground">{selectedEvent.convocatoria} asistentes</p>
+                        </div>
+                      )}
+                      {selectedEvent.coberturaPrensaBol !== undefined && (
+                        <div>
+                          <h3 className="font-semibold mb-1">Cobertura de Prensa</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {selectedEvent.coberturaPrensaBol ? "Sí" : "No"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedEvent.anexos && selectedEvent.anexos.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-2 flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Anexos
+                      </h3>
+                      <div className="space-y-2">
+                        {selectedEvent.anexos.map((anexo, index) => (
+                          <a
+                            key={index}
+                            href={anexo}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Anexo {index + 1}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedEvent.solicitudes && selectedEvent.solicitudes.length > 0 && (
+                    <div>
+                      <h3 className="font-semibold mb-2 flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Solicitudes
+                      </h3>
+                      <div className="space-y-2">
+                        {selectedEvent.solicitudes.map((solicitud, index) => (
+                          <a
+                            key={index}
+                            href={solicitud}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Solicitud {index + 1}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   )
 }

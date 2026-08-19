@@ -84,7 +84,6 @@ docker-compose.yml
 Dockerfile
 next.config.mjs
 package.json
-pnpm-workspace.yaml
 postcss.config.mjs
 repomix.config.json
 tsconfig.json
@@ -245,346 +244,6 @@ x.sh
 32:     "useDefaultPatterns": true
 33:   }
 34: }
-```
-
-## File: app/calendario/page.tsx
-```typescript
-  1: "use client"
-  2: 
-  3: import { useState, useEffect, useCallback } from "react"
-  4: import { ChevronLeft, ChevronRight, Loader2, CalendarDays } from "lucide-react"
-  5: import { cn } from "@/lib/utils"
-  6: 
-  7: // ── Tipos ────────────────────────────────────────────────────────────────────
-  8: 
-  9: interface Evento {
- 10:   id: number
- 11:   titulo: string
- 12:   fechaDesde: string
- 13:   fechaHasta: string
- 14:   horaDesde: string
- 15:   horaHasta: string
- 16:   tipoEvento: string
- 17:   areas: string[]
- 18:   organizadorSolicitante: string
- 19:   descripcion?: string
- 20:   estado: string
- 21: }
- 22: 
- 23: // ── Constantes ───────────────────────────────────────────────────────────────
- 24: 
- 25: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
- 26: 
- 27: const TIPO_COLORES: Record<string, string> = {
- 28:   REUNION:          "bg-blue-50   border-l-[3px] border-blue-400   text-blue-800",
- 29:   CAPACITACION:     "bg-green-50  border-l-[3px] border-green-500  text-green-800",
- 30:   EVENTO:           "bg-purple-50 border-l-[3px] border-purple-400 text-purple-800",
- 31:   CONFERENCIA:      "bg-orange-50 border-l-[3px] border-orange-400 text-orange-800",
- 32:   TALLER:           "bg-pink-50   border-l-[3px] border-pink-400   text-pink-800",
- 33:   EXPOSICION:       "bg-yellow-50 border-l-[3px] border-yellow-500 text-yellow-800",
- 34: }
- 35: 
- 36: const TIPO_BADGE: Record<string, string> = {
- 37:   REUNION:      "bg-blue-100   text-blue-800",
- 38:   CAPACITACION: "bg-green-100  text-green-800",
- 39:   EVENTO:       "bg-purple-100 text-purple-800",
- 40:   CONFERENCIA:  "bg-orange-100 text-orange-800",
- 41:   TALLER:       "bg-pink-100   text-pink-800",
- 42:   EXPOSICION:   "bg-yellow-100 text-yellow-800",
- 43: }
- 44: 
- 45: const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
- 46: const MESES = [
- 47:   "Enero","Febrero","Marzo","Abril","Mayo","Junio",
- 48:   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
- 49: ]
- 50: 
- 51: // ── Helpers ──────────────────────────────────────────────────────────────────
- 52: 
- 53: function toLocalDate(iso: string) {
- 54:   // evita off-by-one por timezone al parsear "YYYY-MM-DD"
- 55:   const [y, m, d] = iso.split("-").map(Number)
- 56:   return new Date(y, m - 1, d)
- 57: }
- 58: 
- 59: function isSameDay(a: Date, b: Date) {
- 60:   return a.getFullYear() === b.getFullYear() &&
- 61:          a.getMonth()    === b.getMonth()    &&
- 62:          a.getDate()     === b.getDate()
- 63: }
- 64: 
- 65: function eventoCaeEnDia(ev: Evento, dia: Date) {
- 66:   const desde = toLocalDate(ev.fechaDesde)
- 67:   const hasta  = toLocalDate(ev.fechaHasta)
- 68:   return dia >= desde && dia <= hasta
- 69: }
- 70: 
- 71: // ── Componente ───────────────────────────────────────────────────────────────
- 72: 
- 73: export default function CalendarioPage() {
- 74:   const hoy = new Date()
- 75:   const [mes, setMes]       = useState(hoy.getMonth())
- 76:   const [anio, setAnio]     = useState(hoy.getFullYear())
- 77:   const [eventos, setEventos]         = useState<Evento[]>([])
- 78:   const [loading, setLoading]         = useState(true)
- 79:   const [error, setError]             = useState<string | null>(null)
- 80:   const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
- 81: 
- 82:   // Fetch eventos del mes visible
- 83:   const fetchEventos = useCallback(async () => {
- 84:     setLoading(true)
- 85:     setError(null)
- 86:     try {
- 87:       const desde = `${anio}-${String(mes + 1).padStart(2, "0")}-01`
- 88:       const ultimo = new Date(anio, mes + 1, 0).getDate()
- 89:       const hasta  = `${anio}-${String(mes + 1).padStart(2, "0")}-${ultimo}`
- 90:       const res = await fetch(
- 91:         `${EVENTOS_API}/events/public?fechaDesde=${desde}&fechaHasta=${hasta}`,
- 92:         { cache: "no-store" }
- 93:       )
- 94:       if (!res.ok) throw new Error(`Error ${res.status}`)
- 95:       const data: Evento[] = await res.json()
- 96:       setEventos(data.filter((e) => e.estado === "APROBADO"))
- 97:     } catch (err) {
- 98:       setError("No se pudieron cargar los eventos")
- 99:     } finally {
-100:       setLoading(false)
-101:     }
-102:   }, [mes, anio])
-103: 
-104:   useEffect(() => { fetchEventos() }, [fetchEventos])
-105: 
-106:   // Construir grilla
-107:   const primerDia  = new Date(anio, mes, 1).getDay()
-108:   const diasEnMes  = new Date(anio, mes + 1, 0).getDate()
-109:   const celdas     = primerDia + diasEnMes
-110:   const totalFilas = Math.ceil(celdas / 7)
-111: 
-112:   const anterior = () => {
-113:     if (mes === 0) { setMes(11); setAnio(a => a - 1) }
-114:     else setMes(m => m - 1)
-115:   }
-116:   const siguiente = () => {
-117:     if (mes === 11) { setMes(0); setAnio(a => a + 1) }
-118:     else setMes(m => m + 1)
-119:   }
-120: 
-121:   return (
-122:     <div className="min-h-screen pb-28" style={{ background: "var(--background)" }}>
-123: 
-124:       {/* Header */}
-125:       <div
-126:         className="sticky top-0 z-30 px-4 py-4 border-b border-white/40"
-127:         style={{
-128:           background: "rgba(240,253,255,0.80)",
-129:           backdropFilter: "blur(16px)",
-130:           WebkitBackdropFilter: "blur(16px)",
-131:         }}
-132:       >
-133:         <div className="max-w-3xl mx-auto flex items-center justify-between">
-134:           <div className="flex items-center gap-2">
-135:             <div className="w-8 h-8 rounded-lg bg-[#26a7fc]/10 flex items-center justify-center">
-136:               <CalendarDays className="w-4 h-4 text-[#26a7fc]" />
-137:             </div>
-138:             <div>
-139:               <h1 className="text-base font-bold text-foreground leading-none">Agenda NODO</h1>
-140:               <p className="text-[10px] text-muted-foreground mt-0.5">Eventos públicos</p>
-141:             </div>
-142:           </div>
-143: 
-144:           {/* Navegador de mes */}
-145:           <div className="flex items-center gap-2">
-146:             <button
-147:               onClick={anterior}
-148:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
-149:             >
-150:               <ChevronLeft className="w-4 h-4" />
-151:             </button>
-152:             <span className="text-sm font-semibold min-w-[120px] text-center">
-153:               {MESES[mes]} {anio}
-154:             </span>
-155:             <button
-156:               onClick={siguiente}
-157:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
-158:             >
-159:               <ChevronRight className="w-4 h-4" />
-160:             </button>
-161:           </div>
-162:         </div>
-163:       </div>
-164: 
-165:       <div className="max-w-3xl mx-auto px-2 pt-4">
-166: 
-167:         {/* Días de semana */}
-168:         <div className="grid grid-cols-7 mb-1">
-169:           {DIAS_SEMANA.map((d) => (
-170:             <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground py-1">
-171:               {d}
-172:             </div>
-173:           ))}
-174:         </div>
-175: 
-176:         {/* Loading */}
-177:         {loading && (
-178:           <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
-179:             <Loader2 className="w-5 h-5 animate-spin text-[#26a7fc]" />
-180:             <span className="text-sm">Cargando eventos...</span>
-181:           </div>
-182:         )}
-183: 
-184:         {/* Error */}
-185:         {error && !loading && (
-186:           <div className="text-center py-12 text-sm text-muted-foreground">
-187:             {error}
-188:           </div>
-189:         )}
-190: 
-191:         {/* Grilla */}
-192:         {!loading && !error && (
-193:           <div className="grid grid-cols-7 gap-px bg-border rounded-xl overflow-hidden border border-border">
-194:             {Array.from({ length: totalFilas * 7 }).map((_, idx) => {
-195:               const numeroDia = idx - primerDia + 1
-196:               const esValido  = numeroDia >= 1 && numeroDia <= diasEnMes
-197:               const diaFecha  = esValido ? new Date(anio, mes, numeroDia) : null
-198:               const esHoy     = diaFecha ? isSameDay(diaFecha, hoy) : false
-199:               const eventosDia = diaFecha
-200:                 ? eventos.filter((e) => eventoCaeEnDia(e, diaFecha))
-201:                 : []
-202: 
-203:               return (
-204:                 <div
-205:                   key={idx}
-206:                   className={cn(
-207:                     "min-h-[80px] p-1 bg-card flex flex-col",
-208:                     !esValido && "bg-muted/30"
-209:                   )}
-210:                 >
-211:                   {esValido && (
-212:                     <>
-213:                       {/* Número del día */}
-214:                       <span
-215:                         className={cn(
-216:                           "text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 self-end",
-217:                           esHoy
-218:                             ? "bg-[#26a7fc] text-white font-bold"
-219:                             : "text-foreground"
-220:                         )}
-221:                       >
-222:                         {numeroDia}
-223:                       </span>
-224: 
-225:                       {/* Pills de eventos */}
-226:                       <div className="flex flex-col gap-0.5 overflow-hidden">
-227:                         {eventosDia.slice(0, 2).map((ev) => (
-228:                           <button
-229:                             key={ev.id}
-230:                             onClick={() => setEventoSeleccionado(ev)}
-231:                             className={cn(
-232:                               "w-full text-left text-[9px] md:text-[10px] px-1 py-0.5 rounded-sm font-medium truncate transition-colors",
-233:                               TIPO_COLORES[ev.tipoEvento] ?? "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800"
-234:                             )}
-235:                           >
-236:                             {ev.horaDesde} {ev.titulo}
-237:                           </button>
-238:                         ))}
-239:                         {eventosDia.length > 2 && (
-240:                           <span className="text-[9px] text-muted-foreground pl-1">
-241:                             +{eventosDia.length - 2} más
-242:                           </span>
-243:                         )}
-244:                       </div>
-245:                     </>
-246:                   )}
-247:                 </div>
-248:               )
-249:             })}
-250:           </div>
-251:         )}
-252: 
-253:         {/* Leyenda */}
-254:         {!loading && !error && (
-255:           <div className="flex flex-wrap gap-2 mt-4 px-1">
-256:             {Object.entries(TIPO_BADGE).map(([tipo, cls]) => (
-257:               <span key={tipo} className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", cls)}>
-258:                 {tipo.charAt(0) + tipo.slice(1).toLowerCase()}
-259:               </span>
-260:             ))}
-261:           </div>
-262:         )}
-263:       </div>
-264: 
-265:       {/* Modal detalle */}
-266:       {eventoSeleccionado && (
-267:         <div
-268:           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-269:           style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
-270:           onClick={() => setEventoSeleccionado(null)}
-271:         >
-272:           <div
-273:             className="w-full max-w-lg rounded-2xl p-5 space-y-3"
-274:             style={{
-275:               background: "rgba(255,255,255,0.92)",
-276:               backdropFilter: "blur(20px)",
-277:               WebkitBackdropFilter: "blur(20px)",
-278:               border: "1px solid rgba(255,255,255,0.6)",
-279:               boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
-280:             }}
-281:             onClick={(e) => e.stopPropagation()}
-282:           >
-283:             <div className="flex items-start justify-between gap-3">
-284:               <h2 className="text-base font-bold text-foreground leading-snug">
-285:                 {eventoSeleccionado.titulo}
-286:               </h2>
-287:               <button
-288:                 onClick={() => setEventoSeleccionado(null)}
-289:                 className="text-muted-foreground hover:text-foreground text-lg leading-none flex-shrink-0"
-290:               >
-291:                 ✕
-292:               </button>
-293:             </div>
-294: 
-295:             <span className={cn(
-296:               "inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full",
-297:               TIPO_BADGE[eventoSeleccionado.tipoEvento] ?? "bg-gray-100 text-gray-700"
-298:             )}>
-299:               {eventoSeleccionado.tipoEvento.charAt(0) + eventoSeleccionado.tipoEvento.slice(1).toLowerCase()}
-300:             </span>
-301: 
-302:             <div className="grid grid-cols-2 gap-3 text-sm">
-303:               <div>
-304:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Fecha</p>
-305:                 <p className="font-medium">
-306:                   {toLocalDate(eventoSeleccionado.fechaDesde).toLocaleDateString("es-AR", {
-307:                     day: "numeric", month: "long", year: "numeric",
-308:                   })}
-309:                   {eventoSeleccionado.fechaDesde !== eventoSeleccionado.fechaHasta && (
-310:                     <> — {toLocalDate(eventoSeleccionado.fechaHasta).toLocaleDateString("es-AR", {
-311:                       day: "numeric", month: "long",
-312:                     })}</>
-313:                   )}
-314:                 </p>
-315:               </div>
-316:               <div>
-317:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
-318:                 <p className="font-medium">{eventoSeleccionado.horaDesde} – {eventoSeleccionado.horaHasta}</p>
-319:               </div>
-320:               <div className="col-span-2">
-321:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Organizador</p>
-322:                 <p className="font-medium">{eventoSeleccionado.organizadorSolicitante}</p>
-323:               </div>
-324:               {eventoSeleccionado.descripcion && (
-325:                 <div className="col-span-2">
-326:                   <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Descripción</p>
-327:                   <p className="text-sm text-muted-foreground">{eventoSeleccionado.descripcion}</p>
-328:                 </div>
-329:               )}
-330:             </div>
-331:           </div>
-332:         </div>
-333:       )}
-334:     </div>
-335:   )
-336: }
 ```
 
 ## File: app/display/page.tsx
@@ -3011,6 +2670,345 @@ x.sh
 74:               ghcr.io/${{ github.repository }}:latest
 ```
 
+## File: app/calendario/page.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect, useCallback } from "react"
+  4: import { ChevronLeft, ChevronRight, Loader2, CalendarDays } from "lucide-react"
+  5: import { cn } from "@/lib/utils"
+  6: 
+  7: // ── Tipos ────────────────────────────────────────────────────────────────────
+  8: 
+  9: interface Evento {
+ 10:   id: number
+ 11:   titulo: string
+ 12:   fechaDesde: string
+ 13:   fechaHasta: string
+ 14:   horaDesde: string
+ 15:   horaHasta: string
+ 16:   tipoEvento: string
+ 17:   areas: string[]
+ 18:   organizadorSolicitante: string
+ 19:   descripcion?: string
+ 20:   estado: string
+ 21: }
+ 22: 
+ 23: // ── Constantes ───────────────────────────────────────────────────────────────
+ 24: 
+ 25: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+ 26: 
+ 27: const TIPO_COLORES: Record<string, string> = {
+ 28:   REUNION:          "bg-blue-50   border-l-[3px] border-blue-400   text-blue-800",
+ 29:   CAPACITACION:     "bg-green-50  border-l-[3px] border-green-500  text-green-800",
+ 30:   EVENTO:           "bg-purple-50 border-l-[3px] border-purple-400 text-purple-800",
+ 31:   CONFERENCIA:      "bg-orange-50 border-l-[3px] border-orange-400 text-orange-800",
+ 32:   TALLER:           "bg-pink-50   border-l-[3px] border-pink-400   text-pink-800",
+ 33:   EXPOSICION:       "bg-yellow-50 border-l-[3px] border-yellow-500 text-yellow-800",
+ 34: }
+ 35: 
+ 36: const TIPO_BADGE: Record<string, string> = {
+ 37:   REUNION:      "bg-blue-100   text-blue-800",
+ 38:   CAPACITACION: "bg-green-100  text-green-800",
+ 39:   EVENTO:       "bg-purple-100 text-purple-800",
+ 40:   CONFERENCIA:  "bg-orange-100 text-orange-800",
+ 41:   TALLER:       "bg-pink-100   text-pink-800",
+ 42:   EXPOSICION:   "bg-yellow-100 text-yellow-800",
+ 43: }
+ 44: 
+ 45: const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
+ 46: const MESES = [
+ 47:   "Enero","Febrero","Marzo","Abril","Mayo","Junio",
+ 48:   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
+ 49: ]
+ 50: 
+ 51: // ── Helpers ──────────────────────────────────────────────────────────────────
+ 52: 
+ 53: function toLocalDate(iso: string) {
+ 54:   // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
+ 55:   const datePart = iso.split("T")[0]
+ 56:   const [y, m, d] = datePart.split("-").map(Number)
+ 57:   return new Date(y, m - 1, d)
+ 58: }
+ 59: 
+ 60: function isSameDay(a: Date, b: Date) {
+ 61:   return a.getFullYear() === b.getFullYear() &&
+ 62:          a.getMonth()    === b.getMonth()    &&
+ 63:          a.getDate()     === b.getDate()
+ 64: }
+ 65: 
+ 66: function eventoCaeEnDia(ev: Evento, dia: Date) {
+ 67:   const desde = toLocalDate(ev.fechaDesde)
+ 68:   const hasta  = toLocalDate(ev.fechaHasta)
+ 69:   return dia >= desde && dia <= hasta
+ 70: }
+ 71: 
+ 72: // ── Componente ───────────────────────────────────────────────────────────────
+ 73: 
+ 74: export default function CalendarioPage() {
+ 75:   const hoy = new Date()
+ 76:   const [mes, setMes]       = useState(hoy.getMonth())
+ 77:   const [anio, setAnio]     = useState(hoy.getFullYear())
+ 78:   const [eventos, setEventos]         = useState<Evento[]>([])
+ 79:   const [loading, setLoading]         = useState(true)
+ 80:   const [error, setError]             = useState<string | null>(null)
+ 81:   const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
+ 82: 
+ 83:   // Fetch eventos del mes visible
+ 84:   const fetchEventos = useCallback(async () => {
+ 85:     setLoading(true)
+ 86:     setError(null)
+ 87:     try {
+ 88:       const res = await fetch(
+ 89:         `${EVENTOS_API}/calendar?year=${anio}&month=${mes + 1}`,
+ 90:         { cache: "no-store" }
+ 91:       )
+ 92:       if (!res.ok) throw new Error(`Error ${res.status}`)
+ 93:       const data = await res.json()
+ 94:       // El endpoint /calendar devuelve { events: Evento[], ... }, no un array directo
+ 95:       setEventos(data.events.filter((e: Evento) => e.tipoEvento !== "CANCELADO"))
+ 96:     } catch (err) {
+ 97:       setError("No se pudieron cargar los eventos")
+ 98:     } finally {
+ 99:       setLoading(false)
+100:     }
+101:   }, [mes, anio])
+102: 
+103:   useEffect(() => { fetchEventos() }, [fetchEventos])
+104: 
+105:   // Construir grilla
+106:   const primerDia  = new Date(anio, mes, 1).getDay()
+107:   const diasEnMes  = new Date(anio, mes + 1, 0).getDate()
+108:   const celdas     = primerDia + diasEnMes
+109:   const totalFilas = Math.ceil(celdas / 7)
+110: 
+111:   const anterior = () => {
+112:     if (mes === 0) { setMes(11); setAnio(a => a - 1) }
+113:     else setMes(m => m - 1)
+114:   }
+115:   const siguiente = () => {
+116:     if (mes === 11) { setMes(0); setAnio(a => a + 1) }
+117:     else setMes(m => m + 1)
+118:   }
+119: 
+120:   return (
+121:     <div className="min-h-screen pb-28" style={{ background: "var(--background)" }}>
+122: 
+123:       {/* Header */}
+124:       <div
+125:         className="sticky top-0 z-30 px-4 py-4 border-b border-white/40"
+126:         style={{
+127:           background: "rgba(240,253,255,0.80)",
+128:           backdropFilter: "blur(16px)",
+129:           WebkitBackdropFilter: "blur(16px)",
+130:         }}
+131:       >
+132:         <div className="max-w-3xl mx-auto flex items-center justify-between">
+133:           <div className="flex items-center gap-2">
+134:             <div className="w-8 h-8 rounded-lg bg-[#26a7fc]/10 flex items-center justify-center">
+135:               <CalendarDays className="w-4 h-4 text-[#26a7fc]" />
+136:             </div>
+137:             <div>
+138:               <h1 className="text-base font-bold text-foreground leading-none">Agenda NODO</h1>
+139:               <p className="text-[10px] text-muted-foreground mt-0.5">Eventos públicos</p>
+140:             </div>
+141:           </div>
+142: 
+143:           {/* Navegador de mes */}
+144:           <div className="flex items-center gap-2">
+145:             <button
+146:               onClick={anterior}
+147:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
+148:             >
+149:               <ChevronLeft className="w-4 h-4" />
+150:             </button>
+151:             <span className="text-sm font-semibold min-w-[120px] text-center">
+152:               {MESES[mes]} {anio}
+153:             </span>
+154:             <button
+155:               onClick={siguiente}
+156:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
+157:             >
+158:               <ChevronRight className="w-4 h-4" />
+159:             </button>
+160:           </div>
+161:         </div>
+162:       </div>
+163: 
+164:       <div className="max-w-3xl mx-auto px-2 pt-4">
+165: 
+166:         {/* Días de semana */}
+167:         <div className="grid grid-cols-7 mb-1">
+168:           {DIAS_SEMANA.map((d) => (
+169:             <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground py-1">
+170:               {d}
+171:             </div>
+172:           ))}
+173:         </div>
+174: 
+175:         {/* Loading */}
+176:         {loading && (
+177:           <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+178:             <Loader2 className="w-5 h-5 animate-spin text-[#26a7fc]" />
+179:             <span className="text-sm">Cargando eventos...</span>
+180:           </div>
+181:         )}
+182: 
+183:         {/* Error */}
+184:         {error && !loading && (
+185:           <div className="text-center py-12 text-sm text-muted-foreground">
+186:             {error}
+187:           </div>
+188:         )}
+189: 
+190:         {/* Grilla */}
+191:         {!loading && !error && (
+192:           <div className="grid grid-cols-7 gap-px bg-border rounded-xl overflow-hidden border border-border">
+193:             {Array.from({ length: totalFilas * 7 }).map((_, idx) => {
+194:               const numeroDia = idx - primerDia + 1
+195:               const esValido  = numeroDia >= 1 && numeroDia <= diasEnMes
+196:               const diaFecha  = esValido ? new Date(anio, mes, numeroDia) : null
+197:               const esHoy     = diaFecha ? isSameDay(diaFecha, hoy) : false
+198:               const eventosDia = diaFecha
+199:                 ? eventos.filter((e) => eventoCaeEnDia(e, diaFecha))
+200:                 : []
+201: 
+202:               return (
+203:                 <div
+204:                   key={idx}
+205:                   className={cn(
+206:                     "min-h-[80px] p-1 bg-card flex flex-col",
+207:                     !esValido && "bg-muted/30"
+208:                   )}
+209:                 >
+210:                   {esValido && (
+211:                     <>
+212:                       {/* Número del día */}
+213:                       <span
+214:                         className={cn(
+215:                           "text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 self-end",
+216:                           esHoy
+217:                             ? "bg-[#26a7fc] text-white font-bold"
+218:                             : "text-foreground"
+219:                         )}
+220:                       >
+221:                         {numeroDia}
+222:                       </span>
+223: 
+224:                       {/* Pills de eventos */}
+225:                       <div className="flex flex-col gap-0.5 overflow-hidden">
+226:                         {eventosDia.slice(0, 2).map((ev) => (
+227:                           <button
+228:                             key={ev.id}
+229:                             onClick={() => setEventoSeleccionado(ev)}
+230:                             className={cn(
+231:                               "w-full text-left text-[9px] md:text-[10px] px-1 py-0.5 rounded-sm font-medium truncate transition-colors",
+232:                               TIPO_COLORES[ev.tipoEvento] ?? "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800"
+233:                             )}
+234:                           >
+235:                             {ev.horaDesde} {ev.titulo}
+236:                           </button>
+237:                         ))}
+238:                         {eventosDia.length > 2 && (
+239:                           <span className="text-[9px] text-muted-foreground pl-1">
+240:                             +{eventosDia.length - 2} más
+241:                           </span>
+242:                         )}
+243:                       </div>
+244:                     </>
+245:                   )}
+246:                 </div>
+247:               )
+248:             })}
+249:           </div>
+250:         )}
+251: 
+252:         {/* Leyenda */}
+253:         {!loading && !error && (
+254:           <div className="flex flex-wrap gap-2 mt-4 px-1">
+255:             {Object.entries(TIPO_BADGE).map(([tipo, cls]) => (
+256:               <span key={tipo} className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", cls)}>
+257:                 {tipo.charAt(0) + tipo.slice(1).toLowerCase()}
+258:               </span>
+259:             ))}
+260:           </div>
+261:         )}
+262:       </div>
+263: 
+264:       {/* Modal detalle */}
+265:       {eventoSeleccionado && (
+266:         <div
+267:           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+268:           style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
+269:           onClick={() => setEventoSeleccionado(null)}
+270:         >
+271:           <div
+272:             className="w-full max-w-lg rounded-2xl p-5 space-y-3"
+273:             style={{
+274:               background: "rgba(255,255,255,0.92)",
+275:               backdropFilter: "blur(20px)",
+276:               WebkitBackdropFilter: "blur(20px)",
+277:               border: "1px solid rgba(255,255,255,0.6)",
+278:               boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+279:             }}
+280:             onClick={(e) => e.stopPropagation()}
+281:           >
+282:             <div className="flex items-start justify-between gap-3">
+283:               <h2 className="text-base font-bold text-foreground leading-snug">
+284:                 {eventoSeleccionado.titulo}
+285:               </h2>
+286:               <button
+287:                 onClick={() => setEventoSeleccionado(null)}
+288:                 className="text-muted-foreground hover:text-foreground text-lg leading-none flex-shrink-0"
+289:               >
+290:                 ✕
+291:               </button>
+292:             </div>
+293: 
+294:             <span className={cn(
+295:               "inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full",
+296:               TIPO_BADGE[eventoSeleccionado.tipoEvento] ?? "bg-gray-100 text-gray-700"
+297:             )}>
+298:               {eventoSeleccionado.tipoEvento.charAt(0) + eventoSeleccionado.tipoEvento.slice(1).toLowerCase()}
+299:             </span>
+300: 
+301:             <div className="grid grid-cols-2 gap-3 text-sm">
+302:               <div>
+303:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Fecha</p>
+304:                 <p className="font-medium">
+305:                   {toLocalDate(eventoSeleccionado.fechaDesde).toLocaleDateString("es-AR", {
+306:                     day: "numeric", month: "long", year: "numeric",
+307:                   })}
+308:                   {eventoSeleccionado.fechaDesde !== eventoSeleccionado.fechaHasta && (
+309:                     <> — {toLocalDate(eventoSeleccionado.fechaHasta).toLocaleDateString("es-AR", {
+310:                       day: "numeric", month: "long",
+311:                     })}</>
+312:                   )}
+313:                 </p>
+314:               </div>
+315:               <div>
+316:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
+317:                 <p className="font-medium">{eventoSeleccionado.horaDesde} – {eventoSeleccionado.horaHasta}</p>
+318:               </div>
+319:               <div className="col-span-2">
+320:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Organizador</p>
+321:                 <p className="font-medium">{eventoSeleccionado.organizadorSolicitante}</p>
+322:               </div>
+323:               {eventoSeleccionado.descripcion && (
+324:                 <div className="col-span-2">
+325:                   <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Descripción</p>
+326:                   <p className="text-sm text-muted-foreground">{eventoSeleccionado.descripcion}</p>
+327:                 </div>
+328:               )}
+329:             </div>
+330:           </div>
+331:         </div>
+332:       )}
+333:     </div>
+334:   )
+335: }
+```
+
 ## File: app/login/page.tsx
 ```typescript
   1: "use client"
@@ -3481,98 +3479,6 @@ x.sh
 38: export default nextConfig
 ```
 
-## File: pnpm-workspace.yaml
-```yaml
- 1: overrides:
- 2:   next@>=16.0.0-beta.0 <16.1.7: '>=16.1.7'
- 3:   next@>=16.0.1 <16.1.7: '>=16.1.7'
- 4:   next@>=16.0.0-beta.0 <16.2.3: '>=16.2.3'
- 5:   postcss@<8.5.10: '>=8.5.10'
- 6:   next@>=16.0.0 <16.2.5: '>=16.2.5'
- 7:   next@>=16.0.0 <16.2.6: '>=16.2.6'
- 8:   sharp@<0.35.0: '>=0.35.0'
- 9:   next@>=16.0.0 <16.2.11: '>=16.2.11'
-10:   postcss@<=8.5.11: '>=8.5.12'
-11:   postcss@<=8.5.22: '>=8.5.23'
-12:   postcss@<=8.5.17: '>=8.5.18'
-```
-
-## File: x.sh
-```bash
- 1: #!/bin/bash
- 2: set -euo pipefail
- 3: 
- 4: echo "🔧 Diagnóstico y limpieza completa de overrides + workspace..."
- 5: 
- 6: if [ ! -f "package.json" ]; then
- 7:   echo "❌ No se encontró package.json en el directorio actual."
- 8:   exit 1
- 9: fi
-10: 
-11: cp package.json package.json.bak
-12: 
-13: # 1) Eliminar pnpm-workspace.yaml si existe (root del error original)
-14: if [ -f "pnpm-workspace.yaml" ]; then
-15:   echo "🗑️  Eliminando pnpm-workspace.yaml (causa del error 'packages field missing')..."
-16:   rm pnpm-workspace.yaml
-17: else
-18:   echo "ℹ️  pnpm-workspace.yaml no existe localmente (verificá si sigue en git remoto)."
-19: fi
-20: 
-21: # 2) Reescribir overrides sin conflictos con dependencias directas
-22: node <<'EOF'
-23: const fs = require("fs");
-24: 
-25: const pkgPath = "package.json";
-26: const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-27: 
-28: const directDeps = {
-29:   ...(pkg.dependencies || {}),
-30:   ...(pkg.devDependencies || {})
-31: };
-32: 
-33: // Overrides candidatos originales (formato pnpm: "pkg@range")
-34: const rawOverrides = pkg.overrides || (pkg.pnpm && pkg.pnpm.overrides) || {};
-35: 
-36: const cleanOverrides = {};
-37: 
-38: for (const [key, value] of Object.entries(rawOverrides)) {
-39:   // key puede venir como "next@>=16.0.0 <16.2.11" o simplemente "next"
-40:   const pkgName = key.split("@")[0].trim() || key.split(/@(?!.*@)/)[0];
-41:   const realName = key.startsWith("@") ? key.split("@").slice(0,2).join("@") : key.split("@")[0];
-42: 
-43:   if (directDeps[realName]) {
-44:     console.log(`⏭️  Omitiendo override "${key}" — "${realName}" ya es dependencia directa (${directDeps[realName]}), no se necesita override.`);
-45:     continue;
-46:   }
-47: 
-48:   // Si no hay conflicto, guardamos el override tal cual (formato simple, sin rango)
-49:   cleanOverrides[realName] = value;
-50: }
-51: 
-52: pkg.overrides = cleanOverrides;
-53: 
-54: if (pkg.pnpm && pkg.pnpm.overrides) {
-55:   delete pkg.pnpm.overrides;
-56:   if (Object.keys(pkg.pnpm).length === 0) delete pkg.pnpm;
-57: }
-58: 
-59: fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-60: console.log("✅ overrides limpiados y sin conflicto con dependencias directas.");
-61: EOF
-62: 
-63: echo ""
-64: echo "📦 Regenerando pnpm-lock.yaml..."
-65: pnpm install --no-frozen-lockfile
-66: 
-67: echo ""
-68: echo "🔍 Resultado final del campo overrides:"
-69: node -e "console.log(JSON.stringify(require('./package.json').overrides || {}, null, 2))"
-70: 
-71: echo ""
-72: echo "✅ Listo. Corré 'pnpm build' local para confirmar antes de commitear."
-```
-
 ## File: app/layout.tsx
 ```typescript
  1: import type React from "react"
@@ -3714,7 +3620,7 @@ x.sh
 46:     "embla-carousel-react": "8.5.1",
 47:     "input-otp": "1.4.1",
 48:     "lucide-react": "^0.454.0",
-49:     "next": "16.1.6",
+49:     "next": "16.3.0",
 50:     "next-themes": "^0.4.6",
 51:     "react": "19.2.0",
 52:     "react-day-picker": "9.8.0",
@@ -3742,6 +3648,65 @@ x.sh
 74:     "lodash": ">=4.18.0",
 75:     "sharp": ">=0.35.0",
 76:     "nanoid": ">=3.3.17"
-77:   }
-78: }
+77:   },
+78:   "pnpm": {
+79:     "onlyBuiltDependencies": [
+80:       "@tailwindcss/oxide",
+81:       "sharp",
+82:       "unrs-resolver"
+83:     ]
+84:   }
+85: }
+```
+
+## File: x.sh
+```bash
+ 1: #!/bin/bash
+ 2: set -euo pipefail
+ 3: 
+ 4: FILE="app/calendario/page.tsx"
+ 5: 
+ 6: echo "🔧 Corrigiendo toLocalDate() para soportar ISO completo del endpoint /calendar..."
+ 7: 
+ 8: if [ ! -f "$FILE" ]; then
+ 9:   echo "❌ No se encontró $FILE. Ejecutá este script desde la raíz de coworking-nodo-front."
+10:   exit 1
+11: fi
+12: 
+13: cp "$FILE" "$FILE.bak"
+14: 
+15: node <<'EOF'
+16: const fs = require("fs");
+17: const path = "app/calendario/page.tsx";
+18: let content = fs.readFileSync(path, "utf8");
+19: 
+20: const oldFn = `function toLocalDate(iso: string) {
+21:   // evita off-by-one por timezone al parsear "YYYY-MM-DD"
+22:   const [y, m, d] = iso.split("-").map(Number)
+23:   return new Date(y, m - 1, d)
+24: }`;
+25: 
+26: const newFn = `function toLocalDate(iso: string) {
+27:   // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
+28:   const datePart = iso.split("T")[0]
+29:   const [y, m, d] = datePart.split("-").map(Number)
+30:   return new Date(y, m - 1, d)
+31: }`;
+32: 
+33: if (!content.includes(oldFn)) {
+34:   console.error("⚠️  No se encontró el bloque exacto de toLocalDate. Revisar manualmente.");
+35:   process.exit(1);
+36: }
+37: 
+38: content = content.replace(oldFn, newFn);
+39: fs.writeFileSync(path, content);
+40: console.log("✅ toLocalDate() corregida.");
+41: EOF
+42: 
+43: echo ""
+44: echo "🔍 Revisá el diff antes de commitear:"
+45: diff "$FILE.bak" "$FILE" || true
+46: 
+47: echo ""
+48: echo "✅ Listo. Corré 'pnpm build' para confirmar antes de subir."
 ```
