@@ -3,17 +3,17 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/contexts/auth-context"
-import type { Seat } from "@/types/seat"
 import { useSeats } from "@/hooks/use-seats"
 import { SeatGrid } from "@/components/seat-grid"
 import { SeatLegend } from "@/components/seat-legend"
 import { AdminPanel } from "@/components/admin-panel"
 import { AgendarModal } from "@/components/agendar-modal"
-import { DisponibilidadTabla } from "@/components/disponibilidad-tabla"
 import { MapaModal } from "@/components/mapa-modal"
+import { DisponibilidadInline } from "@/components/disponibilidad-inline"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 import {
   Loader2,
   RefreshCw,
@@ -23,9 +23,20 @@ import {
   CalendarPlus,
   MapPin,
   Map,
+  LayoutGrid,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
+
+// ── Vistas disponibles dentro del card principal ──────────────
+type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
+
+const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin      },
+  { id: "asientos",       label: "Asientos",       icon: LayoutGrid  },
+  { id: "mapa",           label: "Mapa",           icon: Map         },
+  { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
+]
 
 export default function CoworkingSeatsPage() {
   const router = useRouter()
@@ -33,15 +44,17 @@ export default function CoworkingSeatsPage() {
   const { seats, loading, fetchSeats, toggleBlockAll } = useSeats()
   const { toast } = useToast()
 
-  const [isAdminMode,      setIsAdminMode]      = useState(false)
-  const [isBlocked,        setIsBlocked]        = useState(false)
-  const [eventName,        setEventName]        = useState<string>()
-  const [mobileMenuOpen,   setMobileMenuOpen]   = useState(false)
+  const [isAdminMode,    setIsAdminMode]    = useState(false)
+  const [isBlocked,      setIsBlocked]      = useState(false)
+  const [eventName,      setEventName]      = useState<string>()
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Modales
-  const [agendarOpen,      setAgendarOpen]      = useState(false)
-  const [disponibilidadOpen, setDisponibilidadOpen] = useState(false)
-  const [mapaOpen,         setMapaOpen]         = useState(false)
+  // Vista activa dentro del card
+  const [vista,          setVista]          = useState<Vista>("asientos")
+
+  // Modales (Mapa y Agendar abren modal)
+  const [mapaOpen,       setMapaOpen]       = useState(false)
+  const [agendarOpen,    setAgendarOpen]    = useState(false)
 
   useEffect(() => {
     if (!authLoading && !admin) router.push("/login")
@@ -58,10 +71,17 @@ export default function CoworkingSeatsPage() {
     toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
   }
 
+  // Al hacer clic en un botón de vista
+  const handleVista = (v: Vista) => {
+    if (v === "mapa")    { setMapaOpen(true);    return }
+    if (v === "agendar") { setAgendarOpen(true);  return }
+    setVista(v)
+  }
+
   const occupiedCount  = seats.filter((s) => s.status === "occupied").length
   const availableCount = seats.filter((s) => s.status === "available").length
 
-  // ── Loading states ──────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -76,80 +96,61 @@ export default function CoworkingSeatsPage() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="text-center space-y-3">
           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground text-sm">Cargando áreas del backend...</p>
+          <p className="text-muted-foreground text-sm">Cargando áreas...</p>
         </div>
       </div>
     )
   }
 
-  // ── Render ──────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
 
-      {/* ── Header ─────────────────────────────────────────── */}
+      {/* ══ Header — solo identidad + acciones globales ════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-primary/10">
-        <div className="px-4 md:px-6 py-4 max-w-7xl mx-auto">
+        <div className="px-4 md:px-6 py-3 max-w-7xl mx-auto">
 
           {/* Desktop */}
           <div className="hidden md:flex items-center justify-between">
+            {/* Logo + título */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center">
-                <Armchair className="w-5 h-5 text-primary" />
+              <div className="w-9 h-9 bg-blue-50 rounded-full flex items-center justify-center">
+                <Armchair className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-foreground">Gestión de Espacios</h1>
-                <p className="text-xs text-muted-foreground">NODO Tecnológico</p>
+                <h1 className="text-lg font-bold leading-tight">Gestión de Espacios</h1>
+                <p className="text-[11px] text-muted-foreground leading-none">NODO Tecnológico</p>
               </div>
             </div>
 
+            {/* Acciones globales */}
             <div className="flex items-center gap-2">
               <div className="text-right text-sm mr-1">
-                <p className="font-medium">{admin.nombre}</p>
-                <p className="text-xs text-muted-foreground">{admin.email}</p>
+                <p className="font-medium leading-tight">{admin.nombre}</p>
+                <p className="text-xs text-muted-foreground leading-none">{admin.email}</p>
               </div>
 
-              {/* Botón Disponibilidad */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setDisponibilidadOpen(true)}
-              >
-                <MapPin className="w-4 h-4" />
-                Disponibilidad
-              </Button>
-
-              {/* Botón Mapa */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setMapaOpen(true)}
-              >
-                <Map className="w-4 h-4" />
-                Mapa
-              </Button>
-
-              {/* Botón Agendar */}
-              <Button
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setAgendarOpen(true)}
-              >
-                <CalendarPlus className="w-4 h-4" />
-                Agendar
-              </Button>
-
-              <Button variant="ghost" size="sm" onClick={handleRefresh}>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh} title="Actualizar">
                 <RefreshCw className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={logout} className="text-destructive">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive hover:text-destructive"
+                onClick={logout}
+                title="Cerrar sesión"
+              >
                 <LogOut className="w-4 h-4" />
               </Button>
 
               {isAdmin && (
-                <div className="flex items-center gap-2 pl-2 border-l border-border">
-                  <Switch id="admin-mode" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+                <div className="flex items-center gap-1.5 pl-2 border-l border-border">
+                  <Switch
+                    id="admin-mode"
+                    checked={isAdminMode}
+                    onCheckedChange={setIsAdminMode}
+                    className="scale-90"
+                  />
                   <Label htmlFor="admin-mode" className="text-xs cursor-pointer">Admin</Label>
                 </div>
               )}
@@ -163,8 +164,8 @@ export default function CoworkingSeatsPage() {
                 <Armchair className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <h1 className="text-base font-bold">Gestión de Espacios</h1>
-                <p className="text-[10px] text-muted-foreground">NODO Tecnológico</p>
+                <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
+                <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
               </div>
             </div>
 
@@ -175,47 +176,29 @@ export default function CoworkingSeatsPage() {
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-72">
-                <div className="space-y-4 pt-4">
+                <div className="space-y-3 pt-4">
                   <div className="pb-3 border-b">
-                    <p className="font-medium">{admin.nombre}</p>
+                    <p className="font-semibold">{admin.nombre}</p>
                     <p className="text-xs text-muted-foreground">{admin.email}</p>
                   </div>
-
-                  <Button
-                    className="w-full gap-2 justify-start"
-                    onClick={() => { setAgendarOpen(true); setMobileMenuOpen(false) }}
-                  >
-                    <CalendarPlus className="w-4 h-4" /> Agendar ocupación
-                  </Button>
-
                   <Button
                     variant="outline"
-                    className="w-full gap-2 justify-start"
-                    onClick={() => { setDisponibilidadOpen(true); setMobileMenuOpen(false) }}
+                    className="w-full justify-start gap-2"
+                    onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}
                   >
-                    <MapPin className="w-4 h-4" /> Disponibilidad
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2 justify-start"
-                    onClick={() => { setMapaOpen(true); setMobileMenuOpen(false) }}
-                  >
-                    <Map className="w-4 h-4" /> Ver mapa
-                  </Button>
-
-                  <Button variant="outline" className="w-full gap-2 justify-start" onClick={handleRefresh}>
                     <RefreshCw className="w-4 h-4" /> Actualizar
                   </Button>
-
                   {isAdmin && (
-                    <div className="flex items-center gap-2 pt-2 border-t">
-                      <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-                      <Label htmlFor="admin-mode-mobile" className="text-sm cursor-pointer">Modo admin</Label>
+                    <div className="flex items-center justify-between py-2 border-t">
+                      <Label className="text-sm cursor-pointer">Modo admin</Label>
+                      <Switch checked={isAdminMode} onCheckedChange={setIsAdminMode} />
                     </div>
                   )}
-
-                  <Button variant="ghost" className="w-full gap-2 justify-start text-destructive" onClick={logout}>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start gap-2 text-destructive"
+                    onClick={logout}
+                  >
                     <LogOut className="w-4 h-4" /> Cerrar sesión
                   </Button>
                 </div>
@@ -226,23 +209,24 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ── Contenido principal ─────────────────────────────── */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-28 space-y-6">
+      {/* ══ Contenido principal ════════════════════════════════ */}
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-28 space-y-5">
 
-        {/* Estadísticas */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-card border border-green-200 rounded-xl p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{availableCount}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Libres</p>
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white rounded-xl border border-primary/10 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
           </div>
-          <div className="bg-card border border-red-200 rounded-xl p-4 text-center">
-            <p className="text-2xl font-bold text-red-500">{occupiedCount}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Ocupados</p>
+          <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-green-600">{availableCount}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
+          </div>
+          <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
           </div>
         </div>
-
-        {/* Leyenda */}
-        <SeatLegend />
 
         {/* Admin panel */}
         {isAdminMode && isAdmin && (
@@ -253,29 +237,79 @@ export default function CoworkingSeatsPage() {
           />
         )}
 
-        {/* Grid de asientos (display only — sin modal de zona) */}
-        <div className="bg-card border border-border rounded-xl p-4">
-          <SeatGrid seats={seats} isBlocked={isBlocked} />
+        {/* ══ Card principal con tabs ═══════════════════════ */}
+        <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
+
+          {/* ── Barra de navegación de vistas ──────────────── */}
+          <div className="border-b border-border px-4 pt-4 pb-0">
+            <div className="flex gap-1 overflow-x-auto scrollbar-none">
+              {VISTAS.map(({ id, label, icon: Icon }) => {
+                // Mapa y Agendar no tienen estado "activo" (abren modal)
+                const isModal   = id === "mapa" || id === "agendar"
+                const isActive  = !isModal && vista === id
+
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handleVista(id)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
+                      isActive
+                        ? "border-primary text-primary bg-primary/5"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                      // Agendar tiene color especial
+                      id === "agendar" && !isActive
+                        ? "hover:text-primary"
+                        : "",
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* ── Contenido de la vista activa ───────────────── */}
+          <div className="p-4 md:p-6">
+
+            {/* Disponibilidad */}
+            {vista === "disponibilidad" && (
+              <DisponibilidadInline onSuccess={fetchSeats} />
+            )}
+
+            {/* Asientos */}
+            {vista === "asientos" && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <SeatLegend />
+                  {isBlocked && (
+                    <span className="text-xs text-destructive font-medium">
+                      Bloqueado · {eventName}
+                    </span>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
 
       </div>
 
-      {/* ── Modales ─────────────────────────────────────────── */}
+      {/* ══ Modales ════════════════════════════════════════════ */}
+      <MapaModal
+        open={mapaOpen}
+        onOpenChange={setMapaOpen}
+      />
       <AgendarModal
         open={agendarOpen}
         onOpenChange={setAgendarOpen}
         onSuccess={fetchSeats}
-      />
-
-      <DisponibilidadTabla
-        open={disponibilidadOpen}
-        onOpenChange={setDisponibilidadOpen}
-        onSuccess={fetchSeats}
-      />
-
-      <MapaModal
-        open={mapaOpen}
-        onOpenChange={setMapaOpen}
       />
 
     </div>
