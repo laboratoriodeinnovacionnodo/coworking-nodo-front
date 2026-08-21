@@ -53,6 +53,7 @@ app/
   page.tsx
 components/
   admin-panel.tsx
+  agendar-modal.tsx
   bottom-navbar.tsx
   cors-info-banner.tsx
   display-seat-grid.tsx
@@ -69,11 +70,13 @@ hooks/
   use-toast.ts
 lib/
   api.ts
+  ocupacion-api.ts
   seat-utils.ts
   utils.ts
 styles/
   globals.css
 types/
+  ocupacion.ts
   seat.ts
 .dockerignore
 .gitignore
@@ -89,6 +92,506 @@ x.sh
 ```
 
 # Files
+
+## File: components/agendar-modal.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useCallback, useEffect } from "react"
+  4: import { ocupacionesApi } from "@/lib/ocupacion-api"
+  5: import { areasApi } from "@/lib/api"
+  6: import type { CreateOcupacionPayload } from "@/types/ocupacion"
+  7: import type { BackendArea } from "@/types/seat"
+  8: import { useToast } from "@/hooks/use-toast"
+  9: 
+ 10: import { Button }   from "@/components/ui/button"
+ 11: import { Input }    from "@/components/ui/input"
+ 12: import { Label }    from "@/components/ui/label"
+ 13: import { Textarea } from "@/components/ui/textarea"
+ 14: import { Badge }    from "@/components/ui/badge"
+ 15: import {
+ 16:   Dialog,
+ 17:   DialogContent,
+ 18:   DialogHeader,
+ 19:   DialogTitle,
+ 20:   DialogFooter,
+ 21:   DialogDescription,
+ 22: } from "@/components/ui/dialog"
+ 23: import {
+ 24:   CalendarDays,
+ 25:   Clock,
+ 26:   Users,
+ 27:   User,
+ 28:   FileText,
+ 29:   Link2,
+ 30:   Plus,
+ 31:   Trash2,
+ 32:   Loader2,
+ 33:   ChevronDown,
+ 34:   ChevronUp,
+ 35:   MapPin,
+ 36:   X,
+ 37:   CheckSquare,
+ 38: } from "lucide-react"
+ 39: 
+ 40: // ── tipos internos ───────────────────────────────────────────────────────────
+ 41: interface AgendarModalProps {
+ 42:   open:         boolean
+ 43:   onOpenChange: (open: boolean) => void
+ 44:   onSuccess?:  () => void
+ 45: }
+ 46: 
+ 47: const EMPTY_FORM: CreateOcupacionPayload = {
+ 48:   titulo:           "",
+ 49:   requerimiento:    "",
+ 50:   cantidadPersonas: 1,
+ 51:   organizador:      "",
+ 52:   dia:              "",
+ 53:   hora:             "",
+ 54:   edadMin:          undefined,
+ 55:   edadMax:          undefined,
+ 56:   anexos:           [],
+ 57:   areaIds:          [],
+ 58: }
+ 59: 
+ 60: // ── componente ───────────────────────────────────────────────────────────────
+ 61: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
+ 62:   const { toast } = useToast()
+ 63: 
+ 64:   const [form,       setForm]       = useState<CreateOcupacionPayload>(EMPTY_FORM)
+ 65:   const [nuevoAnexo, setNuevoAnexo] = useState("")
+ 66:   const [loading,    setLoading]    = useState(false)
+ 67:   const [showEdad,   setShowEdad]   = useState(false)
+ 68: 
+ 69:   // áreas del coworking disponibles
+ 70:   const [areas,        setAreas]        = useState<BackendArea[]>([])
+ 71:   const [loadingAreas, setLoadingAreas] = useState(false)
+ 72: 
+ 73:   // ── cargar áreas cuando se abre el modal ───────────────────────────────
+ 74:   useEffect(() => {
+ 75:     if (!open) return
+ 76:     setLoadingAreas(true)
+ 77:     areasApi
+ 78:       .getAll()
+ 79:       .then((data) => setAreas(data))
+ 80:       .catch(() =>
+ 81:         toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }),
+ 82:       )
+ 83:       .finally(() => setLoadingAreas(false))
+ 84:   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+ 85: 
+ 86:   // ── helpers ────────────────────────────────────────────────────────────
+ 87:   const set = useCallback(
+ 88:     <K extends keyof CreateOcupacionPayload>(key: K, val: CreateOcupacionPayload[K]) =>
+ 89:       setForm((p) => ({ ...p, [key]: val })),
+ 90:     [],
+ 91:   )
+ 92: 
+ 93:   const toggleArea = (id: number) => {
+ 94:     const ids = form.areaIds
+ 95:     set("areaIds", ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
+ 96:   }
+ 97: 
+ 98:   const agregarAnexo = () => {
+ 99:     const url = nuevoAnexo.trim()
+100:     if (!url) return
+101:     try { new URL(url) } catch {
+102:       toast({ variant: "destructive", title: "URL inválida", description: "Ingresá una URL con http/https" })
+103:       return
+104:     }
+105:     if ((form.anexos ?? []).includes(url)) {
+106:       toast({ variant: "destructive", title: "Duplicado", description: "Esa URL ya fue agregada" })
+107:       return
+108:     }
+109:     set("anexos", [...(form.anexos ?? []), url])
+110:     setNuevoAnexo("")
+111:   }
+112: 
+113:   const quitarAnexo = (i: number) =>
+114:     set("anexos", (form.anexos ?? []).filter((_, idx) => idx !== i))
+115: 
+116:   const resetForm = () => {
+117:     setForm(EMPTY_FORM)
+118:     setNuevoAnexo("")
+119:     setShowEdad(false)
+120:   }
+121: 
+122:   // ── submit ─────────────────────────────────────────────────────────────
+123:   const handleSubmit = async () => {
+124:     if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Requerido", description: "Ingresá un título" });            return }
+125:     if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Requerido", description: "Ingresá el requerimiento" });     return }
+126:     if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Requerido", description: "Ingresá el organizador" });       return }
+127:     if (!form.dia)                  { toast({ variant: "destructive", title: "Requerido", description: "Seleccioná una fecha" });         return }
+128:     if (!form.hora)                 { toast({ variant: "destructive", title: "Requerido", description: "Ingresá una hora" });             return }
+129:     if (form.cantidadPersonas < 1)  { toast({ variant: "destructive", title: "Inválido",  description: "Mínimo 1 persona" });             return }
+130:     if (form.areaIds.length === 0)  { toast({ variant: "destructive", title: "Requerido", description: "Seleccioná al menos un área" }); return }
+131: 
+132:     if (
+133:       form.edadMin !== undefined &&
+134:       form.edadMax !== undefined &&
+135:       form.edadMin > form.edadMax
+136:     ) {
+137:       toast({ variant: "destructive", title: "Rango inválido", description: "La edad mínima no puede superar la máxima" })
+138:       return
+139:     }
+140: 
+141:     try {
+142:       setLoading(true)
+143:       const payload: CreateOcupacionPayload = {
+144:         titulo:           form.titulo.trim(),
+145:         requerimiento:    form.requerimiento.trim(),
+146:         cantidadPersonas: Number(form.cantidadPersonas),
+147:         organizador:      form.organizador.trim(),
+148:         dia:              form.dia,
+149:         hora:             form.hora,
+150:         areaIds:          form.areaIds,
+151:         anexos:           form.anexos ?? [],
+152:         ...(form.edadMin !== undefined && { edadMin: Number(form.edadMin) }),
+153:         ...(form.edadMax !== undefined && { edadMax: Number(form.edadMax) }),
+154:       }
+155: 
+156:       await ocupacionesApi.create(payload)
+157: 
+158:       toast({
+159:         title:       "✅ Ocupación agendada",
+160:         description: `"${payload.titulo}" registrada — áreas marcadas como ocupadas`,
+161:       })
+162: 
+163:       resetForm()
+164:       onOpenChange(false)
+165:       onSuccess?.()
+166:     } catch (err) {
+167:       const msg = err instanceof Error ? err.message : "Error desconocido"
+168:       toast({ variant: "destructive", title: "Error al agendar", description: msg })
+169:     } finally {
+170:       setLoading(false)
+171:     }
+172:   }
+173: 
+174:   const handleClose = () => {
+175:     if (loading) return
+176:     resetForm()
+177:     onOpenChange(false)
+178:   }
+179: 
+180:   // ── UI ─────────────────────────────────────────────────────────────────
+181:   return (
+182:     <Dialog open={open} onOpenChange={handleClose}>
+183:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+184:         <DialogHeader>
+185:           <DialogTitle className="text-xl flex items-center gap-2">
+186:             <CalendarDays className="w-5 h-5 text-primary" />
+187:             Agendar Ocupación
+188:           </DialogTitle>
+189:           <DialogDescription>
+190:             Completá los datos y seleccioná las áreas a ocupar.
+191:           </DialogDescription>
+192:         </DialogHeader>
+193: 
+194:         <div className="space-y-5 py-2">
+195: 
+196:           {/* Título */}
+197:           <div className="space-y-1.5">
+198:             <Label htmlFor="oc-titulo" className="flex items-center gap-1.5 text-sm font-medium">
+199:               <FileText className="w-3.5 h-3.5 text-primary" /> Título <span className="text-destructive">*</span>
+200:             </Label>
+201:             <Input
+202:               id="oc-titulo"
+203:               placeholder="Ej: Taller de programación"
+204:               value={form.titulo}
+205:               onChange={(e) => set("titulo", e.target.value)}
+206:               disabled={loading}
+207:               maxLength={120}
+208:             />
+209:           </div>
+210: 
+211:           {/* Requerimiento */}
+212:           <div className="space-y-1.5">
+213:             <Label htmlFor="oc-req" className="flex items-center gap-1.5 text-sm font-medium">
+214:               <FileText className="w-3.5 h-3.5 text-primary" /> Requerimiento <span className="text-destructive">*</span>
+215:             </Label>
+216:             <Textarea
+217:               id="oc-req"
+218:               placeholder="Equipamiento, condiciones, necesidades especiales..."
+219:               value={form.requerimiento}
+220:               onChange={(e) => set("requerimiento", e.target.value)}
+221:               disabled={loading}
+222:               rows={3}
+223:               className="resize-none"
+224:             />
+225:           </div>
+226: 
+227:           {/* Organizador */}
+228:           <div className="space-y-1.5">
+229:             <Label htmlFor="oc-org" className="flex items-center gap-1.5 text-sm font-medium">
+230:               <User className="w-3.5 h-3.5 text-primary" /> Solicitante / Organizador <span className="text-destructive">*</span>
+231:             </Label>
+232:             <Input
+233:               id="oc-org"
+234:               placeholder="Nombre completo o institución"
+235:               value={form.organizador}
+236:               onChange={(e) => set("organizador", e.target.value)}
+237:               disabled={loading}
+238:             />
+239:           </div>
+240: 
+241:           {/* Cantidad de personas */}
+242:           <div className="space-y-1.5">
+243:             <Label htmlFor="oc-cant" className="flex items-center gap-1.5 text-sm font-medium">
+244:               <Users className="w-3.5 h-3.5 text-primary" /> Cantidad de personas <span className="text-destructive">*</span>
+245:             </Label>
+246:             <Input
+247:               id="oc-cant"
+248:               type="number"
+249:               min={1}
+250:               max={9999}
+251:               placeholder="Ej: 30"
+252:               value={form.cantidadPersonas}
+253:               onChange={(e) => set("cantidadPersonas", parseInt(e.target.value) || 1)}
+254:               disabled={loading}
+255:             />
+256:           </div>
+257: 
+258:           {/* Día y Hora */}
+259:           <div className="grid grid-cols-2 gap-3">
+260:             <div className="space-y-1.5">
+261:               <Label htmlFor="oc-dia" className="flex items-center gap-1.5 text-sm font-medium">
+262:                 <CalendarDays className="w-3.5 h-3.5 text-primary" /> Día <span className="text-destructive">*</span>
+263:               </Label>
+264:               <Input
+265:                 id="oc-dia"
+266:                 type="date"
+267:                 value={form.dia}
+268:                 onChange={(e) => set("dia", e.target.value)}
+269:                 disabled={loading}
+270:                 min={new Date().toISOString().split("T")[0]}
+271:               />
+272:             </div>
+273:             <div className="space-y-1.5">
+274:               <Label htmlFor="oc-hora" className="flex items-center gap-1.5 text-sm font-medium">
+275:                 <Clock className="w-3.5 h-3.5 text-primary" /> Hora <span className="text-destructive">*</span>
+276:               </Label>
+277:               <Input
+278:                 id="oc-hora"
+279:                 type="time"
+280:                 value={form.hora}
+281:                 onChange={(e) => set("hora", e.target.value)}
+282:                 disabled={loading}
+283:               />
+284:             </div>
+285:           </div>
+286: 
+287:           {/* Selector de áreas ─────────────────────────────────────────── */}
+288:           <div className="space-y-2">
+289:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+290:               <MapPin className="w-3.5 h-3.5 text-primary" />
+291:               Áreas del coworking <span className="text-destructive">*</span>
+292:             </Label>
+293: 
+294:             {loadingAreas ? (
+295:               <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+296:                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
+297:               </div>
+298:             ) : areas.length === 0 ? (
+299:               <p className="text-sm text-muted-foreground py-2">No hay áreas disponibles</p>
+300:             ) : (
+301:               <div className="grid grid-cols-2 gap-2">
+302:                 {areas.map((area) => {
+303:                   const selected = form.areaIds.includes(area.id)
+304:                   const libre    = area.estado === "LIBRE"
+305:                   return (
+306:                     <button
+307:                       key={area.id}
+308:                       type="button"
+309:                       onClick={() => libre && toggleArea(area.id)}
+310:                       disabled={loading || !libre}
+311:                       className={[
+312:                         "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
+313:                         selected
+314:                           ? "border-primary bg-primary/10 text-primary"
+315:                           : libre
+316:                             ? "border-border hover:border-primary/50 hover:bg-muted/40"
+317:                             : "border-border bg-muted/20 text-muted-foreground cursor-not-allowed opacity-60",
+318:                       ].join(" ")}
+319:                     >
+320:                       <CheckSquare
+321:                         className={[
+322:                           "w-4 h-4 mt-0.5 flex-shrink-0 transition-colors",
+323:                           selected ? "text-primary" : "text-muted-foreground/50",
+324:                         ].join(" ")}
+325:                       />
+326:                       <span className="flex-1 min-w-0">
+327:                         <span className="font-medium block truncate">{area.nombre}</span>
+328:                         {area.descripcion && (
+329:                           <span className="text-xs text-muted-foreground line-clamp-1">
+330:                             {area.descripcion}
+331:                           </span>
+332:                         )}
+333:                         {!libre && (
+334:                           <span className="text-xs text-destructive font-medium">Ocupada</span>
+335:                         )}
+336:                       </span>
+337:                     </button>
+338:                   )
+339:                 })}
+340:               </div>
+341:             )}
+342: 
+343:             {/* badges de áreas seleccionadas */}
+344:             {form.areaIds.length > 0 && (
+345:               <div className="flex flex-wrap gap-1.5 pt-1">
+346:                 {form.areaIds.map((id) => {
+347:                   const area = areas.find((a) => a.id === id)
+348:                   return (
+349:                     <Badge
+350:                       key={id}
+351:                       variant="secondary"
+352:                       className="gap-1 pr-1 text-xs bg-primary/10 text-primary border-primary/20"
+353:                     >
+354:                       {area?.nombre ?? `Área ${id}`}
+355:                       <button
+356:                         type="button"
+357:                         onClick={() => toggleArea(id)}
+358:                         disabled={loading}
+359:                         className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5 transition-colors"
+360:                       >
+361:                         <X className="w-2.5 h-2.5" />
+362:                       </button>
+363:                     </Badge>
+364:                   )
+365:                 })}
+366:               </div>
+367:             )}
+368:           </div>
+369: 
+370:           {/* Rango de edad (colapsable) ──────────────────────────────────── */}
+371:           <div className="border rounded-lg overflow-hidden">
+372:             <button
+373:               type="button"
+374:               onClick={() => setShowEdad(!showEdad)}
+375:               className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium bg-muted/40 hover:bg-muted/70 transition-colors"
+376:             >
+377:               <span className="flex items-center gap-1.5">
+378:                 <Users className="w-3.5 h-3.5 text-primary" />
+379:                 Rango de edad del público
+380:                 <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+381:               </span>
+382:               {showEdad
+383:                 ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+384:                 : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+385:             </button>
+386: 
+387:             {showEdad && (
+388:               <div className="px-4 py-4 grid grid-cols-2 gap-3 bg-background">
+389:                 <div className="space-y-1.5">
+390:                   <Label htmlFor="oc-emin" className="text-xs font-medium text-muted-foreground">Edad mínima</Label>
+391:                   <Input
+392:                     id="oc-emin"
+393:                     type="number"
+394:                     min={0}
+395:                     max={120}
+396:                     placeholder="Ej: 10"
+397:                     value={form.edadMin ?? ""}
+398:                     onChange={(e) => set("edadMin", e.target.value ? parseInt(e.target.value) : undefined)}
+399:                     disabled={loading}
+400:                   />
+401:                 </div>
+402:                 <div className="space-y-1.5">
+403:                   <Label htmlFor="oc-emax" className="text-xs font-medium text-muted-foreground">Edad máxima</Label>
+404:                   <Input
+405:                     id="oc-emax"
+406:                     type="number"
+407:                     min={0}
+408:                     max={120}
+409:                     placeholder="Ej: 20"
+410:                     value={form.edadMax ?? ""}
+411:                     onChange={(e) => set("edadMax", e.target.value ? parseInt(e.target.value) : undefined)}
+412:                     disabled={loading}
+413:                   />
+414:                 </div>
+415:                 {form.edadMin !== undefined && form.edadMax !== undefined && form.edadMin <= form.edadMax && (
+416:                   <p className="col-span-2 text-xs text-muted-foreground">
+417:                     Público de <strong>{form.edadMin}</strong> a <strong>{form.edadMax}</strong> años
+418:                   </p>
+419:                 )}
+420:               </div>
+421:             )}
+422:           </div>
+423: 
+424:           {/* Anexos ──────────────────────────────────────────────────────── */}
+425:           <div className="space-y-2">
+426:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+427:               <Link2 className="w-3.5 h-3.5 text-primary" />
+428:               Anexos
+429:               <span className="text-xs text-muted-foreground font-normal">(opcional — máx. 10 URLs)</span>
+430:             </Label>
+431: 
+432:             {(form.anexos ?? []).length > 0 && (
+433:               <ul className="space-y-1.5">
+434:                 {(form.anexos ?? []).map((url, i) => (
+435:                   <li key={i} className="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-3 py-2 group">
+436:                     <Link2 className="w-3 h-3 text-primary flex-shrink-0" />
+437:                     <a href={url} target="_blank" rel="noopener noreferrer"
+438:                        className="flex-1 truncate text-primary hover:underline">
+439:                       {url}
+440:                     </a>
+441:                     <button
+442:                       type="button"
+443:                       onClick={() => quitarAnexo(i)}
+444:                       disabled={loading}
+445:                       className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+446:                     >
+447:                       <Trash2 className="w-3.5 h-3.5" />
+448:                     </button>
+449:                   </li>
+450:                 ))}
+451:               </ul>
+452:             )}
+453: 
+454:             {(form.anexos ?? []).length < 10 && (
+455:               <div className="flex gap-2">
+456:                 <Input
+457:                   type="url"
+458:                   placeholder="https://drive.google.com/..."
+459:                   value={nuevoAnexo}
+460:                   onChange={(e) => setNuevoAnexo(e.target.value)}
+461:                   onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarAnexo())}
+462:                   disabled={loading}
+463:                   className="text-sm"
+464:                 />
+465:                 <Button
+466:                   type="button"
+467:                   variant="outline"
+468:                   size="icon"
+469:                   onClick={agregarAnexo}
+470:                   disabled={loading || !nuevoAnexo.trim()}
+471:                   className="flex-shrink-0"
+472:                 >
+473:                   <Plus className="w-4 h-4" />
+474:                 </Button>
+475:               </div>
+476:             )}
+477:           </div>
+478: 
+479:         </div>
+480: 
+481:         <DialogFooter className="flex-col-reverse sm:flex-row gap-2 pt-2">
+482:           <Button variant="outline" onClick={handleClose} disabled={loading} className="bg-transparent">
+483:             Cancelar
+484:           </Button>
+485:           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
+486:             {loading ? (
+487:               <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
+488:             ) : (
+489:               <><CalendarDays className="w-4 h-4" /> Agendar</>
+490:             )}
+491:           </Button>
+492:         </DialogFooter>
+493:       </DialogContent>
+494:     </Dialog>
+495:   )
+496: }
+```
 
 ## File: components/bottom-navbar.tsx
 ```typescript
@@ -176,6 +679,99 @@ x.sh
 82:     </nav>
 83:   )
 84: }
+```
+
+## File: lib/ocupacion-api.ts
+```typescript
+ 1: import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
+ 2: 
+ 3: const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+ 4: 
+ 5: export const ocupacionesApi = {
+ 6:   getAll: async (): Promise<Ocupacion[]> => {
+ 7:     const res = await fetch(`${BASE}/ocupaciones`, {
+ 8:       headers: { "Content-Type": "application/json" },
+ 9:       cache: "no-store",
+10:     })
+11:     if (!res.ok) throw new Error(`Error al obtener ocupaciones: ${res.status}`)
+12:     return res.json()
+13:   },
+14: 
+15:   getById: async (id: number): Promise<Ocupacion> => {
+16:     const res = await fetch(`${BASE}/ocupaciones/${id}`, {
+17:       headers: { "Content-Type": "application/json" },
+18:     })
+19:     if (!res.ok) throw new Error(`Error al obtener ocupación ${id}`)
+20:     return res.json()
+21:   },
+22: 
+23:   create: async (data: CreateOcupacionPayload): Promise<Ocupacion> => {
+24:     const res = await fetch(`${BASE}/ocupaciones`, {
+25:       method:  "POST",
+26:       headers: { "Content-Type": "application/json" },
+27:       body:    JSON.stringify(data),
+28:     })
+29:     if (!res.ok) {
+30:       const body = await res.text()
+31:       throw new Error(`Error al crear ocupación: ${body}`)
+32:     }
+33:     return res.json()
+34:   },
+35: 
+36:   liberar: async (id: number): Promise<Ocupacion> => {
+37:     const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, {
+38:       method: "PATCH",
+39:     })
+40:     if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
+41:     return res.json()
+42:   },
+43: 
+44:   delete: async (id: number): Promise<void> => {
+45:     const res = await fetch(`${BASE}/ocupaciones/${id}`, { method: "DELETE" })
+46:     if (!res.ok) throw new Error(`Error al eliminar ocupación ${id}`)
+47:   },
+48: }
+```
+
+## File: types/ocupacion.ts
+```typescript
+ 1: import type { BackendArea } from "@/types/seat"
+ 2: 
+ 3: export interface OcupacionArea {
+ 4:   ocupacionId: number
+ 5:   areaId:      number
+ 6:   area:        BackendArea
+ 7: }
+ 8: 
+ 9: export interface Ocupacion {
+10:   id:               number
+11:   titulo:           string
+12:   requerimiento:    string
+13:   cantidadPersonas: number
+14:   organizador:      string
+15:   dia:              string
+16:   hora:             string
+17:   edadMin?:         number | null
+18:   edadMax?:         number | null
+19:   anexos:           string[]
+20:   liberadaAt?:      string | null
+21:   areas:            OcupacionArea[]
+22:   createdAt:        string
+23:   updatedAt:        string
+24: }
+25: 
+26: export interface CreateOcupacionPayload {
+27:   titulo:           string
+28:   requerimiento:    string
+29:   cantidadPersonas: number
+30:   organizador:      string
+31:   dia:              string
+32:   hora:             string
+33:   edadMin?:         number
+34:   edadMax?:         number
+35:   anexos?:          string[]
+36:   areaIds:          number[]
+37: }
 ```
 
 ## File: .dockerignore
@@ -2759,326 +3355,6 @@ x.sh
 104: }
 ```
 
-## File: app/page.tsx
-```typescript
-  1: "use client"
-  2: 
-  3: import { useState, useEffect } from "react"
-  4: import { useRouter } from "next/navigation"
-  5: import { useAuth } from "@/contexts/auth-context"
-  6: import type { Seat, SeatStatus } from "@/types/seat"
-  7: import { useSeats } from "@/hooks/use-seats"
-  8: import { SeatGrid } from "@/components/seat-grid"
-  9: import { SeatStatusModal } from "@/components/seat-status-modal"
- 10: import { SeatLegend } from "@/components/seat-legend"
- 11: import { AdminPanel } from "@/components/admin-panel"
- 12: import { CorsInfoBanner } from "@/components/cors-info-banner"
- 13: import { Switch } from "@/components/ui/switch"
- 14: import { Label } from "@/components/ui/label"
- 15: import { Button } from "@/components/ui/button"
- 16: import { Loader2, RefreshCw, LogOut, Menu, Armchair, Users, CheckCircle, Building2 } from "lucide-react"
- 17: import { Alert, AlertDescription } from "@/components/ui/alert"
- 18: import { useToast } from "@/hooks/use-toast"
- 19: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
- 20: 
- 21: export default function CoworkingSeatsPage() {
- 22:   const router = useRouter()
- 23:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
- 24:   const { seats, loading, error, updateSeatStatus, toggleBlockAll, fetchSeats } = useSeats()
- 25:   const { toast } = useToast()
- 26: 
- 27:   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null)
- 28:   const [modalOpen, setModalOpen] = useState(false)
- 29:   const [isAdminMode, setIsAdminMode] = useState(false)
- 30:   const [isBlocked, setIsBlocked] = useState(false)
- 31:   const [eventName, setEventName] = useState<string>()
- 32:   const [showCorsInfo, setShowCorsInfo] = useState(false)
- 33:   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
- 34: 
- 35:   useEffect(() => {
- 36:     if (!authLoading && !admin) {
- 37:       router.push("/login")
- 38:     }
- 39:   }, [admin, authLoading, router])
- 40: 
- 41:   const selectedSeat = selectedSeatId ? seats.find((s) => s.id === selectedSeatId) || null : null
- 42: 
- 43:   const handleSeatClick = (seat: Seat) => {
- 44:     setSelectedSeatId(seat.id)
- 45:     setModalOpen(true)
- 46:   }
- 47: 
- 48:   const handleUpdateStatus = async (
- 49:     seatId: string,
- 50:     newStatus: SeatStatus,
- 51:     userName?: string,
- 52:     shareLimit?: number,
- 53:     peopleCount = 1,
- 54:   ) => {
- 55:     try {
- 56:       await updateSeatStatus(seatId, newStatus, userName, shareLimit, peopleCount)
- 57:       setModalOpen(false)
- 58:     } catch (err) {
- 59:       // Error ya manejado en useSeats con toast
- 60:     }
- 61:   }
- 62: 
- 63:   const handleToggleBlock = async (block: boolean, newEventName?: string) => {
- 64:     setIsBlocked(block)
- 65:     setEventName(newEventName)
- 66:     await toggleBlockAll(block)
- 67:   }
- 68: 
- 69:   const handleRefresh = async () => {
- 70:     await fetchSeats()
- 71:     toast({
- 72:       title: "Datos actualizados",
- 73:       description: "Se recargaron los asientos desde el backend",
- 74:     })
- 75:   }
- 76: 
- 77:   const occupiedCount = seats.filter((s) => s.status === "occupied" || s.status === "shared").length
- 78:   const availableCount = seats.filter((s) => s.status === "available" || s.status === "for-share").length
- 79: 
- 80:   if (authLoading) {
- 81:     return (
- 82:       <div className="min-h-screen bg-gradient-to-b from-background to-secondary flex items-center justify-center px-4">
- 83:         <div className="text-center space-y-4">
- 84:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
- 85:           <p className="text-muted-foreground text-sm md:text-base">Verificando sesión...</p>
- 86:         </div>
- 87:       </div>
- 88:     )
- 89:   }
- 90: 
- 91:   if (!admin) {
- 92:     return null
- 93:   }
- 94: 
- 95:   if (loading && seats.length === 0) {
- 96:     return (
- 97:       <div className="min-h-screen bg-gradient-to-b from-background to-secondary flex items-center justify-center px-4">
- 98:         <div className="text-center space-y-4">
- 99:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-100:           <p className="text-muted-foreground text-sm md:text-base">Cargando asientos del backend...</p>
-101:           <p className="text-xs text-muted-foreground">
-102:             Conectando a: {process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"}
-103:           </p>
-104:         </div>
-105:       </div>
-106:     )
-107:   }
-108: 
-109:   return (
-110:     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
-111:       {/* Header */}
-112:       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-primary/10">
-113:         <div className="px-4 md:px-6 py-4">
-114:           <div className="max-w-7xl mx-auto">
-115:             {/* Desktop Header */}
-116:             <div className="hidden md:flex items-center justify-between">
-117:               <div className="flex items-center gap-3">
-118:                 <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
-119:                   <Armchair className="w-5 h-5 text-primary" />
-120:                 </div>
-121:                 <div className="min-w-0">
-122:                   <h1 className="text-2xl font-bold text-foreground">Gestión de Asientos</h1>
-123:                   <p className="text-xs text-muted-foreground">NODO Tecnológico</p>
-124:                 </div>
-125:               </div>
-126: 
-127:               <div className="flex items-center gap-2 flex-shrink-0">
-128:                 <div className="text-right text-sm">
-129:                   <p className="font-medium text-foreground">{admin.nombre}</p>
-130:                   <p className="text-xs text-muted-foreground">{admin.email}</p>
-131:                 </div>
-132:                 <div className="flex gap-1">
-133:                   <Button variant="ghost" size="sm" onClick={handleRefresh} className="gap-2 rounded-lg">
-134:                     <RefreshCw className="w-4 h-4" />
-135:                   </Button>
-136:                   <Button variant="ghost" size="sm" onClick={logout} className="gap-2 rounded-lg text-destructive">
-137:                     <LogOut className="w-4 h-4" />
-138:                   </Button>
-139:                 </div>
-140:                 {isAdmin && (
-141:                   <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
-142:                     <Switch id="admin-mode" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-143:                     <Label htmlFor="admin-mode" className="text-xs font-medium cursor-pointer">Admin</Label>
-144:                   </div>
-145:                 )}
-146:               </div>
-147:             </div>
-148: 
-149:             {/* Mobile Header */}
-150:             <div className="md:hidden flex items-center justify-between">
-151:               <div className="flex items-center gap-2 min-w-0">
-152:                 <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
-153:                   <Armchair className="w-4 h-4 text-primary" />
-154:                 </div>
-155:                 <div className="min-w-0">
-156:                   <h1 className="text-lg font-bold truncate text-foreground">Gestión de Asientos</h1>
-157:                   <p className="text-xs text-muted-foreground truncate">{admin.nombre}</p>
-158:                 </div>
-159:               </div>
-160: 
-161:               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-162:                 <SheetTrigger asChild>
-163:                   <Button variant="ghost" size="sm" className="rounded-lg">
-164:                     <Menu className="w-5 h-5" />
-165:                   </Button>
-166:                 </SheetTrigger>
-167:                 <SheetContent side="right" className="w-80">
-168:                   <div className="space-y-4 mt-8">
-169:                     <div className="text-sm">
-170:                       <p className="font-medium text-foreground">{admin.nombre}</p>
-171:                       <p className="text-xs text-muted-foreground text-foreground">{admin.email}</p>
-172:                     </div>
-173:                     <div className="space-y-2 pt-4 border-t border-border">
-174:                       <Button onClick={handleRefresh} className="w-full justify-start gap-2" variant="ghost" size="sm">
-175:                         <RefreshCw className="w-4 h-4" />
-176:                         Actualizar
-177:                       </Button>
-178:                       {isAdmin && (
-179:                         <div className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary">
-180:                           <Label htmlFor="admin-mode-mobile" className="text-sm font-medium cursor-pointer">Modo Admin</Label>
-181:                           <Switch 
-182:                             id="admin-mode-mobile" 
-183:                             checked={isAdminMode} 
-184:                             onCheckedChange={setIsAdminMode} 
-185:                           />
-186:                         </div>
-187:                       )}
-188:                       <Button onClick={logout} className="w-full justify-start gap-2" variant="ghost" size="sm" className="text-destructive">
-189:                         <LogOut className="w-4 h-4" />
-190:                         Salir
-191:                       </Button>
-192:                     </div>
-193:                   </div>
-194:                 </SheetContent>
-195:               </Sheet>
-196:             </div>
-197:           </div>
-198:         </div>
-199:       </div>
-200: 
-201:       {/* Main Content */}
-202:       <div className="px-4 md:px-6 py-6 md:py-8">
-203:         <div className="max-w-7xl mx-auto space-y-6">
-204:           {/* Error Banner */}
-205:           {error && (
-206:             <>
-207:               <Alert variant="destructive" className="text-sm rounded-xl shadow-sm">
-208:                 <AlertDescription>
-209:                   <div className="space-y-2">
-210:                     <p className="font-semibold">{error}</p>
-211:                     {error.includes("Failed to fetch") && (
-212:                       <div className="text-xs space-y-1">
-213:                         <p>Este error indica un problema de CORS en el backend.</p>
-214:                         <Button
-215:                           variant="outline"
-216:                           size="sm"
-217:                           onClick={() => setShowCorsInfo(!showCorsInfo)}
-218:                           className="mt-2 bg-white"
-219:                         >
-220:                           {showCorsInfo ? "Ocultar" : "Ver"} solución
-221:                         </Button>
-222:                       </div>
-223:                     )}
-224:                   </div>
-225:                 </AlertDescription>
-226:               </Alert>
-227:               {showCorsInfo && <CorsInfoBanner />}
-228:             </>
-229:           )}
-230: 
-231:           {/* Stats Cards */}
-232:           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-233:             <div className="bg-white p-6 rounded-xl shadow-sm border border-primary/5">
-234:               <div className="flex items-center gap-3">
-235:                 <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-236:                   <Armchair className="w-6 h-6 text-primary" />
-237:                 </div>
-238:                 <div>
-239:                   <p className="text-xs md:text-sm text-muted-foreground font-medium">Total de asientos</p>
-240:                   <p className="text-2xl md:text-3xl font-bold text-foreground">{seats.length}</p>
-241:                 </div>
-242:               </div>
-243:             </div>
-244: 
-245:             <div className="bg-white p-6 rounded-xl shadow-sm border border-primary/5">
-246:               <div className="flex items-center gap-3">
-247:                 <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center">
-248:                   <Users className="w-6 h-6 text-red-500" />
-249:                 </div>
-250:                 <div>
-251:                   <p className="text-xs md:text-sm text-muted-foreground font-medium">Ocupados</p>
-252:                   <p className="text-2xl md:text-3xl font-bold text-red-500">{occupiedCount}</p>
-253:                 </div>
-254:               </div>
-255:             </div>
-256: 
-257:             <div className="bg-white p-6 rounded-xl shadow-sm border border-primary/5">
-258:               <div className="flex items-center gap-3">
-259:                 <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
-260:                   <CheckCircle className="w-6 h-6 text-green-500" />
-261:                 </div>
-262:                 <div>
-263:                   <p className="text-xs md:text-sm text-muted-foreground font-medium">Disponibles</p>
-264:                   <p className="text-2xl md:text-3xl font-bold text-green-500">{availableCount}</p>
-265:                 </div>
-266:               </div>
-267:             </div>
-268:           </div>
-269: 
-270:           {/* Blocked Alert */}
-271:           {isBlocked && (
-272:             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm">
-273:               <p className="text-red-700 font-semibold">Sistema bloqueado por evento: {eventName}</p>
-274:             </div>
-275:           )}
-276: 
-277:           {/* Admin Panel */}
-278:           {isAdminMode && isAdmin && (
-279:             <div>
-280:               <AdminPanel isBlocked={isBlocked} eventName={eventName} onToggleBlock={handleToggleBlock} />
-281:             </div>
-282:           )}
-283: 
-284:           {/* Legend */}
-285:           <div className="bg-white rounded-xl shadow-sm border border-primary/5 p-6">
-286:             <h2 className="text-lg font-semibold text-foreground mb-4">Estados de los Asientos</h2>
-287:             <SeatLegend />
-288:           </div>
-289: 
-290:           {/* Seat Grid */}
-291:           <div className="bg-white rounded-xl shadow-sm border border-primary/5 p-6 md:p-8">
-292:             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0 mb-6">
-293:               <h2 className="text-lg md:text-xl font-semibold text-foreground">Mapa de Asientos</h2>
-294:               <p className="text-xs md:text-sm text-muted-foreground">
-295:                 {isAdminMode ? "Modo edición activo" : "Haz clic para gestionar"}
-296:               </p>
-297:             </div>
-298: 
-299:             <div className="overflow-x-auto">
-300:               <SeatGrid seats={seats} onSeatClick={handleSeatClick} isBlocked={isBlocked && !isAdminMode} />
-301:             </div>
-302:           </div>
-303:         </div>
-304:       </div>
-305: 
-306:       {/* Modal */}
-307:       <SeatStatusModal
-308:         seat={selectedSeat}
-309:         open={modalOpen}
-310:         onClose={() => setModalOpen(false)}
-311:         onUpdateStatus={handleUpdateStatus}
-312:         isAdmin={isAdminMode && isAdmin}
-313:       />
-314:     </div>
-315:   )
-316: }
-```
-
 ## File: next.config.mjs
 ```javascript
  1: /** @type {import('next').NextConfig} */
@@ -3618,6 +3894,337 @@ x.sh
 493: }
 ```
 
+## File: app/page.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect } from "react"
+  4: import { useRouter } from "next/navigation"
+  5: import { useAuth } from "@/contexts/auth-context"
+  6: import type { Seat, SeatStatus } from "@/types/seat"
+  7: import { useSeats } from "@/hooks/use-seats"
+  8: import { SeatGrid } from "@/components/seat-grid"
+  9: import { SeatStatusModal } from "@/components/seat-status-modal"
+ 10: import { SeatLegend } from "@/components/seat-legend"
+ 11: import { AdminPanel } from "@/components/admin-panel"
+ 12: import { CorsInfoBanner } from "@/components/cors-info-banner"
+ 13: import { Switch } from "@/components/ui/switch"
+ 14: import { Label } from "@/components/ui/label"
+ 15: import { Button } from "@/components/ui/button"
+ 16: import { Loader2, RefreshCw, LogOut, Menu, Armchair, Users, CheckCircle, Building2, CalendarPlus } from "lucide-react"
+ 17: import { Alert, AlertDescription } from "@/components/ui/alert"
+ 18: import { useToast } from "@/hooks/use-toast"
+ 19: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+ 20: import { AgendarModal } from "@/components/agendar-modal"
+ 21: 
+ 22: export default function CoworkingSeatsPage() {
+ 23:   const router = useRouter()
+ 24:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
+ 25:   const { seats, loading, error, updateSeatStatus, toggleBlockAll, fetchSeats } = useSeats()
+ 26:   const { toast } = useToast()
+ 27: 
+ 28:   const [selectedSeatId, setSelectedSeatId] = useState<string | null>(null)
+ 29:   const [modalOpen, setModalOpen] = useState(false)
+ 30:   const [isAdminMode, setIsAdminMode] = useState(false)
+ 31:   const [isBlocked, setIsBlocked] = useState(false)
+ 32:   const [eventName, setEventName] = useState<string>()
+ 33:   const [showCorsInfo, setShowCorsInfo] = useState(false)
+ 34:   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+ 35:   const [agendarOpen, setAgendarOpen] = useState(false)
+ 36: 
+ 37:   useEffect(() => {
+ 38:     if (!authLoading && !admin) {
+ 39:       router.push("/login")
+ 40:     }
+ 41:   }, [admin, authLoading, router])
+ 42: 
+ 43:   const selectedSeat = selectedSeatId ? seats.find((s) => s.id === selectedSeatId) || null : null
+ 44: 
+ 45:   const handleSeatClick = (seat: Seat) => {
+ 46:     setSelectedSeatId(seat.id)
+ 47:     setModalOpen(true)
+ 48:   }
+ 49: 
+ 50:   const handleUpdateStatus = async (
+ 51:     seatId: string,
+ 52:     newStatus: SeatStatus,
+ 53:     userName?: string,
+ 54:     shareLimit?: number,
+ 55:     peopleCount = 1,
+ 56:   ) => {
+ 57:     try {
+ 58:       await updateSeatStatus(seatId, newStatus, userName, shareLimit, peopleCount)
+ 59:       setModalOpen(false)
+ 60:     } catch (err) {
+ 61:       // Error ya manejado en useSeats con toast
+ 62:     }
+ 63:   }
+ 64: 
+ 65:   const handleToggleBlock = async (block: boolean, newEventName?: string) => {
+ 66:     setIsBlocked(block)
+ 67:     setEventName(newEventName)
+ 68:     await toggleBlockAll(block)
+ 69:   }
+ 70: 
+ 71:   const handleRefresh = async () => {
+ 72:     await fetchSeats()
+ 73:     toast({
+ 74:       title: "Datos actualizados",
+ 75:       description: "Se recargaron los asientos desde el backend",
+ 76:     })
+ 77:   }
+ 78: 
+ 79:   const occupiedCount = seats.filter((s) => s.status === "occupied" || s.status === "shared").length
+ 80:   const availableCount = seats.filter((s) => s.status === "available" || s.status === "for-share").length
+ 81: 
+ 82:   if (authLoading) {
+ 83:     return (
+ 84:       <div className="min-h-screen bg-gradient-to-b from-background to-secondary flex items-center justify-center px-4">
+ 85:         <div className="text-center space-y-4">
+ 86:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+ 87:           <p className="text-muted-foreground text-sm md:text-base">Verificando sesión...</p>
+ 88:         </div>
+ 89:       </div>
+ 90:     )
+ 91:   }
+ 92: 
+ 93:   if (!admin) {
+ 94:     return null
+ 95:   }
+ 96: 
+ 97:   if (loading && seats.length === 0) {
+ 98:     return (
+ 99:       <div className="min-h-screen bg-gradient-to-b from-background to-secondary flex items-center justify-center px-4">
+100:         <div className="text-center space-y-4">
+101:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+102:           <p className="text-muted-foreground text-sm md:text-base">Cargando asientos del backend...</p>
+103:           <p className="text-xs text-muted-foreground">
+104:             Conectando a: {process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"}
+105:           </p>
+106:         </div>
+107:       </div>
+108:     )
+109:   }
+110: 
+111:   return (
+112:     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
+113:       {/* Header */}
+114:       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-primary/10">
+115:         <div className="px-4 md:px-6 py-4">
+116:           <div className="max-w-7xl mx-auto">
+117:             {/* Desktop Header */}
+118:             <div className="hidden md:flex items-center justify-between">
+119:               <div className="flex items-center gap-3">
+120:                 <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
+121:                   <Armchair className="w-5 h-5 text-primary" />
+122:                 </div>
+123:                 <div className="min-w-0">
+124:                   <h1 className="text-2xl font-bold text-foreground">Gestión de Asientos</h1>
+125:                   <p className="text-xs text-muted-foreground">NODO Tecnológico</p>
+126:                 </div>
+127:               </div>
+128: 
+129:               <div className="flex items-center gap-2 flex-shrink-0">
+130:                 <div className="text-right text-sm">
+131:                   <p className="font-medium text-foreground">{admin.nombre}</p>
+132:                   <p className="text-xs text-muted-foreground">{admin.email}</p>
+133:                 </div>
+134:                 <div className="flex gap-1">
+135:                   <Button
+136:                     onClick={() => setAgendarOpen(true)}
+137:                     className="gap-2 rounded-lg text-sm"
+138:                     size="sm"
+139:                   >
+140:                     <CalendarPlus className="w-4 h-4" />
+141:                     Agendar
+142:                   </Button>
+143:                   <Button variant="ghost" size="sm" onClick={handleRefresh} className="gap-2 rounded-lg">
+144:                     <RefreshCw className="w-4 h-4" />
+145:                   </Button>
+146:                   <Button variant="ghost" size="sm" onClick={logout} className="gap-2 rounded-lg text-destructive">
+147:                     <LogOut className="w-4 h-4" />
+148:                   </Button>
+149:                 </div>
+150:                 {isAdmin && (
+151:                   <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
+152:                     <Switch id="admin-mode" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+153:                     <Label htmlFor="admin-mode" className="text-xs font-medium cursor-pointer">Admin</Label>
+154:                   </div>
+155:                 )}
+156:               </div>
+157:             </div>
+158: 
+159:             {/* Mobile Header */}
+160:             <div className="md:hidden flex items-center justify-between">
+161:               <div className="flex items-center gap-2 min-w-0">
+162:                 <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center flex-shrink-0">
+163:                   <Armchair className="w-4 h-4 text-primary" />
+164:                 </div>
+165:                 <div className="min-w-0">
+166:                   <h1 className="text-lg font-bold truncate text-foreground">Gestión de Asientos</h1>
+167:                   <p className="text-xs text-muted-foreground truncate">{admin.nombre}</p>
+168:                 </div>
+169:               </div>
+170: 
+171:               <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+172:                 <SheetTrigger asChild>
+173:                   <Button variant="ghost" size="sm" className="rounded-lg">
+174:                     <Menu className="w-5 h-5" />
+175:                   </Button>
+176:                 </SheetTrigger>
+177:                 <SheetContent side="right" className="w-80">
+178:                   <div className="space-y-4 mt-8">
+179:                     <div className="text-sm">
+180:                       <p className="font-medium text-foreground">{admin.nombre}</p>
+181:                       <p className="text-xs text-muted-foreground text-foreground">{admin.email}</p>
+182:                     </div>
+183:                     <div className="space-y-2 pt-4 border-t border-border">
+184:                       <Button onClick={handleRefresh} className="w-full justify-start gap-2" variant="ghost" size="sm">
+185:                         <RefreshCw className="w-4 h-4" />
+186:                         Actualizar
+187:                       </Button>
+188:                       {isAdmin && (
+189:                         <div className="flex items-center justify-between p-2 rounded-lg hover:bg-secondary">
+190:                           <Label htmlFor="admin-mode-mobile" className="text-sm font-medium cursor-pointer">Modo Admin</Label>
+191:                           <Switch 
+192:                             id="admin-mode-mobile" 
+193:                             checked={isAdminMode} 
+194:                             onCheckedChange={setIsAdminMode} 
+195:                           />
+196:                         </div>
+197:                       )}
+198:                       <Button onClick={logout} className="w-full justify-start gap-2" variant="ghost" size="sm" className="text-destructive">
+199:                         <LogOut className="w-4 h-4" />
+200:                         Salir
+201:                       </Button>
+202:                     </div>
+203:                   </div>
+204:                 </SheetContent>
+205:               </Sheet>
+206:             </div>
+207:           </div>
+208:         </div>
+209:       </div>
+210: 
+211:       {/* Main Content */}
+212:       <div className="px-4 md:px-6 py-6 md:py-8">
+213:         <div className="max-w-7xl mx-auto space-y-6">
+214:           {/* Error Banner */}
+215:           {error && (
+216:             <>
+217:               <Alert variant="destructive" className="text-sm rounded-xl shadow-sm">
+218:                 <AlertDescription>
+219:                   <div className="space-y-2">
+220:                     <p className="font-semibold">{error}</p>
+221:                     {error.includes("Failed to fetch") && (
+222:                       <div className="text-xs space-y-1">
+223:                         <p>Este error indica un problema de CORS en el backend.</p>
+224:                         <Button
+225:                           variant="outline"
+226:                           size="sm"
+227:                           onClick={() => setShowCorsInfo(!showCorsInfo)}
+228:                           className="mt-2 bg-white"
+229:                         >
+230:                           {showCorsInfo ? "Ocultar" : "Ver"} solución
+231:                         </Button>
+232:                       </div>
+233:                     )}
+234:                   </div>
+235:                 </AlertDescription>
+236:               </Alert>
+237:               {showCorsInfo && <CorsInfoBanner />}
+238:             </>
+239:           )}
+240: 
+241:           {/* Stats Cards */}
+242:           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+243:             <div className="bg-white p-6 rounded-xl shadow-sm border border-primary/5">
+244:               <div className="flex items-center gap-3">
+245:                 <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
+246:                   <Armchair className="w-6 h-6 text-primary" />
+247:                 </div>
+248:                 <div>
+249:                   <p className="text-xs md:text-sm text-muted-foreground font-medium">Total de asientos</p>
+250:                   <p className="text-2xl md:text-3xl font-bold text-foreground">{seats.length}</p>
+251:                 </div>
+252:               </div>
+253:             </div>
+254: 
+255:             <div className="bg-white p-6 rounded-xl shadow-sm border border-primary/5">
+256:               <div className="flex items-center gap-3">
+257:                 <div className="w-12 h-12 bg-red-50 rounded-lg flex items-center justify-center">
+258:                   <Users className="w-6 h-6 text-red-500" />
+259:                 </div>
+260:                 <div>
+261:                   <p className="text-xs md:text-sm text-muted-foreground font-medium">Ocupados</p>
+262:                   <p className="text-2xl md:text-3xl font-bold text-red-500">{occupiedCount}</p>
+263:                 </div>
+264:               </div>
+265:             </div>
+266: 
+267:             <div className="bg-white p-6 rounded-xl shadow-sm border border-primary/5">
+268:               <div className="flex items-center gap-3">
+269:                 <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
+270:                   <CheckCircle className="w-6 h-6 text-green-500" />
+271:                 </div>
+272:                 <div>
+273:                   <p className="text-xs md:text-sm text-muted-foreground font-medium">Disponibles</p>
+274:                   <p className="text-2xl md:text-3xl font-bold text-green-500">{availableCount}</p>
+275:                 </div>
+276:               </div>
+277:             </div>
+278:           </div>
+279: 
+280:           {/* Blocked Alert */}
+281:           {isBlocked && (
+282:             <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm">
+283:               <p className="text-red-700 font-semibold">Sistema bloqueado por evento: {eventName}</p>
+284:             </div>
+285:           )}
+286: 
+287:           {/* Admin Panel */}
+288:           {isAdminMode && isAdmin && (
+289:             <div>
+290:               <AdminPanel isBlocked={isBlocked} eventName={eventName} onToggleBlock={handleToggleBlock} />
+291:             </div>
+292:           )}
+293: 
+294:           {/* Legend */}
+295:           <div className="bg-white rounded-xl shadow-sm border border-primary/5 p-6">
+296:             <h2 className="text-lg font-semibold text-foreground mb-4">Estados de los Asientos</h2>
+297:             <SeatLegend />
+298:           </div>
+299: 
+300:           {/* Seat Grid */}
+301:           <div className="bg-white rounded-xl shadow-sm border border-primary/5 p-6 md:p-8">
+302:             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0 mb-6">
+303:               <h2 className="text-lg md:text-xl font-semibold text-foreground">Mapa de Asientos</h2>
+304:               <p className="text-xs md:text-sm text-muted-foreground">
+305:                 {isAdminMode ? "Modo edición activo" : "Haz clic para gestionar"}
+306:               </p>
+307:             </div>
+308: 
+309:             <div className="overflow-x-auto">
+310:               <SeatGrid seats={seats} onSeatClick={handleSeatClick} isBlocked={isBlocked && !isAdminMode} />
+311:             </div>
+312:           </div>
+313:         </div>
+314:       </div>
+315: 
+316:       {/* Modal */}
+317:       <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
+318:       <SeatStatusModal
+319:         seat={selectedSeat}
+320:         open={modalOpen}
+321:         onClose={() => setModalOpen(false)}
+322:         onUpdateStatus={handleUpdateStatus}
+323:         isAdmin={isAdminMode && isAdmin}
+324:       />
+325:     </div>
+326:   )
+327: }
+```
+
 ## File: app/layout.tsx
 ```typescript
  1: import type React from "react"
@@ -3800,530 +4407,673 @@ x.sh
 
 ## File: x.sh
 ```bash
-  1: #!/bin/bash
-  2: set -euo pipefail
-  3: 
-  4: # ─────────────────────────────────────────────────────────────
-  5: # coworking-nodo-front — Calendario = réplica visual del calendario
-  6: # público de eventos (nodo-eventos), sin botón de Admin Login.
-  7: # ─────────────────────────────────────────────────────────────
-  8: 
-  9: FILE="app/calendario/page.tsx"
- 10: 
- 11: if [ ! -f "$FILE" ]; then
- 12:   echo "❌ No se encontró $FILE. Ejecutá este script desde la raíz de coworking-nodo-front."
- 13:   exit 1
- 14: fi
- 15: 
- 16: mkdir -p "$(dirname "$FILE")"
- 17: cp "$FILE" "$FILE.bak.$(date +%Y%m%d_%H%M%S)"
- 18: 
- 19: echo "🔧 Reescribiendo $FILE con el diseño del calendario público (sin Admin Login)..."
- 20: 
- 21: cat > "$FILE" << 'PAGE_EOF'
- 22: "use client"
- 23: 
- 24: import { useState, useEffect, useCallback } from "react"
- 25: import {
- 26:   ChevronLeft,
- 27:   ChevronRight,
- 28:   Loader2,
- 29:   CalendarDays,
- 30:   Calendar,
- 31:   MapPin,
- 32:   Users,
- 33:   FileText,
- 34:   ExternalLink,
- 35: } from "lucide-react"
- 36: import { Button } from "@/components/ui/button"
- 37: import { Card } from "@/components/ui/card"
- 38: import { Badge } from "@/components/ui/badge"
- 39: import {
- 40:   Dialog,
- 41:   DialogContent,
- 42:   DialogHeader,
- 43:   DialogTitle,
- 44: } from "@/components/ui/dialog"
- 45: import { cn } from "@/lib/utils"
- 46: 
- 47: // ── Tipos (alineados con el backend de eventos / calendario-back) ──────────
- 48: 
- 49: type EventType =
- 50:   | "PENDIENTE"
- 51:   | "EN_CURSO"
- 52:   | "FINALIZADO"
- 53:   | "CANCELADO"
- 54:   | "MASIVO"
- 55:   | "ESCOLAR"
- 56: 
- 57: interface Evento {
- 58:   id: string
- 59:   titulo: string
- 60:   descripcion?: string
- 61:   informacion?: string
- 62:   fechaDesde: string
- 63:   fechaHasta: string
- 64:   horaDesde: string
- 65:   horaHasta: string
- 66:   tipoEvento: EventType
- 67:   areas?: string[]
- 68:   organizadorSolicitante?: string
- 69:   coberturaPrensaBol?: boolean
- 70:   convocatoria?: number
- 71:   anexos?: string[]
- 72:   solicitudes?: string[]
- 73: }
- 74: 
- 75: // ── Constantes de estilo (mismas que calendario-front) ──────────────────────
- 76: 
- 77: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
- 78: 
- 79: const EVENT_TYPE_COLORS: Record<string, string> = {
- 80:   PENDIENTE: "bg-orange-500",
- 81:   EN_CURSO: "bg-blue-500",
- 82:   FINALIZADO: "bg-green-500",
- 83:   CANCELADO: "bg-red-500",
- 84:   MASIVO: "bg-purple-500",
- 85:   ESCOLAR: "bg-pink-500",
- 86: }
- 87: 
- 88: const EVENT_TYPE_LABELS: Record<string, string> = {
- 89:   PENDIENTE: "Pendiente",
- 90:   EN_CURSO: "En Curso",
- 91:   FINALIZADO: "Finalizado",
- 92:   CANCELADO: "Cancelado",
- 93:   MASIVO: "Masivo",
- 94:   ESCOLAR: "Escolar",
- 95: }
+  1: #!/usr/bin/env bash
+  2: # =============================================================================
+  3: # front-ocupacion.sh  —  v2.0.0  —  PRODUCCIÓN
+  4: # Agrega al frontend Next.js:
+  5: #   · types/ocupacion.ts         — tipos TypeScript con areaIds
+  6: #   · lib/ocupacion-api.ts       — cliente API
+  7: #   · components/agendar-modal.tsx — dialog con selector múltiple de áreas
+  8: #   · Botón "Agendar" en app/page.tsx
+  9: # =============================================================================
+ 10: set -euo pipefail
+ 11: 
+ 12: echo ""
+ 13: echo "╔══════════════════════════════════════════════════════╗"
+ 14: echo "║  front-ocupacion.sh — v2.0.0  (multi-área)          ║"
+ 15: echo "╚══════════════════════════════════════════════════════╝"
+ 16: echo ""
+ 17: 
+ 18: # ── 1. Tipos TypeScript ───────────────────────────────────────────────────────
+ 19: cat > types/ocupacion.ts << 'EOF'
+ 20: import type { BackendArea } from "@/types/seat"
+ 21: 
+ 22: export interface OcupacionArea {
+ 23:   ocupacionId: number
+ 24:   areaId:      number
+ 25:   area:        BackendArea
+ 26: }
+ 27: 
+ 28: export interface Ocupacion {
+ 29:   id:               number
+ 30:   titulo:           string
+ 31:   requerimiento:    string
+ 32:   cantidadPersonas: number
+ 33:   organizador:      string
+ 34:   dia:              string
+ 35:   hora:             string
+ 36:   edadMin?:         number | null
+ 37:   edadMax?:         number | null
+ 38:   anexos:           string[]
+ 39:   liberadaAt?:      string | null
+ 40:   areas:            OcupacionArea[]
+ 41:   createdAt:        string
+ 42:   updatedAt:        string
+ 43: }
+ 44: 
+ 45: export interface CreateOcupacionPayload {
+ 46:   titulo:           string
+ 47:   requerimiento:    string
+ 48:   cantidadPersonas: number
+ 49:   organizador:      string
+ 50:   dia:              string
+ 51:   hora:             string
+ 52:   edadMin?:         number
+ 53:   edadMax?:         number
+ 54:   anexos?:          string[]
+ 55:   areaIds:          number[]
+ 56: }
+ 57: EOF
+ 58: echo "✅  types/ocupacion.ts"
+ 59: 
+ 60: # ── 2. API client ─────────────────────────────────────────────────────────────
+ 61: cat > lib/ocupacion-api.ts << 'EOF'
+ 62: import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
+ 63: 
+ 64: const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+ 65: 
+ 66: export const ocupacionesApi = {
+ 67:   getAll: async (): Promise<Ocupacion[]> => {
+ 68:     const res = await fetch(`${BASE}/ocupaciones`, {
+ 69:       headers: { "Content-Type": "application/json" },
+ 70:       cache: "no-store",
+ 71:     })
+ 72:     if (!res.ok) throw new Error(`Error al obtener ocupaciones: ${res.status}`)
+ 73:     return res.json()
+ 74:   },
+ 75: 
+ 76:   getById: async (id: number): Promise<Ocupacion> => {
+ 77:     const res = await fetch(`${BASE}/ocupaciones/${id}`, {
+ 78:       headers: { "Content-Type": "application/json" },
+ 79:     })
+ 80:     if (!res.ok) throw new Error(`Error al obtener ocupación ${id}`)
+ 81:     return res.json()
+ 82:   },
+ 83: 
+ 84:   create: async (data: CreateOcupacionPayload): Promise<Ocupacion> => {
+ 85:     const res = await fetch(`${BASE}/ocupaciones`, {
+ 86:       method:  "POST",
+ 87:       headers: { "Content-Type": "application/json" },
+ 88:       body:    JSON.stringify(data),
+ 89:     })
+ 90:     if (!res.ok) {
+ 91:       const body = await res.text()
+ 92:       throw new Error(`Error al crear ocupación: ${body}`)
+ 93:     }
+ 94:     return res.json()
+ 95:   },
  96: 
- 97: const AREA_LABELS: Record<string, string> = {
- 98:   COWORKING: "Coworking",
- 99:   AUDITORIO: "Auditorio",
-100:   LABORATORIO: "Laboratorio",
-101:   AULA_1: "Aula 1",
-102:   AULA_2: "Aula 2",
-103:   AULA_3: "Aula 3",
-104:   AULA_4: "Aula 4",
-105:   AULA_5: "Aula 5",
-106:   AULA_6: "Aula 6",
-107:   RECEPCION_ESTE: "Recepción Este",
-108:   RECEPCION_OESTE: "Recepción Oeste",
-109:   EXPLANADA: "Explanada",
-110:   PLAZA: "Plaza",
-111:   SALA_REUNIONES: "Sala de Reuniones",
-112: }
-113: 
-114: const AREA_COLORS: Record<string, string> = {
-115:   COWORKING: "bg-teal-500",
-116:   AUDITORIO: "bg-red-400",
-117:   LABORATORIO: "bg-blue-600",
-118:   AULA_1: "bg-yellow-600",
-119:   AULA_2: "bg-yellow-500",
-120:   AULA_3: "bg-amber-600",
-121:   AULA_4: "bg-amber-500",
-122:   AULA_5: "bg-orange-600",
-123:   AULA_6: "bg-orange-500",
-124:   RECEPCION_ESTE: "bg-cyan-500",
-125:   RECEPCION_OESTE: "bg-cyan-600",
-126:   EXPLANADA: "bg-lime-600",
-127:   PLAZA: "bg-lime-500",
-128:   SALA_REUNIONES: "bg-indigo-500",
-129: }
-130: 
-131: const EVENT_PILL_STYLES: Record<string, string> = {
-132:   PENDIENTE: "bg-amber-50 border-l-[3px] border-amber-500 text-amber-900 hover:bg-amber-100",
-133:   EN_CURSO: "bg-blue-50  border-l-[3px] border-blue-500  text-blue-900  hover:bg-blue-100",
-134:   FINALIZADO: "bg-emerald-50 border-l-[3px] border-emerald-500 text-emerald-900 hover:bg-emerald-100",
-135:   CANCELADO: "bg-red-50   border-l-[3px] border-red-500   text-red-900   hover:bg-red-100",
-136:   MASIVO: "bg-purple-50 border-l-[3px] border-purple-500 text-purple-900 hover:bg-purple-100",
-137:   ESCOLAR: "bg-pink-50  border-l-[3px] border-pink-500  text-pink-900  hover:bg-pink-100",
-138: }
-139: 
-140: const EVENT_DOT_COLORS: Record<string, string> = {
-141:   PENDIENTE: "bg-amber-500",
-142:   EN_CURSO: "bg-blue-500",
-143:   FINALIZADO: "bg-emerald-500",
-144:   CANCELADO: "bg-red-500",
-145:   MASIVO: "bg-purple-500",
-146:   ESCOLAR: "bg-pink-500",
-147: }
-148: 
-149: // ── Helpers de fecha ─────────────────────────────────────────────────────────
-150: 
-151: function parseLocalDate(dateString: string): Date {
-152:   const datePart = dateString.split("T")[0]
-153:   const [year, month, day] = datePart.split("-").map(Number)
-154:   return new Date(year, month - 1, day)
-155: }
-156: 
-157: function formatDate(dateString: string, options?: Intl.DateTimeFormatOptions): string {
-158:   const date = parseLocalDate(dateString)
-159:   return date.toLocaleDateString("es-ES", options ?? { day: "2-digit", month: "short", year: "numeric" })
-160: }
-161: 
-162: // ── Página ───────────────────────────────────────────────────────────────────
-163: 
-164: export default function CalendarioPage() {
-165:   const [events, setEvents] = useState<Evento[]>([])
-166:   const [loading, setLoading] = useState(true)
-167:   const [currentDate, setCurrentDate] = useState(new Date())
-168:   const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null)
-169: 
-170:   const loadEvents = useCallback(
-171:     async (silencioso = false) => {
-172:       if (!silencioso) setLoading(true)
-173:       try {
-174:         const year = currentDate.getFullYear()
-175:         const month = currentDate.getMonth() + 1
-176:         const res = await fetch(`${EVENTOS_API}/calendar?year=${year}&month=${month}`, { cache: "no-store" })
-177:         if (!res.ok) throw new Error(`Error ${res.status}`)
-178:         const data = await res.json()
-179:         setEvents(data.events ?? [])
-180:       } catch (err) {
-181:         if (!silencioso) console.error("Error cargando eventos:", err)
-182:       } finally {
-183:         if (!silencioso) setLoading(false)
-184:       }
-185:     },
-186:     [currentDate],
-187:   )
-188: 
-189:   useEffect(() => {
-190:     loadEvents()
-191:   }, [loadEvents])
-192: 
-193:   // Polling silencioso cada 5 min, igual que el calendario público
-194:   useEffect(() => {
-195:     const intervalo = setInterval(() => loadEvents(true), 5 * 60 * 1000)
-196:     return () => clearInterval(intervalo)
-197:   }, [loadEvents])
-198: 
-199:   const getDaysInMonth = () => {
-200:     const year = currentDate.getFullYear()
-201:     const month = currentDate.getMonth()
-202:     const firstDay = new Date(year, month, 1)
-203:     const lastDay = new Date(year, month + 1, 0)
-204:     const daysInMonth = lastDay.getDate()
-205:     const startingDayOfWeek = firstDay.getDay()
+ 97:   liberar: async (id: number): Promise<Ocupacion> => {
+ 98:     const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, {
+ 99:       method: "PATCH",
+100:     })
+101:     if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
+102:     return res.json()
+103:   },
+104: 
+105:   delete: async (id: number): Promise<void> => {
+106:     const res = await fetch(`${BASE}/ocupaciones/${id}`, { method: "DELETE" })
+107:     if (!res.ok) throw new Error(`Error al eliminar ocupación ${id}`)
+108:   },
+109: }
+110: EOF
+111: echo "✅  lib/ocupacion-api.ts"
+112: 
+113: # ── 3. Componente AgendarModal ────────────────────────────────────────────────
+114: cat > components/agendar-modal.tsx << 'EOF'
+115: "use client"
+116: 
+117: import { useState, useCallback, useEffect } from "react"
+118: import { ocupacionesApi } from "@/lib/ocupacion-api"
+119: import { areasApi } from "@/lib/api"
+120: import type { CreateOcupacionPayload } from "@/types/ocupacion"
+121: import type { BackendArea } from "@/types/seat"
+122: import { useToast } from "@/hooks/use-toast"
+123: 
+124: import { Button }   from "@/components/ui/button"
+125: import { Input }    from "@/components/ui/input"
+126: import { Label }    from "@/components/ui/label"
+127: import { Textarea } from "@/components/ui/textarea"
+128: import { Badge }    from "@/components/ui/badge"
+129: import {
+130:   Dialog,
+131:   DialogContent,
+132:   DialogHeader,
+133:   DialogTitle,
+134:   DialogFooter,
+135:   DialogDescription,
+136: } from "@/components/ui/dialog"
+137: import {
+138:   CalendarDays,
+139:   Clock,
+140:   Users,
+141:   User,
+142:   FileText,
+143:   Link2,
+144:   Plus,
+145:   Trash2,
+146:   Loader2,
+147:   ChevronDown,
+148:   ChevronUp,
+149:   MapPin,
+150:   X,
+151:   CheckSquare,
+152: } from "lucide-react"
+153: 
+154: // ── tipos internos ───────────────────────────────────────────────────────────
+155: interface AgendarModalProps {
+156:   open:         boolean
+157:   onOpenChange: (open: boolean) => void
+158:   onSuccess?:  () => void
+159: }
+160: 
+161: const EMPTY_FORM: CreateOcupacionPayload = {
+162:   titulo:           "",
+163:   requerimiento:    "",
+164:   cantidadPersonas: 1,
+165:   organizador:      "",
+166:   dia:              "",
+167:   hora:             "",
+168:   edadMin:          undefined,
+169:   edadMax:          undefined,
+170:   anexos:           [],
+171:   areaIds:          [],
+172: }
+173: 
+174: // ── componente ───────────────────────────────────────────────────────────────
+175: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
+176:   const { toast } = useToast()
+177: 
+178:   const [form,       setForm]       = useState<CreateOcupacionPayload>(EMPTY_FORM)
+179:   const [nuevoAnexo, setNuevoAnexo] = useState("")
+180:   const [loading,    setLoading]    = useState(false)
+181:   const [showEdad,   setShowEdad]   = useState(false)
+182: 
+183:   // áreas del coworking disponibles
+184:   const [areas,        setAreas]        = useState<BackendArea[]>([])
+185:   const [loadingAreas, setLoadingAreas] = useState(false)
+186: 
+187:   // ── cargar áreas cuando se abre el modal ───────────────────────────────
+188:   useEffect(() => {
+189:     if (!open) return
+190:     setLoadingAreas(true)
+191:     areasApi
+192:       .getAll()
+193:       .then((data) => setAreas(data))
+194:       .catch(() =>
+195:         toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }),
+196:       )
+197:       .finally(() => setLoadingAreas(false))
+198:   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+199: 
+200:   // ── helpers ────────────────────────────────────────────────────────────
+201:   const set = useCallback(
+202:     <K extends keyof CreateOcupacionPayload>(key: K, val: CreateOcupacionPayload[K]) =>
+203:       setForm((p) => ({ ...p, [key]: val })),
+204:     [],
+205:   )
 206: 
-207:     const days: (number | null)[] = []
-208:     for (let i = 0; i < startingDayOfWeek; i++) days.push(null)
-209:     for (let i = 1; i <= daysInMonth; i++) days.push(i)
-210:     return days
-211:   }
-212: 
-213:   const getEventsForDay = (day: number) => {
-214:     const year = currentDate.getFullYear()
-215:     const month = currentDate.getMonth()
-216:     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-217: 
-218:     return events
-219:       .filter((event) => {
-220:         const eventStart = event.fechaDesde.split("T")[0]
-221:         const eventEnd = event.fechaHasta.split("T")[0]
-222:         return dateStr >= eventStart && dateStr <= eventEnd
-223:       })
-224:       .sort((a, b) => a.horaDesde.localeCompare(b.horaDesde))
+207:   const toggleArea = (id: number) => {
+208:     const ids = form.areaIds
+209:     set("areaIds", ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
+210:   }
+211: 
+212:   const agregarAnexo = () => {
+213:     const url = nuevoAnexo.trim()
+214:     if (!url) return
+215:     try { new URL(url) } catch {
+216:       toast({ variant: "destructive", title: "URL inválida", description: "Ingresá una URL con http/https" })
+217:       return
+218:     }
+219:     if ((form.anexos ?? []).includes(url)) {
+220:       toast({ variant: "destructive", title: "Duplicado", description: "Esa URL ya fue agregada" })
+221:       return
+222:     }
+223:     set("anexos", [...(form.anexos ?? []), url])
+224:     setNuevoAnexo("")
 225:   }
 226: 
-227:   const previousMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))
-228:   const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))
-229:   const goToToday = () => setCurrentDate(new Date())
-230: 
-231:   const days = getDaysInMonth()
-232:   const monthName = currentDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" })
-233:   const presentTypes = [...new Set(events.map((e) => e.tipoEvento))]
-234: 
-235:   return (
-236:     <div className="min-h-screen bg-background p-4 md:p-8 pb-28">
-237:       <div className="max-w-7xl mx-auto">
-238:         {/* Header */}
-239:         <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-240:           <div>
-241:             <h1 className="text-3xl font-bold text-foreground capitalize">
-242:               Calendario <span className="text-primary">{monthName}</span>
-243:             </h1>
-244:             <p className="text-muted-foreground mt-1">Vista de eventos</p>
-245:           </div>
-246:           <div className="flex items-center gap-2 flex-wrap">
-247:             <Button className="bg-white" onClick={previousMonth} variant="outline" size="icon">
-248:               <ChevronLeft className="h-4 w-4" />
-249:             </Button>
-250:             <Button className="bg-white" onClick={goToToday} variant="outline">
-251:               Hoy
-252:             </Button>
-253:             <Button className="bg-white" onClick={nextMonth} variant="outline" size="icon">
-254:               <ChevronRight className="h-4 w-4" />
-255:             </Button>
-256:           </div>
-257:         </div>
-258: 
-259:         {/* Leyenda dinámica */}
-260:         {presentTypes.length > 0 && (
-261:           <div className="flex flex-wrap gap-3 mb-4">
-262:             {presentTypes.map((type) => (
-263:               <div key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-264:                 <span className={`w-2.5 h-2.5 rounded-full ${EVENT_DOT_COLORS[type] ?? "bg-gray-400"}`} />
-265:                 {EVENT_TYPE_LABELS[type] ?? type}
-266:               </div>
-267:             ))}
-268:           </div>
-269:         )}
-270: 
-271:         {loading ? (
-272:           <div className="flex items-center justify-center h-64 gap-2 text-muted-foreground">
-273:             <Loader2 className="h-6 w-6 animate-spin text-primary" />
-274:             <span className="text-sm">Cargando eventos...</span>
-275:           </div>
-276:         ) : (
-277:           <Card className="p-4">
-278:             {/* Días de la semana */}
-279:             <div className="grid grid-cols-7 gap-1 mb-2">
-280:               {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => (
-281:                 <div
-282:                   key={day}
-283:                   className="text-center font-semibold text-xs text-muted-foreground p-2 uppercase tracking-wide"
-284:                 >
-285:                   {day}
-286:                 </div>
-287:               ))}
-288:             </div>
-289: 
-290:             {/* Grilla de días */}
-291:             <div className="grid grid-cols-7 gap-1">
-292:               {days.map((day, index) => {
-293:                 if (day === null) {
-294:                   return <div key={`empty-${index}`} className="min-h-[90px] md:min-h-[110px]" />
-295:                 }
-296: 
-297:                 const dayEvents = getEventsForDay(day)
-298:                 const isToday =
-299:                   day === new Date().getDate() &&
-300:                   currentDate.getMonth() === new Date().getMonth() &&
-301:                   currentDate.getFullYear() === new Date().getFullYear()
-302: 
-303:                 return (
-304:                   <div
-305:                     key={day}
-306:                     className={cn(
-307:                       "min-h-[90px] md:min-h-[110px] border rounded-lg p-1.5 transition-colors",
-308:                       isToday
-309:                         ? "bg-primary/5 border-primary ring-1 ring-primary/30"
-310:                         : "bg-card border-border hover:bg-muted/30",
-311:                     )}
-312:                   >
-313:                     {/* Número del día */}
-314:                     <div className="flex items-center justify-between mb-1">
-315:                       <span
-316:                         className={cn(
-317:                           "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
-318:                           isToday ? "bg-primary text-primary-foreground" : "text-foreground",
-319:                         )}
-320:                       >
-321:                         {day}
-322:                       </span>
-323:                       {dayEvents.length > 4 && (
-324:                         <span className="text-[10px] text-muted-foreground font-medium">{dayEvents.length}</span>
-325:                       )}
-326:                     </div>
-327: 
-328:                     {/* Eventos del día */}
-329:                     <div className="space-y-0.5 overflow-y-auto max-h-[120px] md:max-h-[160px] scrollbar-thin">
-330:                       {dayEvents.map((event) => {
-331:                         const pillStyle =
-332:                           EVENT_PILL_STYLES[event.tipoEvento] ??
-333:                           "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800 hover:bg-gray-100"
-334:                         return (
-335:                           <button
-336:                             key={event.id}
-337:                             onClick={() => setSelectedEvent(event)}
-338:                             className={cn(
-339:                               "w-full text-left text-[10px] md:text-xs px-1.5 py-0.5 rounded-sm font-medium truncate transition-colors",
-340:                               pillStyle,
-341:                             )}
-342:                             title={`${event.titulo} — ${event.horaDesde} a ${event.horaHasta}`}
-343:                           >
-344:                             <span className="font-semibold">{event.horaDesde}</span> <span>{event.titulo}</span>
-345:                           </button>
-346:                         )
-347:                       })}
-348:                     </div>
-349:                   </div>
-350:                 )
-351:               })}
-352:             </div>
-353:           </Card>
-354:         )}
-355: 
-356:         {/* Modal de detalle del evento */}
-357:         <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
-358:           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-359:             {selectedEvent && (
-360:               <>
-361:                 <DialogHeader>
-362:                   <DialogTitle className="text-2xl">{selectedEvent.titulo}</DialogTitle>
-363:                 </DialogHeader>
-364: 
-365:                 <div className="space-y-4">
-366:                   {/* Badges de tipo y áreas */}
-367:                   <div className="flex flex-wrap gap-2">
-368:                     <Badge className={`${EVENT_TYPE_COLORS[selectedEvent.tipoEvento] ?? "bg-gray-500"} text-white border-0`}>
-369:                       {EVENT_TYPE_LABELS[selectedEvent.tipoEvento] ?? selectedEvent.tipoEvento}
-370:                     </Badge>
-371:                     {selectedEvent.areas && selectedEvent.areas.length > 0 ? (
-372:                       selectedEvent.areas.map((area) => (
-373:                         <Badge key={area} className={`${AREA_COLORS[area] ?? "bg-gray-500"} text-white border-0`}>
-374:                           <MapPin className="h-3 w-3 mr-1" />
-375:                           {AREA_LABELS[area] ?? area}
-376:                         </Badge>
-377:                       ))
-378:                     ) : (
-379:                       <Badge className="bg-gray-500 text-white border-0">
-380:                         <MapPin className="h-3 w-3 mr-1" />
-381:                         Sin área asignada
-382:                       </Badge>
-383:                     )}
-384:                   </div>
-385: 
-386:                   {selectedEvent.descripcion && (
-387:                     <div>
-388:                       <h3 className="font-semibold mb-1">Descripción</h3>
-389:                       <p className="text-sm text-muted-foreground">{selectedEvent.descripcion}</p>
-390:                     </div>
-391:                   )}
-392: 
-393:                   {selectedEvent.informacion && (
-394:                     <div>
-395:                       <h3 className="font-semibold mb-1">Requerimientos</h3>
-396:                       <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-397:                         {selectedEvent.informacion}
-398:                       </p>
-399:                     </div>
-400:                   )}
-401: 
-402:                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-403:                     <div>
-404:                       <h3 className="font-semibold mb-1 flex items-center gap-2">
-405:                         <Calendar className="h-4 w-4" />
-406:                         Fechas
-407:                       </h3>
-408:                       <p className="text-sm text-muted-foreground capitalize">
-409:                         {formatDate(selectedEvent.fechaDesde, {
-410:                           weekday: "long",
-411:                           day: "numeric",
-412:                           month: "long",
-413:                           year: "numeric",
-414:                         })}
-415:                       </p>
-416:                       {selectedEvent.fechaDesde !== selectedEvent.fechaHasta && (
-417:                         <p className="text-sm text-muted-foreground capitalize">
-418:                           hasta{" "}
-419:                           {formatDate(selectedEvent.fechaHasta, {
-420:                             weekday: "long",
-421:                             day: "numeric",
-422:                             month: "long",
-423:                             year: "numeric",
-424:                           })}
-425:                         </p>
-426:                       )}
-427:                       <p className="text-sm text-muted-foreground mt-1">
-428:                         {selectedEvent.horaDesde} - {selectedEvent.horaHasta}
-429:                       </p>
-430:                     </div>
-431: 
-432:                     {selectedEvent.organizadorSolicitante && (
-433:                       <div>
-434:                         <h3 className="font-semibold mb-1">Organizador</h3>
-435:                         <p className="text-sm text-muted-foreground">{selectedEvent.organizadorSolicitante}</p>
-436:                       </div>
-437:                     )}
-438:                   </div>
-439: 
-440:                   {(selectedEvent.convocatoria !== undefined || selectedEvent.coberturaPrensaBol !== undefined) && (
-441:                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-442:                       {selectedEvent.convocatoria !== undefined && (
-443:                         <div>
-444:                           <h3 className="font-semibold mb-1 flex items-center gap-2">
-445:                             <Users className="h-4 w-4" />
-446:                             Convocatoria
-447:                           </h3>
-448:                           <p className="text-sm text-muted-foreground">{selectedEvent.convocatoria} asistentes</p>
-449:                         </div>
-450:                       )}
-451:                       {selectedEvent.coberturaPrensaBol !== undefined && (
-452:                         <div>
-453:                           <h3 className="font-semibold mb-1">Cobertura de Prensa</h3>
-454:                           <p className="text-sm text-muted-foreground">
-455:                             {selectedEvent.coberturaPrensaBol ? "Sí" : "No"}
-456:                           </p>
-457:                         </div>
-458:                       )}
-459:                     </div>
-460:                   )}
-461: 
-462:                   {selectedEvent.anexos && selectedEvent.anexos.length > 0 && (
-463:                     <div>
-464:                       <h3 className="font-semibold mb-2 flex items-center gap-2">
-465:                         <FileText className="h-4 w-4" />
-466:                         Anexos
-467:                       </h3>
-468:                       <div className="space-y-2">
-469:                         {selectedEvent.anexos.map((anexo, index) => (
-470:                           
-471:                             key={index}
-472:                             href={anexo}
-473:                             target="_blank"
-474:                             rel="noopener noreferrer"
-475:                             className="flex items-center gap-2 text-sm text-primary hover:underline"
-476:                           >
-477:                             <ExternalLink className="h-4 w-4" />
-478:                             Anexo {index + 1}
-479:                           </a>
-480:                         ))}
-481:                       </div>
-482:                     </div>
-483:                   )}
-484: 
-485:                   {selectedEvent.solicitudes && selectedEvent.solicitudes.length > 0 && (
-486:                     <div>
-487:                       <h3 className="font-semibold mb-2 flex items-center gap-2">
-488:                         <FileText className="h-4 w-4" />
-489:                         Solicitudes
-490:                       </h3>
-491:                       <div className="space-y-2">
-492:                         {selectedEvent.solicitudes.map((solicitud, index) => (
-493:                           
-494:                             key={index}
-495:                             href={solicitud}
-496:                             target="_blank"
-497:                             rel="noopener noreferrer"
-498:                             className="flex items-center gap-2 text-sm text-primary hover:underline"
-499:                           >
-500:                             <ExternalLink className="h-4 w-4" />
-501:                             Solicitud {index + 1}
-502:                           </a>
-503:                         ))}
-504:                       </div>
-505:                     </div>
-506:                   )}
-507:                 </div>
-508:               </>
-509:             )}
-510:           </DialogContent>
-511:         </Dialog>
-512:       </div>
-513:     </div>
-514:   )
-515: }
-516: PAGE_EOF
-517: 
-518: echo "✅ $FILE actualizado."
-519: echo ""
-520: echo "🔍 Verificá que existan estos componentes shadcn en components/ui/:"
-521: echo "   - card.tsx"
-522: echo "   - badge.tsx"
-523: echo "   - dialog.tsx"
-524: echo "   - button.tsx"
-525: echo ""
-526: echo "▶️  Corré 'pnpm build' para confirmar antes de subir."
+227:   const quitarAnexo = (i: number) =>
+228:     set("anexos", (form.anexos ?? []).filter((_, idx) => idx !== i))
+229: 
+230:   const resetForm = () => {
+231:     setForm(EMPTY_FORM)
+232:     setNuevoAnexo("")
+233:     setShowEdad(false)
+234:   }
+235: 
+236:   // ── submit ─────────────────────────────────────────────────────────────
+237:   const handleSubmit = async () => {
+238:     if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Requerido", description: "Ingresá un título" });            return }
+239:     if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Requerido", description: "Ingresá el requerimiento" });     return }
+240:     if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Requerido", description: "Ingresá el organizador" });       return }
+241:     if (!form.dia)                  { toast({ variant: "destructive", title: "Requerido", description: "Seleccioná una fecha" });         return }
+242:     if (!form.hora)                 { toast({ variant: "destructive", title: "Requerido", description: "Ingresá una hora" });             return }
+243:     if (form.cantidadPersonas < 1)  { toast({ variant: "destructive", title: "Inválido",  description: "Mínimo 1 persona" });             return }
+244:     if (form.areaIds.length === 0)  { toast({ variant: "destructive", title: "Requerido", description: "Seleccioná al menos un área" }); return }
+245: 
+246:     if (
+247:       form.edadMin !== undefined &&
+248:       form.edadMax !== undefined &&
+249:       form.edadMin > form.edadMax
+250:     ) {
+251:       toast({ variant: "destructive", title: "Rango inválido", description: "La edad mínima no puede superar la máxima" })
+252:       return
+253:     }
+254: 
+255:     try {
+256:       setLoading(true)
+257:       const payload: CreateOcupacionPayload = {
+258:         titulo:           form.titulo.trim(),
+259:         requerimiento:    form.requerimiento.trim(),
+260:         cantidadPersonas: Number(form.cantidadPersonas),
+261:         organizador:      form.organizador.trim(),
+262:         dia:              form.dia,
+263:         hora:             form.hora,
+264:         areaIds:          form.areaIds,
+265:         anexos:           form.anexos ?? [],
+266:         ...(form.edadMin !== undefined && { edadMin: Number(form.edadMin) }),
+267:         ...(form.edadMax !== undefined && { edadMax: Number(form.edadMax) }),
+268:       }
+269: 
+270:       await ocupacionesApi.create(payload)
+271: 
+272:       toast({
+273:         title:       "✅ Ocupación agendada",
+274:         description: `"${payload.titulo}" registrada — áreas marcadas como ocupadas`,
+275:       })
+276: 
+277:       resetForm()
+278:       onOpenChange(false)
+279:       onSuccess?.()
+280:     } catch (err) {
+281:       const msg = err instanceof Error ? err.message : "Error desconocido"
+282:       toast({ variant: "destructive", title: "Error al agendar", description: msg })
+283:     } finally {
+284:       setLoading(false)
+285:     }
+286:   }
+287: 
+288:   const handleClose = () => {
+289:     if (loading) return
+290:     resetForm()
+291:     onOpenChange(false)
+292:   }
+293: 
+294:   // ── UI ─────────────────────────────────────────────────────────────────
+295:   return (
+296:     <Dialog open={open} onOpenChange={handleClose}>
+297:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+298:         <DialogHeader>
+299:           <DialogTitle className="text-xl flex items-center gap-2">
+300:             <CalendarDays className="w-5 h-5 text-primary" />
+301:             Agendar Ocupación
+302:           </DialogTitle>
+303:           <DialogDescription>
+304:             Completá los datos y seleccioná las áreas a ocupar.
+305:           </DialogDescription>
+306:         </DialogHeader>
+307: 
+308:         <div className="space-y-5 py-2">
+309: 
+310:           {/* Título */}
+311:           <div className="space-y-1.5">
+312:             <Label htmlFor="oc-titulo" className="flex items-center gap-1.5 text-sm font-medium">
+313:               <FileText className="w-3.5 h-3.5 text-primary" /> Título <span className="text-destructive">*</span>
+314:             </Label>
+315:             <Input
+316:               id="oc-titulo"
+317:               placeholder="Ej: Taller de programación"
+318:               value={form.titulo}
+319:               onChange={(e) => set("titulo", e.target.value)}
+320:               disabled={loading}
+321:               maxLength={120}
+322:             />
+323:           </div>
+324: 
+325:           {/* Requerimiento */}
+326:           <div className="space-y-1.5">
+327:             <Label htmlFor="oc-req" className="flex items-center gap-1.5 text-sm font-medium">
+328:               <FileText className="w-3.5 h-3.5 text-primary" /> Requerimiento <span className="text-destructive">*</span>
+329:             </Label>
+330:             <Textarea
+331:               id="oc-req"
+332:               placeholder="Equipamiento, condiciones, necesidades especiales..."
+333:               value={form.requerimiento}
+334:               onChange={(e) => set("requerimiento", e.target.value)}
+335:               disabled={loading}
+336:               rows={3}
+337:               className="resize-none"
+338:             />
+339:           </div>
+340: 
+341:           {/* Organizador */}
+342:           <div className="space-y-1.5">
+343:             <Label htmlFor="oc-org" className="flex items-center gap-1.5 text-sm font-medium">
+344:               <User className="w-3.5 h-3.5 text-primary" /> Solicitante / Organizador <span className="text-destructive">*</span>
+345:             </Label>
+346:             <Input
+347:               id="oc-org"
+348:               placeholder="Nombre completo o institución"
+349:               value={form.organizador}
+350:               onChange={(e) => set("organizador", e.target.value)}
+351:               disabled={loading}
+352:             />
+353:           </div>
+354: 
+355:           {/* Cantidad de personas */}
+356:           <div className="space-y-1.5">
+357:             <Label htmlFor="oc-cant" className="flex items-center gap-1.5 text-sm font-medium">
+358:               <Users className="w-3.5 h-3.5 text-primary" /> Cantidad de personas <span className="text-destructive">*</span>
+359:             </Label>
+360:             <Input
+361:               id="oc-cant"
+362:               type="number"
+363:               min={1}
+364:               max={9999}
+365:               placeholder="Ej: 30"
+366:               value={form.cantidadPersonas}
+367:               onChange={(e) => set("cantidadPersonas", parseInt(e.target.value) || 1)}
+368:               disabled={loading}
+369:             />
+370:           </div>
+371: 
+372:           {/* Día y Hora */}
+373:           <div className="grid grid-cols-2 gap-3">
+374:             <div className="space-y-1.5">
+375:               <Label htmlFor="oc-dia" className="flex items-center gap-1.5 text-sm font-medium">
+376:                 <CalendarDays className="w-3.5 h-3.5 text-primary" /> Día <span className="text-destructive">*</span>
+377:               </Label>
+378:               <Input
+379:                 id="oc-dia"
+380:                 type="date"
+381:                 value={form.dia}
+382:                 onChange={(e) => set("dia", e.target.value)}
+383:                 disabled={loading}
+384:                 min={new Date().toISOString().split("T")[0]}
+385:               />
+386:             </div>
+387:             <div className="space-y-1.5">
+388:               <Label htmlFor="oc-hora" className="flex items-center gap-1.5 text-sm font-medium">
+389:                 <Clock className="w-3.5 h-3.5 text-primary" /> Hora <span className="text-destructive">*</span>
+390:               </Label>
+391:               <Input
+392:                 id="oc-hora"
+393:                 type="time"
+394:                 value={form.hora}
+395:                 onChange={(e) => set("hora", e.target.value)}
+396:                 disabled={loading}
+397:               />
+398:             </div>
+399:           </div>
+400: 
+401:           {/* Selector de áreas ─────────────────────────────────────────── */}
+402:           <div className="space-y-2">
+403:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+404:               <MapPin className="w-3.5 h-3.5 text-primary" />
+405:               Áreas del coworking <span className="text-destructive">*</span>
+406:             </Label>
+407: 
+408:             {loadingAreas ? (
+409:               <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+410:                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
+411:               </div>
+412:             ) : areas.length === 0 ? (
+413:               <p className="text-sm text-muted-foreground py-2">No hay áreas disponibles</p>
+414:             ) : (
+415:               <div className="grid grid-cols-2 gap-2">
+416:                 {areas.map((area) => {
+417:                   const selected = form.areaIds.includes(area.id)
+418:                   const libre    = area.estado === "LIBRE"
+419:                   return (
+420:                     <button
+421:                       key={area.id}
+422:                       type="button"
+423:                       onClick={() => libre && toggleArea(area.id)}
+424:                       disabled={loading || !libre}
+425:                       className={[
+426:                         "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
+427:                         selected
+428:                           ? "border-primary bg-primary/10 text-primary"
+429:                           : libre
+430:                             ? "border-border hover:border-primary/50 hover:bg-muted/40"
+431:                             : "border-border bg-muted/20 text-muted-foreground cursor-not-allowed opacity-60",
+432:                       ].join(" ")}
+433:                     >
+434:                       <CheckSquare
+435:                         className={[
+436:                           "w-4 h-4 mt-0.5 flex-shrink-0 transition-colors",
+437:                           selected ? "text-primary" : "text-muted-foreground/50",
+438:                         ].join(" ")}
+439:                       />
+440:                       <span className="flex-1 min-w-0">
+441:                         <span className="font-medium block truncate">{area.nombre}</span>
+442:                         {area.descripcion && (
+443:                           <span className="text-xs text-muted-foreground line-clamp-1">
+444:                             {area.descripcion}
+445:                           </span>
+446:                         )}
+447:                         {!libre && (
+448:                           <span className="text-xs text-destructive font-medium">Ocupada</span>
+449:                         )}
+450:                       </span>
+451:                     </button>
+452:                   )
+453:                 })}
+454:               </div>
+455:             )}
+456: 
+457:             {/* badges de áreas seleccionadas */}
+458:             {form.areaIds.length > 0 && (
+459:               <div className="flex flex-wrap gap-1.5 pt-1">
+460:                 {form.areaIds.map((id) => {
+461:                   const area = areas.find((a) => a.id === id)
+462:                   return (
+463:                     <Badge
+464:                       key={id}
+465:                       variant="secondary"
+466:                       className="gap-1 pr-1 text-xs bg-primary/10 text-primary border-primary/20"
+467:                     >
+468:                       {area?.nombre ?? `Área ${id}`}
+469:                       <button
+470:                         type="button"
+471:                         onClick={() => toggleArea(id)}
+472:                         disabled={loading}
+473:                         className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5 transition-colors"
+474:                       >
+475:                         <X className="w-2.5 h-2.5" />
+476:                       </button>
+477:                     </Badge>
+478:                   )
+479:                 })}
+480:               </div>
+481:             )}
+482:           </div>
+483: 
+484:           {/* Rango de edad (colapsable) ──────────────────────────────────── */}
+485:           <div className="border rounded-lg overflow-hidden">
+486:             <button
+487:               type="button"
+488:               onClick={() => setShowEdad(!showEdad)}
+489:               className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium bg-muted/40 hover:bg-muted/70 transition-colors"
+490:             >
+491:               <span className="flex items-center gap-1.5">
+492:                 <Users className="w-3.5 h-3.5 text-primary" />
+493:                 Rango de edad del público
+494:                 <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
+495:               </span>
+496:               {showEdad
+497:                 ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
+498:                 : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+499:             </button>
+500: 
+501:             {showEdad && (
+502:               <div className="px-4 py-4 grid grid-cols-2 gap-3 bg-background">
+503:                 <div className="space-y-1.5">
+504:                   <Label htmlFor="oc-emin" className="text-xs font-medium text-muted-foreground">Edad mínima</Label>
+505:                   <Input
+506:                     id="oc-emin"
+507:                     type="number"
+508:                     min={0}
+509:                     max={120}
+510:                     placeholder="Ej: 10"
+511:                     value={form.edadMin ?? ""}
+512:                     onChange={(e) => set("edadMin", e.target.value ? parseInt(e.target.value) : undefined)}
+513:                     disabled={loading}
+514:                   />
+515:                 </div>
+516:                 <div className="space-y-1.5">
+517:                   <Label htmlFor="oc-emax" className="text-xs font-medium text-muted-foreground">Edad máxima</Label>
+518:                   <Input
+519:                     id="oc-emax"
+520:                     type="number"
+521:                     min={0}
+522:                     max={120}
+523:                     placeholder="Ej: 20"
+524:                     value={form.edadMax ?? ""}
+525:                     onChange={(e) => set("edadMax", e.target.value ? parseInt(e.target.value) : undefined)}
+526:                     disabled={loading}
+527:                   />
+528:                 </div>
+529:                 {form.edadMin !== undefined && form.edadMax !== undefined && form.edadMin <= form.edadMax && (
+530:                   <p className="col-span-2 text-xs text-muted-foreground">
+531:                     Público de <strong>{form.edadMin}</strong> a <strong>{form.edadMax}</strong> años
+532:                   </p>
+533:                 )}
+534:               </div>
+535:             )}
+536:           </div>
+537: 
+538:           {/* Anexos ──────────────────────────────────────────────────────── */}
+539:           <div className="space-y-2">
+540:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+541:               <Link2 className="w-3.5 h-3.5 text-primary" />
+542:               Anexos
+543:               <span className="text-xs text-muted-foreground font-normal">(opcional — máx. 10 URLs)</span>
+544:             </Label>
+545: 
+546:             {(form.anexos ?? []).length > 0 && (
+547:               <ul className="space-y-1.5">
+548:                 {(form.anexos ?? []).map((url, i) => (
+549:                   <li key={i} className="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-3 py-2 group">
+550:                     <Link2 className="w-3 h-3 text-primary flex-shrink-0" />
+551:                     <a href={url} target="_blank" rel="noopener noreferrer"
+552:                        className="flex-1 truncate text-primary hover:underline">
+553:                       {url}
+554:                     </a>
+555:                     <button
+556:                       type="button"
+557:                       onClick={() => quitarAnexo(i)}
+558:                       disabled={loading}
+559:                       className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+560:                     >
+561:                       <Trash2 className="w-3.5 h-3.5" />
+562:                     </button>
+563:                   </li>
+564:                 ))}
+565:               </ul>
+566:             )}
+567: 
+568:             {(form.anexos ?? []).length < 10 && (
+569:               <div className="flex gap-2">
+570:                 <Input
+571:                   type="url"
+572:                   placeholder="https://drive.google.com/..."
+573:                   value={nuevoAnexo}
+574:                   onChange={(e) => setNuevoAnexo(e.target.value)}
+575:                   onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarAnexo())}
+576:                   disabled={loading}
+577:                   className="text-sm"
+578:                 />
+579:                 <Button
+580:                   type="button"
+581:                   variant="outline"
+582:                   size="icon"
+583:                   onClick={agregarAnexo}
+584:                   disabled={loading || !nuevoAnexo.trim()}
+585:                   className="flex-shrink-0"
+586:                 >
+587:                   <Plus className="w-4 h-4" />
+588:                 </Button>
+589:               </div>
+590:             )}
+591:           </div>
+592: 
+593:         </div>
+594: 
+595:         <DialogFooter className="flex-col-reverse sm:flex-row gap-2 pt-2">
+596:           <Button variant="outline" onClick={handleClose} disabled={loading} className="bg-transparent">
+597:             Cancelar
+598:           </Button>
+599:           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
+600:             {loading ? (
+601:               <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
+602:             ) : (
+603:               <><CalendarDays className="w-4 h-4" /> Agendar</>
+604:             )}
+605:           </Button>
+606:         </DialogFooter>
+607:       </DialogContent>
+608:     </Dialog>
+609:   )
+610: }
+611: EOF
+612: echo "✅  components/agendar-modal.tsx"
+613: 
+614: # ── 4. Patch a app/page.tsx ───────────────────────────────────────────────────
+615: PAGE="app/page.tsx"
+616: 
+617: if grep -q "AgendarModal" "$PAGE"; then
+618:   echo "ℹ️   AgendarModal ya presente en $PAGE — sin cambios"
+619: else
+620:   echo "🔧  Parcheando $PAGE..."
+621: 
+622:   # Import del modal
+623:   sed -i 's|import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"|import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"\nimport { AgendarModal } from "@/components/agendar-modal"|' "$PAGE"
+624: 
+625:   # Ícono CalendarPlus en lucide
+626:   sed -i 's|import { Loader2, RefreshCw, LogOut, Menu, Armchair, Users, CheckCircle, Building2 }|import { Loader2, RefreshCw, LogOut, Menu, Armchair, Users, CheckCircle, Building2, CalendarPlus }|' "$PAGE"
+627: 
+628:   # Estado del modal
+629:   sed -i 's|\[mobileMenuOpen, setMobileMenuOpen\] = useState(false)|\[mobileMenuOpen, setMobileMenuOpen\] = useState(false)\n  const \[agendarOpen, setAgendarOpen\] = useState(false)|' "$PAGE"
+630: 
+631:   # Botón "Agendar" en header desktop (antes de RefreshCw)
+632:   sed -i 's|<Button variant="ghost" size="sm" onClick={handleRefresh} className="gap-2 rounded-lg">|<Button\n                    onClick={() => setAgendarOpen(true)}\n                    className="gap-2 rounded-lg text-sm"\n                    size="sm"\n                  >\n                    <CalendarPlus className="w-4 h-4" />\n                    Agendar\n                  </Button>\n                  <Button variant="ghost" size="sm" onClick={handleRefresh} className="gap-2 rounded-lg">|' "$PAGE"
+633: 
+634:   # Montar el componente antes de SeatStatusModal
+635:   sed -i 's|<SeatStatusModal|<AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />\n      <SeatStatusModal|' "$PAGE"
+636: 
+637:   echo "✅  app/page.tsx parcheado"
+638: fi
+639: 
+640: # ── 5. Verificar shadcn components ───────────────────────────────────────────
+641: MISSING=""
+642: [ ! -f "components/ui/textarea.tsx" ] && MISSING="$MISSING textarea"
+643: [ ! -f "components/ui/badge.tsx"    ] && MISSING="$MISSING badge"
+644: 
+645: if [ -n "$MISSING" ]; then
+646:   echo ""
+647:   echo "⚠️   Componentes shadcn faltantes:$MISSING"
+648:   echo "     Ejecutá: pnpm dlx shadcn@latest add$MISSING"
+649:   echo ""
+650: fi
+651: 
+652: # ── 6. Build ──────────────────────────────────────────────────────────────────
+653: echo ""
+654: echo "🔨  Compilando..."
+655: pnpm build
+656: 
+657: echo ""
+658: echo "╔══════════════════════════════════════════════════════════════════╗"
+659: echo "║  ✅  front-ocupacion.sh v2 completado                           ║"
+660: echo "╚══════════════════════════════════════════════════════════════════╝"
+661: echo ""
+662: echo "  · Botón 'Agendar' en el header (usuario admin logueado)"
+663: echo "  · Selector múltiple de áreas (solo muestra LIBRES activas)"
+664: echo "  · Al confirmar → POST /ocupaciones → áreas pasan a OCUPADO"
+665: echo "  · Grid de áreas se recarga automáticamente via onSuccess"
+666: echo ""
+667: echo "  Si faltan componentes shadcn:"
+668: echo "    pnpm dlx shadcn@latest add textarea badge"
+669: echo ""
 ```

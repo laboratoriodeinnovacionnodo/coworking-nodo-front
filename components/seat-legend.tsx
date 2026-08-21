@@ -1,18 +1,16 @@
-import { seatStatusLabels, seatStatusColors } from "@/lib/seat-utils"
-import { Armchair } from "lucide-react"
-import type { SeatStatus } from "@/types/seat"
+"use client"
 
 export function SeatLegend() {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:flex lg:flex-wrap gap-3 md:gap-4">
-      {Object.entries(seatStatusLabels).map(([status, label]) => (
-        <div key={status} className="flex items-center gap-2">
-          <div className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${seatStatusColors[status as SeatStatus]}`}>
-            <Armchair className="w-4 h-4" />
-          </div>
-          <span className="text-xs md:text-sm text-foreground">{label}</span>
-        </div>
-      ))}
+    <div className="flex flex-wrap gap-3 text-xs">
+      <div className="flex items-center gap-1.5">
+        <span className="w-3 h-3 rounded-full bg-green-400 flex-shrink-0" />
+        <span className="text-muted-foreground">Libre</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="w-3 h-3 rounded-full bg-red-400 flex-shrink-0" />
+        <span className="text-muted-foreground">Ocupado</span>
+      </div>
     </div>
   )
 }

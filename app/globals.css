@@ -41,10 +41,6 @@
   /* Estados de asientos personalizados */
   --seat-available: #4ade80;
   --seat-occupied: #ef4444;
-  --seat-out-of-service: #6b7280;
-  --seat-cleaning: #f59e0b;
-  --seat-for-share: #3b82f6;
-  --seat-shared: #8b5cf6;
 }
 
 .dark {
@@ -84,10 +80,6 @@
   /* Estados de asientos personalizados */
   --seat-available: #4ade80;
   --seat-occupied: #ef4444;
-  --seat-out-of-service: #9ca3af;
-  --seat-cleaning: #fbbf24;
-  --seat-for-share: #60a5fa;
-  --seat-shared: #a78bfa;
 }
 
 @theme inline {
