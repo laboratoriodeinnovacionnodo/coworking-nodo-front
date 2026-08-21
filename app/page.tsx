@@ -13,10 +13,11 @@ import { CorsInfoBanner } from "@/components/cors-info-banner"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Loader2, RefreshCw, LogOut, Menu, Armchair, Users, CheckCircle, Building2 } from "lucide-react"
+import { Loader2, RefreshCw, LogOut, Menu, Armchair, Users, CheckCircle, Building2, CalendarPlus } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { AgendarModal } from "@/components/agendar-modal"
 
 export default function CoworkingSeatsPage() {
   const router = useRouter()
@@ -31,6 +32,7 @@ export default function CoworkingSeatsPage() {
   const [eventName, setEventName] = useState<string>()
   const [showCorsInfo, setShowCorsInfo] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [agendarOpen, setAgendarOpen] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !admin) {
@@ -130,6 +132,14 @@ export default function CoworkingSeatsPage() {
                   <p className="text-xs text-muted-foreground">{admin.email}</p>
                 </div>
                 <div className="flex gap-1">
+                  <Button
+                    onClick={() => setAgendarOpen(true)}
+                    className="gap-2 rounded-lg text-sm"
+                    size="sm"
+                  >
+                    <CalendarPlus className="w-4 h-4" />
+                    Agendar
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={handleRefresh} className="gap-2 rounded-lg">
                     <RefreshCw className="w-4 h-4" />
                   </Button>
@@ -304,6 +314,7 @@ export default function CoworkingSeatsPage() {
       </div>
 
       {/* Modal */}
+      <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
       <SeatStatusModal
         seat={selectedSeat}
         open={modalOpen}

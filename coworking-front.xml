@@ -48,8 +48,6 @@ app/
     page.tsx
   login/
     page.tsx
-  pagina-2/
-    page.tsx
   globals.css
   layout.tsx
   page.tsx
@@ -91,23 +89,6 @@ x.sh
 ```
 
 # Files
-
-## File: app/pagina-2/page.tsx
-```typescript
- 1: "use client"
- 2: 
- 3: export default function Pagina2() {
- 4:   return (
- 5:     <div className="min-h-screen flex items-center justify-center pb-24"
- 6:          style={{ background: "var(--background)" }}>
- 7:       <p className="text-slate-500 text-sm"
- 8:          style={{ fontFamily: "'Inter', sans-serif" }}>
- 9:         Página 2
-10:       </p>
-11:     </div>
-12:   )
-13: }
-```
 
 ## File: components/bottom-navbar.tsx
 ```typescript
@@ -2670,345 +2651,6 @@ x.sh
 74:               ghcr.io/${{ github.repository }}:latest
 ```
 
-## File: app/calendario/page.tsx
-```typescript
-  1: "use client"
-  2: 
-  3: import { useState, useEffect, useCallback } from "react"
-  4: import { ChevronLeft, ChevronRight, Loader2, CalendarDays } from "lucide-react"
-  5: import { cn } from "@/lib/utils"
-  6: 
-  7: // ── Tipos ────────────────────────────────────────────────────────────────────
-  8: 
-  9: interface Evento {
- 10:   id: number
- 11:   titulo: string
- 12:   fechaDesde: string
- 13:   fechaHasta: string
- 14:   horaDesde: string
- 15:   horaHasta: string
- 16:   tipoEvento: string
- 17:   areas: string[]
- 18:   organizadorSolicitante: string
- 19:   descripcion?: string
- 20:   estado: string
- 21: }
- 22: 
- 23: // ── Constantes ───────────────────────────────────────────────────────────────
- 24: 
- 25: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
- 26: 
- 27: const TIPO_COLORES: Record<string, string> = {
- 28:   REUNION:          "bg-blue-50   border-l-[3px] border-blue-400   text-blue-800",
- 29:   CAPACITACION:     "bg-green-50  border-l-[3px] border-green-500  text-green-800",
- 30:   EVENTO:           "bg-purple-50 border-l-[3px] border-purple-400 text-purple-800",
- 31:   CONFERENCIA:      "bg-orange-50 border-l-[3px] border-orange-400 text-orange-800",
- 32:   TALLER:           "bg-pink-50   border-l-[3px] border-pink-400   text-pink-800",
- 33:   EXPOSICION:       "bg-yellow-50 border-l-[3px] border-yellow-500 text-yellow-800",
- 34: }
- 35: 
- 36: const TIPO_BADGE: Record<string, string> = {
- 37:   REUNION:      "bg-blue-100   text-blue-800",
- 38:   CAPACITACION: "bg-green-100  text-green-800",
- 39:   EVENTO:       "bg-purple-100 text-purple-800",
- 40:   CONFERENCIA:  "bg-orange-100 text-orange-800",
- 41:   TALLER:       "bg-pink-100   text-pink-800",
- 42:   EXPOSICION:   "bg-yellow-100 text-yellow-800",
- 43: }
- 44: 
- 45: const DIAS_SEMANA = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"]
- 46: const MESES = [
- 47:   "Enero","Febrero","Marzo","Abril","Mayo","Junio",
- 48:   "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
- 49: ]
- 50: 
- 51: // ── Helpers ──────────────────────────────────────────────────────────────────
- 52: 
- 53: function toLocalDate(iso: string) {
- 54:   // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
- 55:   const datePart = iso.split("T")[0]
- 56:   const [y, m, d] = datePart.split("-").map(Number)
- 57:   return new Date(y, m - 1, d)
- 58: }
- 59: 
- 60: function isSameDay(a: Date, b: Date) {
- 61:   return a.getFullYear() === b.getFullYear() &&
- 62:          a.getMonth()    === b.getMonth()    &&
- 63:          a.getDate()     === b.getDate()
- 64: }
- 65: 
- 66: function eventoCaeEnDia(ev: Evento, dia: Date) {
- 67:   const desde = toLocalDate(ev.fechaDesde)
- 68:   const hasta  = toLocalDate(ev.fechaHasta)
- 69:   return dia >= desde && dia <= hasta
- 70: }
- 71: 
- 72: // ── Componente ───────────────────────────────────────────────────────────────
- 73: 
- 74: export default function CalendarioPage() {
- 75:   const hoy = new Date()
- 76:   const [mes, setMes]       = useState(hoy.getMonth())
- 77:   const [anio, setAnio]     = useState(hoy.getFullYear())
- 78:   const [eventos, setEventos]         = useState<Evento[]>([])
- 79:   const [loading, setLoading]         = useState(true)
- 80:   const [error, setError]             = useState<string | null>(null)
- 81:   const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null)
- 82: 
- 83:   // Fetch eventos del mes visible
- 84:   const fetchEventos = useCallback(async () => {
- 85:     setLoading(true)
- 86:     setError(null)
- 87:     try {
- 88:       const res = await fetch(
- 89:         `${EVENTOS_API}/calendar?year=${anio}&month=${mes + 1}`,
- 90:         { cache: "no-store" }
- 91:       )
- 92:       if (!res.ok) throw new Error(`Error ${res.status}`)
- 93:       const data = await res.json()
- 94:       // El endpoint /calendar devuelve { events: Evento[], ... }, no un array directo
- 95:       setEventos(data.events.filter((e: Evento) => e.tipoEvento !== "CANCELADO"))
- 96:     } catch (err) {
- 97:       setError("No se pudieron cargar los eventos")
- 98:     } finally {
- 99:       setLoading(false)
-100:     }
-101:   }, [mes, anio])
-102: 
-103:   useEffect(() => { fetchEventos() }, [fetchEventos])
-104: 
-105:   // Construir grilla
-106:   const primerDia  = new Date(anio, mes, 1).getDay()
-107:   const diasEnMes  = new Date(anio, mes + 1, 0).getDate()
-108:   const celdas     = primerDia + diasEnMes
-109:   const totalFilas = Math.ceil(celdas / 7)
-110: 
-111:   const anterior = () => {
-112:     if (mes === 0) { setMes(11); setAnio(a => a - 1) }
-113:     else setMes(m => m - 1)
-114:   }
-115:   const siguiente = () => {
-116:     if (mes === 11) { setMes(0); setAnio(a => a + 1) }
-117:     else setMes(m => m + 1)
-118:   }
-119: 
-120:   return (
-121:     <div className="min-h-screen pb-28" style={{ background: "var(--background)" }}>
-122: 
-123:       {/* Header */}
-124:       <div
-125:         className="sticky top-0 z-30 px-4 py-4 border-b border-white/40"
-126:         style={{
-127:           background: "rgba(240,253,255,0.80)",
-128:           backdropFilter: "blur(16px)",
-129:           WebkitBackdropFilter: "blur(16px)",
-130:         }}
-131:       >
-132:         <div className="max-w-3xl mx-auto flex items-center justify-between">
-133:           <div className="flex items-center gap-2">
-134:             <div className="w-8 h-8 rounded-lg bg-[#26a7fc]/10 flex items-center justify-center">
-135:               <CalendarDays className="w-4 h-4 text-[#26a7fc]" />
-136:             </div>
-137:             <div>
-138:               <h1 className="text-base font-bold text-foreground leading-none">Agenda NODO</h1>
-139:               <p className="text-[10px] text-muted-foreground mt-0.5">Eventos públicos</p>
-140:             </div>
-141:           </div>
-142: 
-143:           {/* Navegador de mes */}
-144:           <div className="flex items-center gap-2">
-145:             <button
-146:               onClick={anterior}
-147:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
-148:             >
-149:               <ChevronLeft className="w-4 h-4" />
-150:             </button>
-151:             <span className="text-sm font-semibold min-w-[120px] text-center">
-152:               {MESES[mes]} {anio}
-153:             </span>
-154:             <button
-155:               onClick={siguiente}
-156:               className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-[#26a7fc] hover:bg-[#26a7fc]/08 transition-colors"
-157:             >
-158:               <ChevronRight className="w-4 h-4" />
-159:             </button>
-160:           </div>
-161:         </div>
-162:       </div>
-163: 
-164:       <div className="max-w-3xl mx-auto px-2 pt-4">
-165: 
-166:         {/* Días de semana */}
-167:         <div className="grid grid-cols-7 mb-1">
-168:           {DIAS_SEMANA.map((d) => (
-169:             <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground py-1">
-170:               {d}
-171:             </div>
-172:           ))}
-173:         </div>
-174: 
-175:         {/* Loading */}
-176:         {loading && (
-177:           <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
-178:             <Loader2 className="w-5 h-5 animate-spin text-[#26a7fc]" />
-179:             <span className="text-sm">Cargando eventos...</span>
-180:           </div>
-181:         )}
-182: 
-183:         {/* Error */}
-184:         {error && !loading && (
-185:           <div className="text-center py-12 text-sm text-muted-foreground">
-186:             {error}
-187:           </div>
-188:         )}
-189: 
-190:         {/* Grilla */}
-191:         {!loading && !error && (
-192:           <div className="grid grid-cols-7 gap-px bg-border rounded-xl overflow-hidden border border-border">
-193:             {Array.from({ length: totalFilas * 7 }).map((_, idx) => {
-194:               const numeroDia = idx - primerDia + 1
-195:               const esValido  = numeroDia >= 1 && numeroDia <= diasEnMes
-196:               const diaFecha  = esValido ? new Date(anio, mes, numeroDia) : null
-197:               const esHoy     = diaFecha ? isSameDay(diaFecha, hoy) : false
-198:               const eventosDia = diaFecha
-199:                 ? eventos.filter((e) => eventoCaeEnDia(e, diaFecha))
-200:                 : []
-201: 
-202:               return (
-203:                 <div
-204:                   key={idx}
-205:                   className={cn(
-206:                     "min-h-[80px] p-1 bg-card flex flex-col",
-207:                     !esValido && "bg-muted/30"
-208:                   )}
-209:                 >
-210:                   {esValido && (
-211:                     <>
-212:                       {/* Número del día */}
-213:                       <span
-214:                         className={cn(
-215:                           "text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 self-end",
-216:                           esHoy
-217:                             ? "bg-[#26a7fc] text-white font-bold"
-218:                             : "text-foreground"
-219:                         )}
-220:                       >
-221:                         {numeroDia}
-222:                       </span>
-223: 
-224:                       {/* Pills de eventos */}
-225:                       <div className="flex flex-col gap-0.5 overflow-hidden">
-226:                         {eventosDia.slice(0, 2).map((ev) => (
-227:                           <button
-228:                             key={ev.id}
-229:                             onClick={() => setEventoSeleccionado(ev)}
-230:                             className={cn(
-231:                               "w-full text-left text-[9px] md:text-[10px] px-1 py-0.5 rounded-sm font-medium truncate transition-colors",
-232:                               TIPO_COLORES[ev.tipoEvento] ?? "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800"
-233:                             )}
-234:                           >
-235:                             {ev.horaDesde} {ev.titulo}
-236:                           </button>
-237:                         ))}
-238:                         {eventosDia.length > 2 && (
-239:                           <span className="text-[9px] text-muted-foreground pl-1">
-240:                             +{eventosDia.length - 2} más
-241:                           </span>
-242:                         )}
-243:                       </div>
-244:                     </>
-245:                   )}
-246:                 </div>
-247:               )
-248:             })}
-249:           </div>
-250:         )}
-251: 
-252:         {/* Leyenda */}
-253:         {!loading && !error && (
-254:           <div className="flex flex-wrap gap-2 mt-4 px-1">
-255:             {Object.entries(TIPO_BADGE).map(([tipo, cls]) => (
-256:               <span key={tipo} className={cn("text-[10px] font-medium px-2 py-0.5 rounded-full", cls)}>
-257:                 {tipo.charAt(0) + tipo.slice(1).toLowerCase()}
-258:               </span>
-259:             ))}
-260:           </div>
-261:         )}
-262:       </div>
-263: 
-264:       {/* Modal detalle */}
-265:       {eventoSeleccionado && (
-266:         <div
-267:           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
-268:           style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
-269:           onClick={() => setEventoSeleccionado(null)}
-270:         >
-271:           <div
-272:             className="w-full max-w-lg rounded-2xl p-5 space-y-3"
-273:             style={{
-274:               background: "rgba(255,255,255,0.92)",
-275:               backdropFilter: "blur(20px)",
-276:               WebkitBackdropFilter: "blur(20px)",
-277:               border: "1px solid rgba(255,255,255,0.6)",
-278:               boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
-279:             }}
-280:             onClick={(e) => e.stopPropagation()}
-281:           >
-282:             <div className="flex items-start justify-between gap-3">
-283:               <h2 className="text-base font-bold text-foreground leading-snug">
-284:                 {eventoSeleccionado.titulo}
-285:               </h2>
-286:               <button
-287:                 onClick={() => setEventoSeleccionado(null)}
-288:                 className="text-muted-foreground hover:text-foreground text-lg leading-none flex-shrink-0"
-289:               >
-290:                 ✕
-291:               </button>
-292:             </div>
-293: 
-294:             <span className={cn(
-295:               "inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full",
-296:               TIPO_BADGE[eventoSeleccionado.tipoEvento] ?? "bg-gray-100 text-gray-700"
-297:             )}>
-298:               {eventoSeleccionado.tipoEvento.charAt(0) + eventoSeleccionado.tipoEvento.slice(1).toLowerCase()}
-299:             </span>
-300: 
-301:             <div className="grid grid-cols-2 gap-3 text-sm">
-302:               <div>
-303:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Fecha</p>
-304:                 <p className="font-medium">
-305:                   {toLocalDate(eventoSeleccionado.fechaDesde).toLocaleDateString("es-AR", {
-306:                     day: "numeric", month: "long", year: "numeric",
-307:                   })}
-308:                   {eventoSeleccionado.fechaDesde !== eventoSeleccionado.fechaHasta && (
-309:                     <> — {toLocalDate(eventoSeleccionado.fechaHasta).toLocaleDateString("es-AR", {
-310:                       day: "numeric", month: "long",
-311:                     })}</>
-312:                   )}
-313:                 </p>
-314:               </div>
-315:               <div>
-316:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Horario</p>
-317:                 <p className="font-medium">{eventoSeleccionado.horaDesde} – {eventoSeleccionado.horaHasta}</p>
-318:               </div>
-319:               <div className="col-span-2">
-320:                 <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Organizador</p>
-321:                 <p className="font-medium">{eventoSeleccionado.organizadorSolicitante}</p>
-322:               </div>
-323:               {eventoSeleccionado.descripcion && (
-324:                 <div className="col-span-2">
-325:                   <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Descripción</p>
-326:                   <p className="text-sm text-muted-foreground">{eventoSeleccionado.descripcion}</p>
-327:                 </div>
-328:               )}
-329:             </div>
-330:           </div>
-331:         </div>
-332:       )}
-333:     </div>
-334:   )
-335: }
-```
-
 ## File: app/login/page.tsx
 ```typescript
   1: "use client"
@@ -3479,6 +3121,503 @@ x.sh
 38: export default nextConfig
 ```
 
+## File: app/calendario/page.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect, useCallback } from "react"
+  4: import {
+  5:   ChevronLeft,
+  6:   ChevronRight,
+  7:   Loader2,
+  8:   Calendar,
+  9:   MapPin,
+ 10:   Users,
+ 11:   FileText,
+ 12:   ExternalLink,
+ 13: } from "lucide-react"
+ 14: import { Button } from "@/components/ui/button"
+ 15: import { Card } from "@/components/ui/card"
+ 16: import { Badge } from "@/components/ui/badge"
+ 17: import {
+ 18:   Dialog,
+ 19:   DialogContent,
+ 20:   DialogHeader,
+ 21:   DialogTitle,
+ 22: } from "@/components/ui/dialog"
+ 23: import { cn } from "@/lib/utils"
+ 24: 
+ 25: // ── Tipos (alineados con el backend de eventos / calendario-back) ──────────
+ 26: 
+ 27: type EventType =
+ 28:   | "PENDIENTE"
+ 29:   | "EN_CURSO"
+ 30:   | "FINALIZADO"
+ 31:   | "CANCELADO"
+ 32:   | "MASIVO"
+ 33:   | "ESCOLAR"
+ 34: 
+ 35: interface Evento {
+ 36:   id: string
+ 37:   titulo: string
+ 38:   descripcion?: string
+ 39:   informacion?: string
+ 40:   fechaDesde: string
+ 41:   fechaHasta: string
+ 42:   horaDesde: string
+ 43:   horaHasta: string
+ 44:   tipoEvento: EventType
+ 45:   areas?: string[]
+ 46:   organizadorSolicitante?: string
+ 47:   coberturaPrensaBol?: boolean
+ 48:   convocatoria?: number
+ 49:   anexos?: string[]
+ 50:   solicitudes?: string[]
+ 51: }
+ 52: 
+ 53: // ── Constantes de estilo (mismas que calendario-front) ──────────────────────
+ 54: 
+ 55: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+ 56: 
+ 57: const EVENT_TYPE_COLORS: Record<string, string> = {
+ 58:   PENDIENTE: "bg-orange-500",
+ 59:   EN_CURSO: "bg-blue-500",
+ 60:   FINALIZADO: "bg-green-500",
+ 61:   CANCELADO: "bg-red-500",
+ 62:   MASIVO: "bg-purple-500",
+ 63:   ESCOLAR: "bg-pink-500",
+ 64: }
+ 65: 
+ 66: const EVENT_TYPE_LABELS: Record<string, string> = {
+ 67:   PENDIENTE: "Pendiente",
+ 68:   EN_CURSO: "En Curso",
+ 69:   FINALIZADO: "Finalizado",
+ 70:   CANCELADO: "Cancelado",
+ 71:   MASIVO: "Masivo",
+ 72:   ESCOLAR: "Escolar",
+ 73: }
+ 74: 
+ 75: const AREA_LABELS: Record<string, string> = {
+ 76:   COWORKING: "Coworking",
+ 77:   AUDITORIO: "Auditorio",
+ 78:   LABORATORIO: "Laboratorio",
+ 79:   AULA_1: "Aula 1",
+ 80:   AULA_2: "Aula 2",
+ 81:   AULA_3: "Aula 3",
+ 82:   AULA_4: "Aula 4",
+ 83:   AULA_5: "Aula 5",
+ 84:   AULA_6: "Aula 6",
+ 85:   RECEPCION_ESTE: "Recepción Este",
+ 86:   RECEPCION_OESTE: "Recepción Oeste",
+ 87:   EXPLANADA: "Explanada",
+ 88:   PLAZA: "Plaza",
+ 89:   SALA_REUNIONES: "Sala de Reuniones",
+ 90: }
+ 91: 
+ 92: const AREA_COLORS: Record<string, string> = {
+ 93:   COWORKING: "bg-teal-500",
+ 94:   AUDITORIO: "bg-red-400",
+ 95:   LABORATORIO: "bg-blue-600",
+ 96:   AULA_1: "bg-yellow-600",
+ 97:   AULA_2: "bg-yellow-500",
+ 98:   AULA_3: "bg-amber-600",
+ 99:   AULA_4: "bg-amber-500",
+100:   AULA_5: "bg-orange-600",
+101:   AULA_6: "bg-orange-500",
+102:   RECEPCION_ESTE: "bg-cyan-500",
+103:   RECEPCION_OESTE: "bg-cyan-600",
+104:   EXPLANADA: "bg-lime-600",
+105:   PLAZA: "bg-lime-500",
+106:   SALA_REUNIONES: "bg-indigo-500",
+107: }
+108: 
+109: const EVENT_PILL_STYLES: Record<string, string> = {
+110:   PENDIENTE: "bg-amber-50 border-l-[3px] border-amber-500 text-amber-900 hover:bg-amber-100",
+111:   EN_CURSO: "bg-blue-50  border-l-[3px] border-blue-500  text-blue-900  hover:bg-blue-100",
+112:   FINALIZADO: "bg-emerald-50 border-l-[3px] border-emerald-500 text-emerald-900 hover:bg-emerald-100",
+113:   CANCELADO: "bg-red-50   border-l-[3px] border-red-500   text-red-900   hover:bg-red-100",
+114:   MASIVO: "bg-purple-50 border-l-[3px] border-purple-500 text-purple-900 hover:bg-purple-100",
+115:   ESCOLAR: "bg-pink-50  border-l-[3px] border-pink-500  text-pink-900  hover:bg-pink-100",
+116: }
+117: 
+118: const EVENT_DOT_COLORS: Record<string, string> = {
+119:   PENDIENTE: "bg-amber-500",
+120:   EN_CURSO: "bg-blue-500",
+121:   FINALIZADO: "bg-emerald-500",
+122:   CANCELADO: "bg-red-500",
+123:   MASIVO: "bg-purple-500",
+124:   ESCOLAR: "bg-pink-500",
+125: }
+126: 
+127: // ── Helpers de fecha ─────────────────────────────────────────────────────────
+128: 
+129: function parseLocalDate(dateString: string): Date {
+130:   const datePart = dateString.split("T")[0]
+131:   const [year, month, day] = datePart.split("-").map(Number)
+132:   return new Date(year, month - 1, day)
+133: }
+134: 
+135: function formatDate(dateString: string, options?: Intl.DateTimeFormatOptions): string {
+136:   const date = parseLocalDate(dateString)
+137:   return date.toLocaleDateString("es-ES", options ?? { day: "2-digit", month: "short", year: "numeric" })
+138: }
+139: 
+140: // ── Página ───────────────────────────────────────────────────────────────────
+141: 
+142: export default function CalendarioPage() {
+143:   const [events, setEvents] = useState<Evento[]>([])
+144:   const [loading, setLoading] = useState(true)
+145:   const [currentDate, setCurrentDate] = useState(new Date())
+146:   const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null)
+147: 
+148:   const loadEvents = useCallback(
+149:     async (silencioso = false) => {
+150:       if (!silencioso) setLoading(true)
+151:       try {
+152:         const year = currentDate.getFullYear()
+153:         const month = currentDate.getMonth() + 1
+154:         const res = await fetch(`${EVENTOS_API}/calendar?year=${year}&month=${month}`, { cache: "no-store" })
+155:         if (!res.ok) throw new Error(`Error ${res.status}`)
+156:         const data = await res.json()
+157:         setEvents(data.events ?? [])
+158:       } catch (err) {
+159:         if (!silencioso) console.error("Error cargando eventos:", err)
+160:       } finally {
+161:         if (!silencioso) setLoading(false)
+162:       }
+163:     },
+164:     [currentDate],
+165:   )
+166: 
+167:   useEffect(() => {
+168:     loadEvents()
+169:   }, [loadEvents])
+170: 
+171:   // Polling silencioso cada 5 min, igual que el calendario público
+172:   useEffect(() => {
+173:     const intervalo = setInterval(() => loadEvents(true), 5 * 60 * 1000)
+174:     return () => clearInterval(intervalo)
+175:   }, [loadEvents])
+176: 
+177:   const getDaysInMonth = () => {
+178:     const year = currentDate.getFullYear()
+179:     const month = currentDate.getMonth()
+180:     const firstDay = new Date(year, month, 1)
+181:     const lastDay = new Date(year, month + 1, 0)
+182:     const daysInMonth = lastDay.getDate()
+183:     const startingDayOfWeek = firstDay.getDay()
+184: 
+185:     const days: (number | null)[] = []
+186:     for (let i = 0; i < startingDayOfWeek; i++) days.push(null)
+187:     for (let i = 1; i <= daysInMonth; i++) days.push(i)
+188:     return days
+189:   }
+190: 
+191:   const getEventsForDay = (day: number) => {
+192:     const year = currentDate.getFullYear()
+193:     const month = currentDate.getMonth()
+194:     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+195: 
+196:     return events
+197:       .filter((event) => {
+198:         const eventStart = event.fechaDesde.split("T")[0]
+199:         const eventEnd = event.fechaHasta.split("T")[0]
+200:         return dateStr >= eventStart && dateStr <= eventEnd
+201:       })
+202:       .sort((a, b) => a.horaDesde.localeCompare(b.horaDesde))
+203:   }
+204: 
+205:   const previousMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))
+206:   const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))
+207:   const goToToday = () => setCurrentDate(new Date())
+208: 
+209:   const days = getDaysInMonth()
+210:   const monthName = currentDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" })
+211:   const presentTypes = [...new Set(events.map((e) => e.tipoEvento))]
+212: 
+213:   return (
+214:     <div className="min-h-screen bg-background p-4 md:p-8 pb-28">
+215:       <div className="max-w-7xl mx-auto">
+216:         {/* Header */}
+217:         <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+218:           <div>
+219:             <h1 className="text-3xl font-bold text-foreground capitalize">
+220:               Calendario <span className="text-primary">{monthName}</span>
+221:             </h1>
+222:             <p className="text-muted-foreground mt-1">Vista de eventos</p>
+223:           </div>
+224:           <div className="flex items-center gap-2 flex-wrap">
+225:             <Button className="bg-white" onClick={previousMonth} variant="outline" size="icon">
+226:               <ChevronLeft className="h-4 w-4" />
+227:             </Button>
+228:             <Button className="bg-white" onClick={goToToday} variant="outline">
+229:               Hoy
+230:             </Button>
+231:             <Button className="bg-white" onClick={nextMonth} variant="outline" size="icon">
+232:               <ChevronRight className="h-4 w-4" />
+233:             </Button>
+234:           </div>
+235:         </div>
+236: 
+237:         {/* Leyenda dinámica */}
+238:         {presentTypes.length > 0 && (
+239:           <div className="flex flex-wrap gap-3 mb-4">
+240:             {presentTypes.map((type) => (
+241:               <div key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+242:                 <span className={`w-2.5 h-2.5 rounded-full ${EVENT_DOT_COLORS[type] ?? "bg-gray-400"}`} />
+243:                 {EVENT_TYPE_LABELS[type] ?? type}
+244:               </div>
+245:             ))}
+246:           </div>
+247:         )}
+248: 
+249:         {loading ? (
+250:           <div className="flex items-center justify-center h-64 gap-2 text-muted-foreground">
+251:             <Loader2 className="h-6 w-6 animate-spin text-primary" />
+252:             <span className="text-sm">Cargando eventos...</span>
+253:           </div>
+254:         ) : (
+255:           <Card className="p-4">
+256:             {/* Días de la semana */}
+257:             <div className="grid grid-cols-7 gap-1 mb-2">
+258:               {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => (
+259:                 <div
+260:                   key={day}
+261:                   className="text-center font-semibold text-xs text-muted-foreground p-2 uppercase tracking-wide"
+262:                 >
+263:                   {day}
+264:                 </div>
+265:               ))}
+266:             </div>
+267: 
+268:             {/* Grilla de días */}
+269:             <div className="grid grid-cols-7 gap-1">
+270:               {days.map((day, index) => {
+271:                 if (day === null) {
+272:                   return <div key={`empty-${index}`} className="min-h-[90px] md:min-h-[110px]" />
+273:                 }
+274: 
+275:                 const dayEvents = getEventsForDay(day)
+276:                 const isToday =
+277:                   day === new Date().getDate() &&
+278:                   currentDate.getMonth() === new Date().getMonth() &&
+279:                   currentDate.getFullYear() === new Date().getFullYear()
+280: 
+281:                 return (
+282:                   <div
+283:                     key={day}
+284:                     className={cn(
+285:                       "min-h-[90px] md:min-h-[110px] border rounded-lg p-1.5 transition-colors",
+286:                       isToday
+287:                         ? "bg-primary/5 border-primary ring-1 ring-primary/30"
+288:                         : "bg-card border-border hover:bg-muted/30",
+289:                     )}
+290:                   >
+291:                     {/* Número del día */}
+292:                     <div className="flex items-center justify-between mb-1">
+293:                       <span
+294:                         className={cn(
+295:                           "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+296:                           isToday ? "bg-primary text-primary-foreground" : "text-foreground",
+297:                         )}
+298:                       >
+299:                         {day}
+300:                       </span>
+301:                       {dayEvents.length > 4 && (
+302:                         <span className="text-[10px] text-muted-foreground font-medium">{dayEvents.length}</span>
+303:                       )}
+304:                     </div>
+305: 
+306:                     {/* Eventos del día */}
+307:                     <div className="space-y-0.5 overflow-y-auto max-h-[120px] md:max-h-[160px] scrollbar-thin">
+308:                       {dayEvents.map((event) => {
+309:                         const pillStyle =
+310:                           EVENT_PILL_STYLES[event.tipoEvento] ??
+311:                           "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800 hover:bg-gray-100"
+312:                         return (
+313:                           <button
+314:                             key={event.id}
+315:                             onClick={() => setSelectedEvent(event)}
+316:                             className={cn(
+317:                               "w-full text-left text-[10px] md:text-xs px-1.5 py-0.5 rounded-sm font-medium truncate transition-colors",
+318:                               pillStyle,
+319:                             )}
+320:                             title={`${event.titulo} — ${event.horaDesde} a ${event.horaHasta}`}
+321:                           >
+322:                             <span className="font-semibold">{event.horaDesde}</span> <span>{event.titulo}</span>
+323:                           </button>
+324:                         )
+325:                       })}
+326:                     </div>
+327:                   </div>
+328:                 )
+329:               })}
+330:             </div>
+331:           </Card>
+332:         )}
+333: 
+334:         {/* Modal de detalle del evento */}
+335:         <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
+336:           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+337:             {selectedEvent && (
+338:               <>
+339:                 <DialogHeader>
+340:                   <DialogTitle className="text-2xl">{selectedEvent.titulo}</DialogTitle>
+341:                 </DialogHeader>
+342: 
+343:                 <div className="space-y-4">
+344:                   {/* Badges de tipo y áreas */}
+345:                   <div className="flex flex-wrap gap-2">
+346:                     <Badge className={`${EVENT_TYPE_COLORS[selectedEvent.tipoEvento] ?? "bg-gray-500"} text-white border-0`}>
+347:                       {EVENT_TYPE_LABELS[selectedEvent.tipoEvento] ?? selectedEvent.tipoEvento}
+348:                     </Badge>
+349:                     {selectedEvent.areas && selectedEvent.areas.length > 0 ? (
+350:                       selectedEvent.areas.map((area) => (
+351:                         <Badge key={area} className={`${AREA_COLORS[area] ?? "bg-gray-500"} text-white border-0`}>
+352:                           <MapPin className="h-3 w-3 mr-1" />
+353:                           {AREA_LABELS[area] ?? area}
+354:                         </Badge>
+355:                       ))
+356:                     ) : (
+357:                       <Badge className="bg-gray-500 text-white border-0">
+358:                         <MapPin className="h-3 w-3 mr-1" />
+359:                         Sin área asignada
+360:                       </Badge>
+361:                     )}
+362:                   </div>
+363: 
+364:                   {selectedEvent.descripcion && (
+365:                     <div>
+366:                       <h3 className="font-semibold mb-1">Descripción</h3>
+367:                       <p className="text-sm text-muted-foreground">{selectedEvent.descripcion}</p>
+368:                     </div>
+369:                   )}
+370: 
+371:                   {selectedEvent.informacion && (
+372:                     <div>
+373:                       <h3 className="font-semibold mb-1">Requerimientos</h3>
+374:                       <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+375:                         {selectedEvent.informacion}
+376:                       </p>
+377:                     </div>
+378:                   )}
+379: 
+380:                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+381:                     <div>
+382:                       <h3 className="font-semibold mb-1 flex items-center gap-2">
+383:                         <Calendar className="h-4 w-4" />
+384:                         Fechas
+385:                       </h3>
+386:                       <p className="text-sm text-muted-foreground capitalize">
+387:                         {formatDate(selectedEvent.fechaDesde, {
+388:                           weekday: "long",
+389:                           day: "numeric",
+390:                           month: "long",
+391:                           year: "numeric",
+392:                         })}
+393:                       </p>
+394:                       {selectedEvent.fechaDesde !== selectedEvent.fechaHasta && (
+395:                         <p className="text-sm text-muted-foreground capitalize">
+396:                           hasta{" "}
+397:                           {formatDate(selectedEvent.fechaHasta, {
+398:                             weekday: "long",
+399:                             day: "numeric",
+400:                             month: "long",
+401:                             year: "numeric",
+402:                           })}
+403:                         </p>
+404:                       )}
+405:                       <p className="text-sm text-muted-foreground mt-1">
+406:                         {selectedEvent.horaDesde} - {selectedEvent.horaHasta}
+407:                       </p>
+408:                     </div>
+409: 
+410:                     {selectedEvent.organizadorSolicitante && (
+411:                       <div>
+412:                         <h3 className="font-semibold mb-1">Organizador</h3>
+413:                         <p className="text-sm text-muted-foreground">{selectedEvent.organizadorSolicitante}</p>
+414:                       </div>
+415:                     )}
+416:                   </div>
+417: 
+418:                   {(selectedEvent.convocatoria !== undefined || selectedEvent.coberturaPrensaBol !== undefined) && (
+419:                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+420:                       {selectedEvent.convocatoria !== undefined && (
+421:                         <div>
+422:                           <h3 className="font-semibold mb-1 flex items-center gap-2">
+423:                             <Users className="h-4 w-4" />
+424:                             Convocatoria
+425:                           </h3>
+426:                           <p className="text-sm text-muted-foreground">{selectedEvent.convocatoria} asistentes</p>
+427:                         </div>
+428:                       )}
+429:                       {selectedEvent.coberturaPrensaBol !== undefined && (
+430:                         <div>
+431:                           <h3 className="font-semibold mb-1">Cobertura de Prensa</h3>
+432:                           <p className="text-sm text-muted-foreground">
+433:                             {selectedEvent.coberturaPrensaBol ? "Sí" : "No"}
+434:                           </p>
+435:                         </div>
+436:                       )}
+437:                     </div>
+438:                   )}
+439: 
+440:                   {selectedEvent.anexos && selectedEvent.anexos.length > 0 && (
+441:                     <div>
+442:                       <h3 className="font-semibold mb-2 flex items-center gap-2">
+443:                         <FileText className="h-4 w-4" />
+444:                         Anexos
+445:                       </h3>
+446:                       <div className="space-y-2">
+447:                         {selectedEvent.anexos.map((anexo, index) => (
+448:                           <a
+449:                             key={index}
+450:                             href={anexo}
+451:                             target="_blank"
+452:                             rel="noopener noreferrer"
+453:                             className="flex items-center gap-2 text-sm text-primary hover:underline"
+454:                           >
+455:                             <ExternalLink className="h-4 w-4" />
+456:                             Anexo {index + 1}
+457:                           </a>
+458:                         ))}
+459:                       </div>
+460:                     </div>
+461:                   )}
+462: 
+463:                   {selectedEvent.solicitudes && selectedEvent.solicitudes.length > 0 && (
+464:                     <div>
+465:                       <h3 className="font-semibold mb-2 flex items-center gap-2">
+466:                         <FileText className="h-4 w-4" />
+467:                         Solicitudes
+468:                       </h3>
+469:                       <div className="space-y-2">
+470:                         {selectedEvent.solicitudes.map((solicitud, index) => (
+471:                           <a
+472:                             key={index}
+473:                             href={solicitud}
+474:                             target="_blank"
+475:                             rel="noopener noreferrer"
+476:                             className="flex items-center gap-2 text-sm text-primary hover:underline"
+477:                           >
+478:                             <ExternalLink className="h-4 w-4" />
+479:                             Solicitud {index + 1}
+480:                           </a>
+481:                         ))}
+482:                       </div>
+483:                     </div>
+484:                   )}
+485:                 </div>
+486:               </>
+487:             )}
+488:           </DialogContent>
+489:         </Dialog>
+490:       </div>
+491:     </div>
+492:   )
+493: }
+```
+
 ## File: app/layout.tsx
 ```typescript
  1: import type React from "react"
@@ -3661,52 +3800,530 @@ x.sh
 
 ## File: x.sh
 ```bash
- 1: #!/bin/bash
- 2: set -euo pipefail
- 3: 
- 4: FILE="app/calendario/page.tsx"
- 5: 
- 6: echo "🔧 Corrigiendo toLocalDate() para soportar ISO completo del endpoint /calendar..."
- 7: 
- 8: if [ ! -f "$FILE" ]; then
- 9:   echo "❌ No se encontró $FILE. Ejecutá este script desde la raíz de coworking-nodo-front."
-10:   exit 1
-11: fi
-12: 
-13: cp "$FILE" "$FILE.bak"
-14: 
-15: node <<'EOF'
-16: const fs = require("fs");
-17: const path = "app/calendario/page.tsx";
-18: let content = fs.readFileSync(path, "utf8");
-19: 
-20: const oldFn = `function toLocalDate(iso: string) {
-21:   // evita off-by-one por timezone al parsear "YYYY-MM-DD"
-22:   const [y, m, d] = iso.split("-").map(Number)
-23:   return new Date(y, m - 1, d)
-24: }`;
-25: 
-26: const newFn = `function toLocalDate(iso: string) {
-27:   // evita off-by-one por timezone; soporta "YYYY-MM-DD" e ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ"
-28:   const datePart = iso.split("T")[0]
-29:   const [y, m, d] = datePart.split("-").map(Number)
-30:   return new Date(y, m - 1, d)
-31: }`;
-32: 
-33: if (!content.includes(oldFn)) {
-34:   console.error("⚠️  No se encontró el bloque exacto de toLocalDate. Revisar manualmente.");
-35:   process.exit(1);
-36: }
-37: 
-38: content = content.replace(oldFn, newFn);
-39: fs.writeFileSync(path, content);
-40: console.log("✅ toLocalDate() corregida.");
-41: EOF
-42: 
-43: echo ""
-44: echo "🔍 Revisá el diff antes de commitear:"
-45: diff "$FILE.bak" "$FILE" || true
-46: 
-47: echo ""
-48: echo "✅ Listo. Corré 'pnpm build' para confirmar antes de subir."
+  1: #!/bin/bash
+  2: set -euo pipefail
+  3: 
+  4: # ─────────────────────────────────────────────────────────────
+  5: # coworking-nodo-front — Calendario = réplica visual del calendario
+  6: # público de eventos (nodo-eventos), sin botón de Admin Login.
+  7: # ─────────────────────────────────────────────────────────────
+  8: 
+  9: FILE="app/calendario/page.tsx"
+ 10: 
+ 11: if [ ! -f "$FILE" ]; then
+ 12:   echo "❌ No se encontró $FILE. Ejecutá este script desde la raíz de coworking-nodo-front."
+ 13:   exit 1
+ 14: fi
+ 15: 
+ 16: mkdir -p "$(dirname "$FILE")"
+ 17: cp "$FILE" "$FILE.bak.$(date +%Y%m%d_%H%M%S)"
+ 18: 
+ 19: echo "🔧 Reescribiendo $FILE con el diseño del calendario público (sin Admin Login)..."
+ 20: 
+ 21: cat > "$FILE" << 'PAGE_EOF'
+ 22: "use client"
+ 23: 
+ 24: import { useState, useEffect, useCallback } from "react"
+ 25: import {
+ 26:   ChevronLeft,
+ 27:   ChevronRight,
+ 28:   Loader2,
+ 29:   CalendarDays,
+ 30:   Calendar,
+ 31:   MapPin,
+ 32:   Users,
+ 33:   FileText,
+ 34:   ExternalLink,
+ 35: } from "lucide-react"
+ 36: import { Button } from "@/components/ui/button"
+ 37: import { Card } from "@/components/ui/card"
+ 38: import { Badge } from "@/components/ui/badge"
+ 39: import {
+ 40:   Dialog,
+ 41:   DialogContent,
+ 42:   DialogHeader,
+ 43:   DialogTitle,
+ 44: } from "@/components/ui/dialog"
+ 45: import { cn } from "@/lib/utils"
+ 46: 
+ 47: // ── Tipos (alineados con el backend de eventos / calendario-back) ──────────
+ 48: 
+ 49: type EventType =
+ 50:   | "PENDIENTE"
+ 51:   | "EN_CURSO"
+ 52:   | "FINALIZADO"
+ 53:   | "CANCELADO"
+ 54:   | "MASIVO"
+ 55:   | "ESCOLAR"
+ 56: 
+ 57: interface Evento {
+ 58:   id: string
+ 59:   titulo: string
+ 60:   descripcion?: string
+ 61:   informacion?: string
+ 62:   fechaDesde: string
+ 63:   fechaHasta: string
+ 64:   horaDesde: string
+ 65:   horaHasta: string
+ 66:   tipoEvento: EventType
+ 67:   areas?: string[]
+ 68:   organizadorSolicitante?: string
+ 69:   coberturaPrensaBol?: boolean
+ 70:   convocatoria?: number
+ 71:   anexos?: string[]
+ 72:   solicitudes?: string[]
+ 73: }
+ 74: 
+ 75: // ── Constantes de estilo (mismas que calendario-front) ──────────────────────
+ 76: 
+ 77: const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+ 78: 
+ 79: const EVENT_TYPE_COLORS: Record<string, string> = {
+ 80:   PENDIENTE: "bg-orange-500",
+ 81:   EN_CURSO: "bg-blue-500",
+ 82:   FINALIZADO: "bg-green-500",
+ 83:   CANCELADO: "bg-red-500",
+ 84:   MASIVO: "bg-purple-500",
+ 85:   ESCOLAR: "bg-pink-500",
+ 86: }
+ 87: 
+ 88: const EVENT_TYPE_LABELS: Record<string, string> = {
+ 89:   PENDIENTE: "Pendiente",
+ 90:   EN_CURSO: "En Curso",
+ 91:   FINALIZADO: "Finalizado",
+ 92:   CANCELADO: "Cancelado",
+ 93:   MASIVO: "Masivo",
+ 94:   ESCOLAR: "Escolar",
+ 95: }
+ 96: 
+ 97: const AREA_LABELS: Record<string, string> = {
+ 98:   COWORKING: "Coworking",
+ 99:   AUDITORIO: "Auditorio",
+100:   LABORATORIO: "Laboratorio",
+101:   AULA_1: "Aula 1",
+102:   AULA_2: "Aula 2",
+103:   AULA_3: "Aula 3",
+104:   AULA_4: "Aula 4",
+105:   AULA_5: "Aula 5",
+106:   AULA_6: "Aula 6",
+107:   RECEPCION_ESTE: "Recepción Este",
+108:   RECEPCION_OESTE: "Recepción Oeste",
+109:   EXPLANADA: "Explanada",
+110:   PLAZA: "Plaza",
+111:   SALA_REUNIONES: "Sala de Reuniones",
+112: }
+113: 
+114: const AREA_COLORS: Record<string, string> = {
+115:   COWORKING: "bg-teal-500",
+116:   AUDITORIO: "bg-red-400",
+117:   LABORATORIO: "bg-blue-600",
+118:   AULA_1: "bg-yellow-600",
+119:   AULA_2: "bg-yellow-500",
+120:   AULA_3: "bg-amber-600",
+121:   AULA_4: "bg-amber-500",
+122:   AULA_5: "bg-orange-600",
+123:   AULA_6: "bg-orange-500",
+124:   RECEPCION_ESTE: "bg-cyan-500",
+125:   RECEPCION_OESTE: "bg-cyan-600",
+126:   EXPLANADA: "bg-lime-600",
+127:   PLAZA: "bg-lime-500",
+128:   SALA_REUNIONES: "bg-indigo-500",
+129: }
+130: 
+131: const EVENT_PILL_STYLES: Record<string, string> = {
+132:   PENDIENTE: "bg-amber-50 border-l-[3px] border-amber-500 text-amber-900 hover:bg-amber-100",
+133:   EN_CURSO: "bg-blue-50  border-l-[3px] border-blue-500  text-blue-900  hover:bg-blue-100",
+134:   FINALIZADO: "bg-emerald-50 border-l-[3px] border-emerald-500 text-emerald-900 hover:bg-emerald-100",
+135:   CANCELADO: "bg-red-50   border-l-[3px] border-red-500   text-red-900   hover:bg-red-100",
+136:   MASIVO: "bg-purple-50 border-l-[3px] border-purple-500 text-purple-900 hover:bg-purple-100",
+137:   ESCOLAR: "bg-pink-50  border-l-[3px] border-pink-500  text-pink-900  hover:bg-pink-100",
+138: }
+139: 
+140: const EVENT_DOT_COLORS: Record<string, string> = {
+141:   PENDIENTE: "bg-amber-500",
+142:   EN_CURSO: "bg-blue-500",
+143:   FINALIZADO: "bg-emerald-500",
+144:   CANCELADO: "bg-red-500",
+145:   MASIVO: "bg-purple-500",
+146:   ESCOLAR: "bg-pink-500",
+147: }
+148: 
+149: // ── Helpers de fecha ─────────────────────────────────────────────────────────
+150: 
+151: function parseLocalDate(dateString: string): Date {
+152:   const datePart = dateString.split("T")[0]
+153:   const [year, month, day] = datePart.split("-").map(Number)
+154:   return new Date(year, month - 1, day)
+155: }
+156: 
+157: function formatDate(dateString: string, options?: Intl.DateTimeFormatOptions): string {
+158:   const date = parseLocalDate(dateString)
+159:   return date.toLocaleDateString("es-ES", options ?? { day: "2-digit", month: "short", year: "numeric" })
+160: }
+161: 
+162: // ── Página ───────────────────────────────────────────────────────────────────
+163: 
+164: export default function CalendarioPage() {
+165:   const [events, setEvents] = useState<Evento[]>([])
+166:   const [loading, setLoading] = useState(true)
+167:   const [currentDate, setCurrentDate] = useState(new Date())
+168:   const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null)
+169: 
+170:   const loadEvents = useCallback(
+171:     async (silencioso = false) => {
+172:       if (!silencioso) setLoading(true)
+173:       try {
+174:         const year = currentDate.getFullYear()
+175:         const month = currentDate.getMonth() + 1
+176:         const res = await fetch(`${EVENTOS_API}/calendar?year=${year}&month=${month}`, { cache: "no-store" })
+177:         if (!res.ok) throw new Error(`Error ${res.status}`)
+178:         const data = await res.json()
+179:         setEvents(data.events ?? [])
+180:       } catch (err) {
+181:         if (!silencioso) console.error("Error cargando eventos:", err)
+182:       } finally {
+183:         if (!silencioso) setLoading(false)
+184:       }
+185:     },
+186:     [currentDate],
+187:   )
+188: 
+189:   useEffect(() => {
+190:     loadEvents()
+191:   }, [loadEvents])
+192: 
+193:   // Polling silencioso cada 5 min, igual que el calendario público
+194:   useEffect(() => {
+195:     const intervalo = setInterval(() => loadEvents(true), 5 * 60 * 1000)
+196:     return () => clearInterval(intervalo)
+197:   }, [loadEvents])
+198: 
+199:   const getDaysInMonth = () => {
+200:     const year = currentDate.getFullYear()
+201:     const month = currentDate.getMonth()
+202:     const firstDay = new Date(year, month, 1)
+203:     const lastDay = new Date(year, month + 1, 0)
+204:     const daysInMonth = lastDay.getDate()
+205:     const startingDayOfWeek = firstDay.getDay()
+206: 
+207:     const days: (number | null)[] = []
+208:     for (let i = 0; i < startingDayOfWeek; i++) days.push(null)
+209:     for (let i = 1; i <= daysInMonth; i++) days.push(i)
+210:     return days
+211:   }
+212: 
+213:   const getEventsForDay = (day: number) => {
+214:     const year = currentDate.getFullYear()
+215:     const month = currentDate.getMonth()
+216:     const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+217: 
+218:     return events
+219:       .filter((event) => {
+220:         const eventStart = event.fechaDesde.split("T")[0]
+221:         const eventEnd = event.fechaHasta.split("T")[0]
+222:         return dateStr >= eventStart && dateStr <= eventEnd
+223:       })
+224:       .sort((a, b) => a.horaDesde.localeCompare(b.horaDesde))
+225:   }
+226: 
+227:   const previousMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))
+228:   const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))
+229:   const goToToday = () => setCurrentDate(new Date())
+230: 
+231:   const days = getDaysInMonth()
+232:   const monthName = currentDate.toLocaleDateString("es-ES", { month: "long", year: "numeric" })
+233:   const presentTypes = [...new Set(events.map((e) => e.tipoEvento))]
+234: 
+235:   return (
+236:     <div className="min-h-screen bg-background p-4 md:p-8 pb-28">
+237:       <div className="max-w-7xl mx-auto">
+238:         {/* Header */}
+239:         <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+240:           <div>
+241:             <h1 className="text-3xl font-bold text-foreground capitalize">
+242:               Calendario <span className="text-primary">{monthName}</span>
+243:             </h1>
+244:             <p className="text-muted-foreground mt-1">Vista de eventos</p>
+245:           </div>
+246:           <div className="flex items-center gap-2 flex-wrap">
+247:             <Button className="bg-white" onClick={previousMonth} variant="outline" size="icon">
+248:               <ChevronLeft className="h-4 w-4" />
+249:             </Button>
+250:             <Button className="bg-white" onClick={goToToday} variant="outline">
+251:               Hoy
+252:             </Button>
+253:             <Button className="bg-white" onClick={nextMonth} variant="outline" size="icon">
+254:               <ChevronRight className="h-4 w-4" />
+255:             </Button>
+256:           </div>
+257:         </div>
+258: 
+259:         {/* Leyenda dinámica */}
+260:         {presentTypes.length > 0 && (
+261:           <div className="flex flex-wrap gap-3 mb-4">
+262:             {presentTypes.map((type) => (
+263:               <div key={type} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+264:                 <span className={`w-2.5 h-2.5 rounded-full ${EVENT_DOT_COLORS[type] ?? "bg-gray-400"}`} />
+265:                 {EVENT_TYPE_LABELS[type] ?? type}
+266:               </div>
+267:             ))}
+268:           </div>
+269:         )}
+270: 
+271:         {loading ? (
+272:           <div className="flex items-center justify-center h-64 gap-2 text-muted-foreground">
+273:             <Loader2 className="h-6 w-6 animate-spin text-primary" />
+274:             <span className="text-sm">Cargando eventos...</span>
+275:           </div>
+276:         ) : (
+277:           <Card className="p-4">
+278:             {/* Días de la semana */}
+279:             <div className="grid grid-cols-7 gap-1 mb-2">
+280:               {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((day) => (
+281:                 <div
+282:                   key={day}
+283:                   className="text-center font-semibold text-xs text-muted-foreground p-2 uppercase tracking-wide"
+284:                 >
+285:                   {day}
+286:                 </div>
+287:               ))}
+288:             </div>
+289: 
+290:             {/* Grilla de días */}
+291:             <div className="grid grid-cols-7 gap-1">
+292:               {days.map((day, index) => {
+293:                 if (day === null) {
+294:                   return <div key={`empty-${index}`} className="min-h-[90px] md:min-h-[110px]" />
+295:                 }
+296: 
+297:                 const dayEvents = getEventsForDay(day)
+298:                 const isToday =
+299:                   day === new Date().getDate() &&
+300:                   currentDate.getMonth() === new Date().getMonth() &&
+301:                   currentDate.getFullYear() === new Date().getFullYear()
+302: 
+303:                 return (
+304:                   <div
+305:                     key={day}
+306:                     className={cn(
+307:                       "min-h-[90px] md:min-h-[110px] border rounded-lg p-1.5 transition-colors",
+308:                       isToday
+309:                         ? "bg-primary/5 border-primary ring-1 ring-primary/30"
+310:                         : "bg-card border-border hover:bg-muted/30",
+311:                     )}
+312:                   >
+313:                     {/* Número del día */}
+314:                     <div className="flex items-center justify-between mb-1">
+315:                       <span
+316:                         className={cn(
+317:                           "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
+318:                           isToday ? "bg-primary text-primary-foreground" : "text-foreground",
+319:                         )}
+320:                       >
+321:                         {day}
+322:                       </span>
+323:                       {dayEvents.length > 4 && (
+324:                         <span className="text-[10px] text-muted-foreground font-medium">{dayEvents.length}</span>
+325:                       )}
+326:                     </div>
+327: 
+328:                     {/* Eventos del día */}
+329:                     <div className="space-y-0.5 overflow-y-auto max-h-[120px] md:max-h-[160px] scrollbar-thin">
+330:                       {dayEvents.map((event) => {
+331:                         const pillStyle =
+332:                           EVENT_PILL_STYLES[event.tipoEvento] ??
+333:                           "bg-gray-50 border-l-[3px] border-gray-400 text-gray-800 hover:bg-gray-100"
+334:                         return (
+335:                           <button
+336:                             key={event.id}
+337:                             onClick={() => setSelectedEvent(event)}
+338:                             className={cn(
+339:                               "w-full text-left text-[10px] md:text-xs px-1.5 py-0.5 rounded-sm font-medium truncate transition-colors",
+340:                               pillStyle,
+341:                             )}
+342:                             title={`${event.titulo} — ${event.horaDesde} a ${event.horaHasta}`}
+343:                           >
+344:                             <span className="font-semibold">{event.horaDesde}</span> <span>{event.titulo}</span>
+345:                           </button>
+346:                         )
+347:                       })}
+348:                     </div>
+349:                   </div>
+350:                 )
+351:               })}
+352:             </div>
+353:           </Card>
+354:         )}
+355: 
+356:         {/* Modal de detalle del evento */}
+357:         <Dialog open={!!selectedEvent} onOpenChange={() => setSelectedEvent(null)}>
+358:           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+359:             {selectedEvent && (
+360:               <>
+361:                 <DialogHeader>
+362:                   <DialogTitle className="text-2xl">{selectedEvent.titulo}</DialogTitle>
+363:                 </DialogHeader>
+364: 
+365:                 <div className="space-y-4">
+366:                   {/* Badges de tipo y áreas */}
+367:                   <div className="flex flex-wrap gap-2">
+368:                     <Badge className={`${EVENT_TYPE_COLORS[selectedEvent.tipoEvento] ?? "bg-gray-500"} text-white border-0`}>
+369:                       {EVENT_TYPE_LABELS[selectedEvent.tipoEvento] ?? selectedEvent.tipoEvento}
+370:                     </Badge>
+371:                     {selectedEvent.areas && selectedEvent.areas.length > 0 ? (
+372:                       selectedEvent.areas.map((area) => (
+373:                         <Badge key={area} className={`${AREA_COLORS[area] ?? "bg-gray-500"} text-white border-0`}>
+374:                           <MapPin className="h-3 w-3 mr-1" />
+375:                           {AREA_LABELS[area] ?? area}
+376:                         </Badge>
+377:                       ))
+378:                     ) : (
+379:                       <Badge className="bg-gray-500 text-white border-0">
+380:                         <MapPin className="h-3 w-3 mr-1" />
+381:                         Sin área asignada
+382:                       </Badge>
+383:                     )}
+384:                   </div>
+385: 
+386:                   {selectedEvent.descripcion && (
+387:                     <div>
+388:                       <h3 className="font-semibold mb-1">Descripción</h3>
+389:                       <p className="text-sm text-muted-foreground">{selectedEvent.descripcion}</p>
+390:                     </div>
+391:                   )}
+392: 
+393:                   {selectedEvent.informacion && (
+394:                     <div>
+395:                       <h3 className="font-semibold mb-1">Requerimientos</h3>
+396:                       <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+397:                         {selectedEvent.informacion}
+398:                       </p>
+399:                     </div>
+400:                   )}
+401: 
+402:                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+403:                     <div>
+404:                       <h3 className="font-semibold mb-1 flex items-center gap-2">
+405:                         <Calendar className="h-4 w-4" />
+406:                         Fechas
+407:                       </h3>
+408:                       <p className="text-sm text-muted-foreground capitalize">
+409:                         {formatDate(selectedEvent.fechaDesde, {
+410:                           weekday: "long",
+411:                           day: "numeric",
+412:                           month: "long",
+413:                           year: "numeric",
+414:                         })}
+415:                       </p>
+416:                       {selectedEvent.fechaDesde !== selectedEvent.fechaHasta && (
+417:                         <p className="text-sm text-muted-foreground capitalize">
+418:                           hasta{" "}
+419:                           {formatDate(selectedEvent.fechaHasta, {
+420:                             weekday: "long",
+421:                             day: "numeric",
+422:                             month: "long",
+423:                             year: "numeric",
+424:                           })}
+425:                         </p>
+426:                       )}
+427:                       <p className="text-sm text-muted-foreground mt-1">
+428:                         {selectedEvent.horaDesde} - {selectedEvent.horaHasta}
+429:                       </p>
+430:                     </div>
+431: 
+432:                     {selectedEvent.organizadorSolicitante && (
+433:                       <div>
+434:                         <h3 className="font-semibold mb-1">Organizador</h3>
+435:                         <p className="text-sm text-muted-foreground">{selectedEvent.organizadorSolicitante}</p>
+436:                       </div>
+437:                     )}
+438:                   </div>
+439: 
+440:                   {(selectedEvent.convocatoria !== undefined || selectedEvent.coberturaPrensaBol !== undefined) && (
+441:                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+442:                       {selectedEvent.convocatoria !== undefined && (
+443:                         <div>
+444:                           <h3 className="font-semibold mb-1 flex items-center gap-2">
+445:                             <Users className="h-4 w-4" />
+446:                             Convocatoria
+447:                           </h3>
+448:                           <p className="text-sm text-muted-foreground">{selectedEvent.convocatoria} asistentes</p>
+449:                         </div>
+450:                       )}
+451:                       {selectedEvent.coberturaPrensaBol !== undefined && (
+452:                         <div>
+453:                           <h3 className="font-semibold mb-1">Cobertura de Prensa</h3>
+454:                           <p className="text-sm text-muted-foreground">
+455:                             {selectedEvent.coberturaPrensaBol ? "Sí" : "No"}
+456:                           </p>
+457:                         </div>
+458:                       )}
+459:                     </div>
+460:                   )}
+461: 
+462:                   {selectedEvent.anexos && selectedEvent.anexos.length > 0 && (
+463:                     <div>
+464:                       <h3 className="font-semibold mb-2 flex items-center gap-2">
+465:                         <FileText className="h-4 w-4" />
+466:                         Anexos
+467:                       </h3>
+468:                       <div className="space-y-2">
+469:                         {selectedEvent.anexos.map((anexo, index) => (
+470:                           
+471:                             key={index}
+472:                             href={anexo}
+473:                             target="_blank"
+474:                             rel="noopener noreferrer"
+475:                             className="flex items-center gap-2 text-sm text-primary hover:underline"
+476:                           >
+477:                             <ExternalLink className="h-4 w-4" />
+478:                             Anexo {index + 1}
+479:                           </a>
+480:                         ))}
+481:                       </div>
+482:                     </div>
+483:                   )}
+484: 
+485:                   {selectedEvent.solicitudes && selectedEvent.solicitudes.length > 0 && (
+486:                     <div>
+487:                       <h3 className="font-semibold mb-2 flex items-center gap-2">
+488:                         <FileText className="h-4 w-4" />
+489:                         Solicitudes
+490:                       </h3>
+491:                       <div className="space-y-2">
+492:                         {selectedEvent.solicitudes.map((solicitud, index) => (
+493:                           
+494:                             key={index}
+495:                             href={solicitud}
+496:                             target="_blank"
+497:                             rel="noopener noreferrer"
+498:                             className="flex items-center gap-2 text-sm text-primary hover:underline"
+499:                           >
+500:                             <ExternalLink className="h-4 w-4" />
+501:                             Solicitud {index + 1}
+502:                           </a>
+503:                         ))}
+504:                       </div>
+505:                     </div>
+506:                   )}
+507:                 </div>
+508:               </>
+509:             )}
+510:           </DialogContent>
+511:         </Dialog>
+512:       </div>
+513:     </div>
+514:   )
+515: }
+516: PAGE_EOF
+517: 
+518: echo "✅ $FILE actualizado."
+519: echo ""
+520: echo "🔍 Verificá que existan estos componentes shadcn en components/ui/:"
+521: echo "   - card.tsx"
+522: echo "   - badge.tsx"
+523: echo "   - dialog.tsx"
+524: echo "   - button.tsx"
+525: echo ""
+526: echo "▶️  Corré 'pnpm build' para confirmar antes de subir."
 ```
