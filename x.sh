@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# v3-calendario-coworking.sh — v1.1.0 — PRODUCCIÓN
-# Fix: usa /calendar?year=&month= igual que app/calendario/page.tsx
-#      y lee data.events (el backend devuelve { events, totalEvents, ... })
+# v4-calendario-coworking-ui.sh — v1.0.0 — PRODUCCIÓN
+# Rediseño visual completo de CalendarioCoworking:
+#  · Cards por evento (no tabla compacta)
+#  · Filtro desde hoy en adelante
+#  · Paginado de 5 eventos por página
+#  · Navegación mes a mes conservada
 # =============================================================================
 set -euo pipefail
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  v3-calendario-coworking.sh — v1.1.0                        ║"
+echo "║  v4-calendario-coworking-ui.sh — v1.0.0                     ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -18,25 +21,15 @@ if [ ! -f "package.json" ] || [ ! -d "app" ]; then
 fi
 
 # ════════════════════════════════════════════════════════════════════════════
-# 1. components/calendario-coworking.tsx
-#    — mismo endpoint que app/calendario/page.tsx: /calendar?year=&month=
-#    — lee data.events (respuesta envuelta en objeto)
-#    — filtra areas.includes("COWORKING")
+# 1. components/calendario-coworking.tsx — rediseño completo
 # ════════════════════════════════════════════════════════════════════════════
-echo "📄  Creando components/calendario-coworking.tsx..."
+echo "📄  Reescribiendo components/calendario-coworking.tsx..."
 cat > components/calendario-coworking.tsx << 'EOF'
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Badge }  from "@/components/ui/badge"
 import {
   Loader2,
   RefreshCw,
@@ -46,9 +39,11 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  Building2,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-// ── Tipos alineados con calendario-back ──────────────────────────────────────
+// ── Tipos ─────────────────────────────────────────────────────────────────────
 
 type TipoEvento =
   | "PENDIENTE"
@@ -62,6 +57,7 @@ interface Evento {
   id:                      string
   titulo:                  string
   descripcion?:            string
+  informacion?:            string
   fechaDesde:              string
   fechaHasta:              string
   horaDesde:               string
@@ -72,13 +68,17 @@ interface Evento {
   convocatoria?:           number
 }
 
-// Respuesta real del backend: { events: Evento[], totalEvents: number, ... }
 interface CalendarResponse {
   events:      Evento[]
   totalEvents: number
 }
 
-// ── Constantes visuales ───────────────────────────────────────────────────────
+// ── Constantes ────────────────────────────────────────────────────────────────
+
+const POR_PAGINA = 5
+
+const EVENTOS_API =
+  process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
 
 const TIPO_LABELS: Record<TipoEvento, string> = {
   PENDIENTE:  "Pendiente",
@@ -89,19 +89,34 @@ const TIPO_LABELS: Record<TipoEvento, string> = {
   ESCOLAR:    "Escolar",
 }
 
-const TIPO_CLASS: Record<TipoEvento, string> = {
-  PENDIENTE:  "bg-amber-100 text-amber-800 border-amber-200",
-  EN_CURSO:   "bg-blue-100  text-blue-800  border-blue-200",
-  FINALIZADO: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  CANCELADO:  "bg-red-100   text-red-800   border-red-200",
-  MASIVO:     "bg-purple-100 text-purple-800 border-purple-200",
-  ESCOLAR:    "bg-pink-100  text-pink-800  border-pink-200",
+const TIPO_STYLES: Record<TipoEvento, string> = {
+  PENDIENTE:  "bg-amber-50  text-amber-700  border-amber-200  ring-amber-100",
+  EN_CURSO:   "bg-blue-50   text-blue-700   border-blue-200   ring-blue-100",
+  FINALIZADO: "bg-emerald-50 text-emerald-700 border-emerald-200 ring-emerald-100",
+  CANCELADO:  "bg-red-50    text-red-700    border-red-200    ring-red-100",
+  MASIVO:     "bg-purple-50 text-purple-700 border-purple-200 ring-purple-100",
+  ESCOLAR:    "bg-pink-50   text-pink-700   border-pink-200   ring-pink-100",
+}
+
+const TIPO_DOT: Record<TipoEvento, string> = {
+  PENDIENTE:  "bg-amber-400",
+  EN_CURSO:   "bg-blue-500",
+  FINALIZADO: "bg-emerald-500",
+  CANCELADO:  "bg-red-500",
+  MASIVO:     "bg-purple-500",
+  ESCOLAR:    "bg-pink-500",
+}
+
+const TIPO_BORDER: Record<TipoEvento, string> = {
+  PENDIENTE:  "border-l-amber-400",
+  EN_CURSO:   "border-l-blue-500",
+  FINALIZADO: "border-l-emerald-500",
+  CANCELADO:  "border-l-red-500",
+  MASIVO:     "border-l-purple-500",
+  ESCOLAR:    "border-l-pink-500",
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-// Mismo valor que usa app/calendario/page.tsx
-const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
 
 function mesLabel(year: number, month: number): string {
   return new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
@@ -110,9 +125,31 @@ function mesLabel(year: number, month: number): string {
   })
 }
 
-function formatFecha(iso: string): string {
-  const [y, m, d] = iso.split("T")[0].split("-")
-  return `${d}/${m}/${y}`
+function formatFechaLarga(iso: string): string {
+  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
+    weekday: "short",
+    day:     "numeric",
+    month:   "short",
+  })
+}
+
+function esHoyOFuturo(iso: string): boolean {
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+  return new Date(y, m - 1, d) >= hoy
+}
+
+function esHoy(iso: string): boolean {
+  const hoy = new Date()
+  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+  const fecha = new Date(y, m - 1, d)
+  return (
+    fecha.getDate()     === hoy.getDate()     &&
+    fecha.getMonth()    === hoy.getMonth()    &&
+    fecha.getFullYear() === hoy.getFullYear()
+  )
 }
 
 // ── Componente ────────────────────────────────────────────────────────────────
@@ -121,33 +158,41 @@ export function CalendarioCoworking() {
   const now = new Date()
   const [year,    setYear]    = useState(now.getFullYear())
   const [month,   setMonth]   = useState(now.getMonth() + 1)
-  const [eventos, setEventos] = useState<Evento[]>([])
+  const [todos,   setTodos]   = useState<Evento[]>([])
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
+  const [pagina,  setPagina]  = useState(1)
 
+  // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchEventos = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setPagina(1)
     try {
-      // Mismo endpoint y params que app/calendario/page.tsx
       const url = `${EVENTOS_API}/calendar?year=${year}&month=${month}`
       const res = await fetch(url, { cache: "no-store" })
-      if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`)
-
-      // El backend devuelve { events: [...], totalEvents: N, ... }
+      if (!res.ok) throw new Error(`Error ${res.status}`)
       const data: CalendarResponse = await res.json()
-      const todos = data.events ?? []
 
-      // Filtrar solo los que tienen COWORKING en sus áreas
-      const filtrados = todos.filter(
-        (e) => Array.isArray(e.areas) && e.areas.includes("COWORKING"),
+      // Filtrar COWORKING + desde hoy en adelante (por fechaHasta para incluir eventos que terminan hoy)
+      const filtrados = (data.events ?? []).filter(
+        (e) =>
+          Array.isArray(e.areas) &&
+          e.areas.includes("COWORKING") &&
+          esHoyOFuturo(e.fechaDesde),
       )
 
-      setEventos(filtrados)
+      // Ordenar por fecha ascendente
+      filtrados.sort((a, b) =>
+        a.fechaDesde.localeCompare(b.fechaDesde) ||
+        a.horaDesde.localeCompare(b.horaDesde),
+      )
+
+      setTodos(filtrados)
     } catch (err) {
-      console.error("[CalendarioCoworking] Error:", err)
+      console.error("[CalendarioCoworking]", err)
       setError("No se pudieron cargar los eventos.")
-      setEventos([])
+      setTodos([])
     } finally {
       setLoading(false)
     }
@@ -155,43 +200,55 @@ export function CalendarioCoworking() {
 
   useEffect(() => { void fetchEventos() }, [fetchEventos])
 
+  // ── Navegación mes ─────────────────────────────────────────────────────────
   const prevMes = () => {
+    setPagina(1)
     if (month === 1) { setYear((y) => y - 1); setMonth(12) }
     else             { setMonth((m) => m - 1) }
   }
   const nextMes = () => {
+    setPagina(1)
     if (month === 12) { setYear((y) => y + 1); setMonth(1) }
     else              { setMonth((m) => m + 1) }
   }
 
-  const tieneConvocatoria = eventos.some((e) => e.convocatoria != null)
+  // ── Paginado ───────────────────────────────────────────────────────────────
+  const totalPaginas = Math.ceil(todos.length / POR_PAGINA)
+  const eventos      = todos.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
 
-      {/* Cabecera con navegación de mes */}
+      {/* ── Cabecera ─────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-semibold capitalize text-foreground">
-            {mesLabel(year, month)}
-          </h3>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0">
+            <Building2 className="w-4 h-4 text-teal-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground leading-tight capitalize">
+              {mesLabel(year, month)}
+            </h3>
+            <p className="text-[10px] text-muted-foreground">Área Coworking · desde hoy</p>
+          </div>
         </div>
+
         <div className="flex items-center gap-1">
           <Button
-            variant="ghost" size="icon" className="h-7 w-7"
+            variant="ghost" size="icon" className="h-8 w-8"
             onClick={prevMes} disabled={loading} aria-label="Mes anterior"
           >
             <ChevronLeft className="w-4 h-4" />
           </Button>
           <Button
-            variant="ghost" size="icon" className="h-7 w-7"
+            variant="ghost" size="icon" className="h-8 w-8"
             onClick={nextMes} disabled={loading} aria-label="Mes siguiente"
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
           <Button
-            variant="ghost" size="icon" className="h-7 w-7"
+            variant="ghost" size="icon" className="h-8 w-8"
             onClick={fetchEventos} disabled={loading} aria-label="Actualizar"
           >
             {loading
@@ -202,123 +259,188 @@ export function CalendarioCoworking() {
         </div>
       </div>
 
-      {/* Área fija */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">Área:</span>
-        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium bg-teal-100 text-teal-800 border-teal-200">
-          Coworking
-        </span>
-      </div>
-
-      {/* Error */}
+      {/* ── Error ────────────────────────────────────────────────── */}
       {error && (
-        <p className="text-xs text-destructive text-center py-2">{error}</p>
+        <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
       )}
 
-      {/* Loading */}
+      {/* ── Loading ───────────────────────────────────────────────── */}
       {loading && (
-        <div className="flex justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+          <Loader2 className="w-7 h-7 animate-spin text-primary" />
+          <p className="text-sm">Cargando eventos...</p>
         </div>
       )}
 
-      {/* Sin eventos */}
-      {!loading && !error && eventos.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
-          <Inbox className="w-8 h-8 opacity-40" />
-          <p className="text-sm">Sin eventos en Coworking este mes</p>
+      {/* ── Sin eventos ───────────────────────────────────────────── */}
+      {!loading && !error && todos.length === 0 && (
+        <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+          <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center">
+            <Inbox className="w-7 h-7 opacity-50" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium">Sin eventos próximos</p>
+            <p className="text-xs opacity-60 mt-0.5">No hay eventos de Coworking desde hoy en este mes</p>
+          </div>
         </div>
       )}
 
-      {/* Tabla */}
+      {/* ── Cards de eventos ──────────────────────────────────────── */}
       {!loading && eventos.length > 0 && (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/50">
-                <TableHead className="text-xs font-semibold">Evento</TableHead>
-                <TableHead className="text-xs font-semibold w-[100px]">
-                  <span className="flex items-center gap-1">
-                    <CalendarDays className="w-3 h-3" /> Fecha
-                  </span>
-                </TableHead>
-                <TableHead className="text-xs font-semibold w-[90px]">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> Horario
-                  </span>
-                </TableHead>
-                <TableHead className="text-xs font-semibold w-[80px]">Estado</TableHead>
-                <TableHead className="text-xs font-semibold w-[110px]">
-                  <span className="flex items-center gap-1">
-                    <Users className="w-3 h-3" /> Organizador
-                  </span>
-                </TableHead>
-                {tieneConvocatoria && (
-                  <TableHead className="text-xs font-semibold w-[55px] text-right">
-                    Conv.
-                  </TableHead>
+        <div className="space-y-3">
+          {eventos.map((evento) => {
+            const hoy      = esHoy(evento.fechaDesde)
+            const multidia = evento.fechaDesde.split("T")[0] !== evento.fechaHasta.split("T")[0]
+
+            return (
+              <div
+                key={evento.id}
+                className={cn(
+                  "rounded-xl border border-l-4 bg-white shadow-sm p-4 space-y-3 transition-shadow hover:shadow-md",
+                  TIPO_BORDER[evento.tipoEvento],
+                  hoy && "ring-1 ring-primary/20",
                 )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {eventos.map((evento) => (
-                <TableRow key={evento.id} className="hover:bg-muted/30 transition-colors">
-                  <TableCell className="py-2.5">
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-medium text-foreground leading-tight line-clamp-2">
+              >
+                {/* Fila 1: título + badge estado */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <div className={cn("mt-1.5 w-2 h-2 rounded-full flex-shrink-0", TIPO_DOT[evento.tipoEvento])} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground leading-snug">
                         {evento.titulo}
+                        {hoy && (
+                          <span className="ml-2 inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                            Hoy
+                          </span>
+                        )}
                       </p>
                       {evento.descripcion && (
-                        <p className="text-[10px] text-muted-foreground line-clamp-1">
+                        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                           {evento.descripcion}
                         </p>
                       )}
                     </div>
-                  </TableCell>
-                  <TableCell className="py-2.5">
-                    <span className="text-xs text-foreground">
-                      {formatFecha(evento.fechaDesde)}
-                      {evento.fechaDesde.split("T")[0] !== evento.fechaHasta.split("T")[0] && (
-                        <span className="text-muted-foreground">
-                          {" → "}{formatFecha(evento.fechaHasta)}
-                        </span>
-                      )}
-                    </span>
-                  </TableCell>
-                  <TableCell className="py-2.5">
-                    <span className="text-xs text-foreground tabular-nums">
-                      {evento.horaDesde} – {evento.horaHasta}
-                    </span>
-                  </TableCell>
-                  <TableCell className="py-2.5">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${TIPO_CLASS[evento.tipoEvento]}`}>
-                      {TIPO_LABELS[evento.tipoEvento]}
-                    </span>
-                  </TableCell>
-                  <TableCell className="py-2.5">
-                    <p className="text-[10px] text-muted-foreground line-clamp-2">
-                      {evento.organizadorSolicitante ?? "—"}
-                    </p>
-                  </TableCell>
-                  {tieneConvocatoria && (
-                    <TableCell className="py-2.5 text-right">
-                      {evento.convocatoria != null
-                        ? <span className="text-xs font-medium text-foreground tabular-nums">{evento.convocatoria}</span>
-                        : <span className="text-xs text-muted-foreground">—</span>
-                      }
-                    </TableCell>
+                  </div>
+
+                  <span className={cn(
+                    "flex-shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                    TIPO_STYLES[evento.tipoEvento],
+                  )}>
+                    {TIPO_LABELS[evento.tipoEvento]}
+                  </span>
+                </div>
+
+                {/* Fila 2: fecha, horario, organizador, convocatoria */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  {/* Fecha */}
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Fecha</p>
+                      <p className="text-xs font-medium text-foreground capitalize">
+                        {formatFechaLarga(evento.fechaDesde)}
+                        {multidia && (
+                          <span className="text-muted-foreground font-normal">
+                            {" → "}{formatFechaLarga(evento.fechaHasta)}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Horario */}
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Horario</p>
+                      <p className="text-xs font-medium text-foreground tabular-nums">
+                        {evento.horaDesde} – {evento.horaHasta}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Organizador */}
+                  {evento.organizadorSolicitante && (
+                    <div className="flex items-center gap-2 col-span-2">
+                      <Users className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Organizador</p>
+                        <p className="text-xs text-foreground truncate">{evento.organizadorSolicitante}</p>
+                      </div>
+                    </div>
                   )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+
+                  {/* Convocatoria */}
+                  {evento.convocatoria != null && (
+                    <div className="flex items-center gap-2">
+                      <Users className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                      <div>
+                        <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Convocatoria</p>
+                        <p className="text-xs font-medium text-foreground tabular-nums">
+                          {evento.convocatoria} personas
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 
-      {/* Footer */}
-      {!loading && eventos.length > 0 && (
-        <p className="text-[10px] text-muted-foreground text-right">
-          {eventos.length} evento{eventos.length !== 1 ? "s" : ""} en Coworking este mes
+      {/* ── Paginado ──────────────────────────────────────────────── */}
+      {!loading && totalPaginas > 1 && (
+        <div className="flex items-center justify-between pt-1">
+          <p className="text-xs text-muted-foreground">
+            {((pagina - 1) * POR_PAGINA) + 1}–{Math.min(pagina * POR_PAGINA, todos.length)} de {todos.length} eventos
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setPagina((p) => Math.max(1, p - 1))}
+              disabled={pagina === 1}
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </Button>
+
+            {/* Números de página */}
+            {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
+              <Button
+                key={n}
+                variant={n === pagina ? "default" : "outline"}
+                size="icon"
+                className="h-7 w-7 text-xs"
+                onClick={() => setPagina(n)}
+                aria-label={`Página ${n}`}
+              >
+                {n}
+              </Button>
+            ))}
+
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+              disabled={pagina === totalPaginas}
+              aria-label="Página siguiente"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Footer contador ───────────────────────────────────────── */}
+      {!loading && todos.length > 0 && totalPaginas <= 1 && (
+        <p className="text-[10px] text-muted-foreground text-right pt-1">
+          {todos.length} evento{todos.length !== 1 ? "s" : ""} en Coworking este mes
         </p>
       )}
 
@@ -326,322 +448,10 @@ export function CalendarioCoworking() {
   )
 }
 EOF
-echo "✅  components/calendario-coworking.tsx"
+echo "✅  components/calendario-coworking.tsx rediseñado"
 
 # ════════════════════════════════════════════════════════════════════════════
-# 2. app/page.tsx — reescritura completa (idéntico al actual + calendario)
-# ════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "📄  Reescribiendo app/page.tsx..."
-cat > app/page.tsx << 'EOF'
-"use client"
-
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/contexts/auth-context"
-import { useSeats } from "@/hooks/use-seats"
-import { SeatGrid } from "@/components/seat-grid"
-import { SeatLegend } from "@/components/seat-legend"
-import { AdminPanel } from "@/components/admin-panel"
-import { AgendarModal } from "@/components/agendar-modal"
-import { MapaModal } from "@/components/mapa-modal"
-import { DisponibilidadInline } from "@/components/disponibilidad-inline"
-import { CalendarioCoworking } from "@/components/calendario-coworking"
-import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { cn } from "@/lib/utils"
-import {
-  Loader2,
-  RefreshCw,
-  LogOut,
-  Menu,
-  Armchair,
-  CalendarPlus,
-  CalendarRange,
-  MapPin,
-  Map,
-  LayoutGrid,
-} from "lucide-react"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { useToast } from "@/hooks/use-toast"
-
-// ── Vistas disponibles dentro del card principal ──────────────
-type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
-
-const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
-  { id: "mapa",           label: "Mapa",           icon: Map           },
-  { id: "agendar",        label: "Agendar",        icon: CalendarPlus  },
-  { id: "calendario",     label: "Calendario",     icon: CalendarRange },
-]
-
-export default function CoworkingSeatsPage() {
-  const router = useRouter()
-  const { admin, isAdmin, logout, loading: authLoading } = useAuth()
-  const { seats, loading, fetchSeats, toggleBlockAll } = useSeats()
-  const { toast } = useToast()
-
-  const [isAdminMode,    setIsAdminMode]    = useState(false)
-  const [isBlocked,      setIsBlocked]      = useState(false)
-  const [eventName,      setEventName]      = useState<string>()
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  const [vista,          setVista]          = useState<Vista>("asientos")
-  const [mapaOpen,       setMapaOpen]       = useState(false)
-  const [agendarOpen,    setAgendarOpen]    = useState(false)
-
-  useEffect(() => {
-    if (!authLoading && !admin) router.push("/login")
-  }, [admin, authLoading, router])
-
-  const handleToggleBlock = async (block: boolean, newEventName?: string) => {
-    setIsBlocked(block)
-    setEventName(newEventName)
-    await toggleBlockAll(block)
-  }
-
-  const handleRefresh = async () => {
-    await fetchSeats()
-    toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
-  }
-
-  const handleVista = (v: Vista) => {
-    if (v === "mapa")    { setMapaOpen(true);   return }
-    if (v === "agendar") { setAgendarOpen(true); return }
-    setVista(v)
-  }
-
-  const occupiedCount  = seats.filter((s) => s.status === "occupied").length
-  const availableCount = seats.filter((s) => s.status === "available").length
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    )
-  }
-  if (!admin) return null
-
-  if (loading && seats.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="text-center space-y-3">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground text-sm">Cargando áreas...</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
-
-      {/* ══ Header ════════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-
-          {/* Desktop */}
-          <div className="hidden md:flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
-                <Armchair className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
-                <p className="text-xs text-muted-foreground">{admin.nombre} · {admin.email}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
-                <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8">
-                <LogOut className="w-4 h-4" />
-              </Button>
-              {isAdmin && (
-                <div className="flex items-center gap-1.5 border rounded-lg px-2 py-1">
-                  <Switch
-                    id="admin-mode"
-                    checked={isAdminMode}
-                    onCheckedChange={setIsAdminMode}
-                    className="scale-90"
-                  />
-                  <Label htmlFor="admin-mode" className="text-xs cursor-pointer">Admin</Label>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Mobile */}
-          <div className="md:hidden flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center">
-                <Armchair className="w-4 h-4 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
-                <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
-              </div>
-            </div>
-            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Menu className="w-5 h-5" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-72">
-                <div className="space-y-3 pt-4">
-                  <div className="pb-3 border-b">
-                    <p className="font-semibold">{admin.nombre}</p>
-                    <p className="text-xs text-muted-foreground">{admin.email}</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2"
-                    onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}
-                  >
-                    <RefreshCw className="w-4 h-4" /> Actualizar
-                  </Button>
-                  {isAdmin && (
-                    <div className="flex items-center gap-2 py-1">
-                      <Switch
-                        id="admin-mode-mobile"
-                        checked={isAdminMode}
-                        onCheckedChange={setIsAdminMode}
-                      />
-                      <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
-                    </div>
-                  )}
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
-                    onClick={logout}
-                  >
-                    <LogOut className="w-4 h-4" /> Cerrar sesión
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-
-        </div>
-      </div>
-
-      {/* ══ Contenido ══════════════════════════════════════════════ */}
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
-          </div>
-          <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
-          </div>
-          <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
-          </div>
-        </div>
-
-        {/* Admin panel */}
-        {isAdminMode && isAdmin && (
-          <AdminPanel
-            isBlocked={isBlocked}
-            eventName={eventName}
-            onToggleBlock={handleToggleBlock}
-          />
-        )}
-
-        {/* ══ Card principal con tabs ═══════════════════════════ */}
-        <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
-
-          {/* Barra de vistas */}
-          <div className="border-b border-border px-4 pt-4 pb-0">
-            <div className="flex gap-1 overflow-x-auto scrollbar-none">
-              {VISTAS.map(({ id, label, icon: Icon }) => {
-                const isModal  = id === "mapa" || id === "agendar"
-                const isActive = !isModal && vista === id
-                return (
-                  <button
-                    key={id}
-                    onClick={() => handleVista(id)}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
-                      isActive
-                        ? "border-primary text-primary bg-primary/5"
-                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                      id === "agendar" && !isActive ? "hover:text-primary" : "",
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Contenido activo */}
-          <div className="p-4 md:p-6">
-
-            {vista === "disponibilidad" && (
-              <DisponibilidadInline onSuccess={fetchSeats} />
-            )}
-
-            {vista === "asientos" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <SeatLegend />
-                  {isBlocked && (
-                    <span className="text-xs text-destructive font-medium">
-                      Bloqueado · {eventName}
-                    </span>
-                  )}
-                </div>
-                <div className="overflow-x-auto">
-                  <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
-                </div>
-              </div>
-            )}
-
-            {vista === "calendario" && (
-              <CalendarioCoworking />
-            )}
-
-          </div>
-        </div>
-
-      </div>
-
-      {/* ══ Modales ════════════════════════════════════════════════ */}
-      <MapaModal open={mapaOpen} onOpenChange={setMapaOpen} />
-      <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
-
-    </div>
-  )
-}
-EOF
-echo "✅  app/page.tsx reescrito"
-
-# ════════════════════════════════════════════════════════════════════════════
-# 3. shadcn table
-# ════════════════════════════════════════════════════════════════════════════
-echo ""
-if [ ! -f "components/ui/table.tsx" ]; then
-  echo "📦  Instalando shadcn table..."
-  pnpm dlx shadcn@latest add table --yes
-else
-  echo "✅  components/ui/table.tsx ya existe"
-fi
-
-# ════════════════════════════════════════════════════════════════════════════
-# 4. Build
+# 2. Build
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "🔨  Compilando..."
@@ -649,11 +459,14 @@ pnpm build
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  ✅  v3-calendario-coworking.sh — v1.1.0 completado             ║"
+echo "║  ✅  v4-calendario-coworking-ui.sh — v1.0.0 completado          ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "  Fix aplicado:"
-echo "  · Endpoint: /calendar?year=&month= (igual que app/calendario)"
-echo "  · Respuesta: lee data.events (objeto envuelto, no array directo)"
-echo "  · Filtro:    areas.includes('COWORKING')"
+echo "  Mejoras aplicadas:"
+echo "  · Cards visuales con border-left de color por estado"
+echo "  · Badge 'Hoy' en eventos del día actual"
+echo "  · Filtro: solo desde hoy en adelante"
+echo "  · Ordenado: fecha y hora ascendente"
+echo "  · Paginado: 5 eventos por página con numeración"
+echo "  · Grip de datos: fecha larga, horario, organizador, convocatoria"
 echo ""
