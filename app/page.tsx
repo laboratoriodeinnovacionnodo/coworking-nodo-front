@@ -34,10 +34,10 @@ import { useToast } from "@/hooks/use-toast"
 type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
 
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin       },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid   },
-  { id: "mapa",           label: "Mapa",           icon: Map          },
-  { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
+  { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
+  { id: "mapa",           label: "Mapa",           icon: Map           },
+  { id: "agendar",        label: "Agendar",        icon: CalendarPlus  },
   { id: "calendario",     label: "Calendario",     icon: CalendarRange },
 ]
 
@@ -52,10 +52,7 @@ export default function CoworkingSeatsPage() {
   const [eventName,      setEventName]      = useState<string>()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Vista activa dentro del card
   const [vista,          setVista]          = useState<Vista>("asientos")
-
-  // Modales (Mapa y Agendar abren modal)
   const [mapaOpen,       setMapaOpen]       = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
@@ -74,7 +71,6 @@ export default function CoworkingSeatsPage() {
     toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
   }
 
-  // Al hacer clic en un botón de vista
   const handleVista = (v: Vista) => {
     if (v === "mapa")    { setMapaOpen(true);   return }
     if (v === "agendar") { setAgendarOpen(true); return }
@@ -84,7 +80,6 @@ export default function CoworkingSeatsPage() {
   const occupiedCount  = seats.filter((s) => s.status === "occupied").length
   const availableCount = seats.filter((s) => s.status === "available").length
 
-  // ── Loading ──────────────────────────────────────────────────
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -105,11 +100,10 @@ export default function CoworkingSeatsPage() {
     )
   }
 
-  // ── Render ───────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
 
-      {/* ══ Header — solo identidad + acciones globales ════════ */}
+      {/* ══ Header ════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-3">
 
@@ -124,7 +118,6 @@ export default function CoworkingSeatsPage() {
                 <p className="text-xs text-muted-foreground">{admin.nombre} · {admin.email}</p>
               </div>
             </div>
-
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
                 <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -157,7 +150,6 @@ export default function CoworkingSeatsPage() {
                 <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
               </div>
             </div>
-
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -202,7 +194,7 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido ══════════════════════════════════════════ */}
+      {/* ══ Contenido ══════════════════════════════════════════════ */}
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {/* Stats */}
@@ -230,17 +222,15 @@ export default function CoworkingSeatsPage() {
           />
         )}
 
-        {/* ══ Card principal con tabs ═══════════════════════ */}
+        {/* ══ Card principal con tabs ═══════════════════════════ */}
         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
 
-          {/* ── Barra de navegación de vistas ──────────────── */}
+          {/* Barra de vistas */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {VISTAS.map(({ id, label, icon: Icon }) => {
-                // Mapa y Agendar no tienen estado "activo" (abren modal)
                 const isModal  = id === "mapa" || id === "agendar"
                 const isActive = !isModal && vista === id
-
                 return (
                   <button
                     key={id}
@@ -250,10 +240,7 @@ export default function CoworkingSeatsPage() {
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                      // Agendar tiene color especial
-                      id === "agendar" && !isActive
-                        ? "hover:text-primary"
-                        : "",
+                      id === "agendar" && !isActive ? "hover:text-primary" : "",
                     )}
                   >
                     <Icon className="w-4 h-4" />
@@ -264,15 +251,13 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
-          {/* ── Contenido de la vista activa ───────────────── */}
+          {/* Contenido activo */}
           <div className="p-4 md:p-6">
 
-            {/* Disponibilidad */}
             {vista === "disponibilidad" && (
               <DisponibilidadInline onSuccess={fetchSeats} />
             )}
 
-            {/* Asientos */}
             {vista === "asientos" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -289,7 +274,6 @@ export default function CoworkingSeatsPage() {
               </div>
             )}
 
-            {/* Calendario Coworking */}
             {vista === "calendario" && (
               <CalendarioCoworking />
             )}
@@ -299,16 +283,9 @@ export default function CoworkingSeatsPage() {
 
       </div>
 
-      {/* ══ Modales ════════════════════════════════════════════ */}
-      <MapaModal
-        open={mapaOpen}
-        onOpenChange={setMapaOpen}
-      />
-      <AgendarModal
-        open={agendarOpen}
-        onOpenChange={setAgendarOpen}
-        onSuccess={fetchSeats}
-      />
+      {/* ══ Modales ════════════════════════════════════════════════ */}
+      <MapaModal open={mapaOpen} onOpenChange={setMapaOpen} />
+      <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
 
     </div>
   )

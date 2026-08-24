@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # =============================================================================
-# v3-calendario-coworking.sh — v1.0.0 — PRODUCCIÓN
-# Reescribe app/page.tsx completo + crea components/calendario-coworking.tsx
+# v3-calendario-coworking.sh — v1.1.0 — PRODUCCIÓN
+# Fix: usa /calendar?year=&month= igual que app/calendario/page.tsx
+#      y lee data.events (el backend devuelve { events, totalEvents, ... })
 # =============================================================================
 set -euo pipefail
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║  v3-calendario-coworking.sh — v1.0.0                        ║"
+echo "║  v3-calendario-coworking.sh — v1.1.0                        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -18,6 +19,9 @@ fi
 
 # ════════════════════════════════════════════════════════════════════════════
 # 1. components/calendario-coworking.tsx
+#    — mismo endpoint que app/calendario/page.tsx: /calendar?year=&month=
+#    — lee data.events (respuesta envuelta en objeto)
+#    — filtra areas.includes("COWORKING")
 # ════════════════════════════════════════════════════════════════════════════
 echo "📄  Creando components/calendario-coworking.tsx..."
 cat > components/calendario-coworking.tsx << 'EOF'
@@ -44,6 +48,8 @@ import {
   ChevronRight,
 } from "lucide-react"
 
+// ── Tipos alineados con calendario-back ──────────────────────────────────────
+
 type TipoEvento =
   | "PENDIENTE"
   | "EN_CURSO"
@@ -66,6 +72,14 @@ interface Evento {
   convocatoria?:           number
 }
 
+// Respuesta real del backend: { events: Evento[], totalEvents: number, ... }
+interface CalendarResponse {
+  events:      Evento[]
+  totalEvents: number
+}
+
+// ── Constantes visuales ───────────────────────────────────────────────────────
+
 const TIPO_LABELS: Record<TipoEvento, string> = {
   PENDIENTE:  "Pendiente",
   EN_CURSO:   "En curso",
@@ -84,8 +98,10 @@ const TIPO_CLASS: Record<TipoEvento, string> = {
   ESCOLAR:    "bg-pink-100  text-pink-800  border-pink-200",
 }
 
-const EVENTOS_API =
-  process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Mismo valor que usa app/calendario/page.tsx
+const EVENTOS_API = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
 
 function mesLabel(year: number, month: number): string {
   return new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
@@ -99,6 +115,8 @@ function formatFecha(iso: string): string {
   return `${d}/${m}/${y}`
 }
 
+// ── Componente ────────────────────────────────────────────────────────────────
+
 export function CalendarioCoworking() {
   const now = new Date()
   const [year,    setYear]    = useState(now.getFullYear())
@@ -111,16 +129,24 @@ export function CalendarioCoworking() {
     setLoading(true)
     setError(null)
     try {
-      const desde   = `${year}-${String(month).padStart(2, "0")}-01`
-      const lastDay = new Date(year, month, 0).getDate()
-      const hasta   = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`
-      const url     = `${EVENTOS_API}/calendar/range?fechaDesde=${desde}&fechaHasta=${hasta}`
-      const res     = await fetch(url)
-      if (!res.ok) throw new Error(`Error ${res.status}`)
-      const data: Evento[] = await res.json()
-      setEventos(data.filter((e) => Array.isArray(e.areas) && e.areas.includes("COWORKING")))
-    } catch {
-      setError("No se pudieron cargar los eventos del calendario.")
+      // Mismo endpoint y params que app/calendario/page.tsx
+      const url = `${EVENTOS_API}/calendar?year=${year}&month=${month}`
+      const res = await fetch(url, { cache: "no-store" })
+      if (!res.ok) throw new Error(`Error ${res.status}: ${res.statusText}`)
+
+      // El backend devuelve { events: [...], totalEvents: N, ... }
+      const data: CalendarResponse = await res.json()
+      const todos = data.events ?? []
+
+      // Filtrar solo los que tienen COWORKING en sus áreas
+      const filtrados = todos.filter(
+        (e) => Array.isArray(e.areas) && e.areas.includes("COWORKING"),
+      )
+
+      setEventos(filtrados)
+    } catch (err) {
+      console.error("[CalendarioCoworking] Error:", err)
+      setError("No se pudieron cargar los eventos.")
       setEventos([])
     } finally {
       setLoading(false)
@@ -143,6 +169,7 @@ export function CalendarioCoworking() {
   return (
     <div className="space-y-4">
 
+      {/* Cabecera con navegación de mes */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <CalendarDays className="w-4 h-4 text-primary" />
@@ -151,18 +178,31 @@ export function CalendarioCoworking() {
           </h3>
         </div>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMes} disabled={loading} aria-label="Mes anterior">
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={prevMes} disabled={loading} aria-label="Mes anterior"
+          >
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMes} disabled={loading} aria-label="Mes siguiente">
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={nextMes} disabled={loading} aria-label="Mes siguiente"
+          >
             <ChevronRight className="w-4 h-4" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={fetchEventos} disabled={loading} aria-label="Actualizar">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={fetchEventos} disabled={loading} aria-label="Actualizar"
+          >
+            {loading
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <RefreshCw className="w-4 h-4" />
+            }
           </Button>
         </div>
       </div>
 
+      {/* Área fija */}
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted-foreground">Área:</span>
         <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium bg-teal-100 text-teal-800 border-teal-200">
@@ -170,14 +210,19 @@ export function CalendarioCoworking() {
         </span>
       </div>
 
-      {error && <p className="text-xs text-destructive text-center py-2">{error}</p>}
+      {/* Error */}
+      {error && (
+        <p className="text-xs text-destructive text-center py-2">{error}</p>
+      )}
 
+      {/* Loading */}
       {loading && (
         <div className="flex justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>
       )}
 
+      {/* Sin eventos */}
       {!loading && !error && eventos.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
           <Inbox className="w-8 h-8 opacity-40" />
@@ -185,6 +230,7 @@ export function CalendarioCoworking() {
         </div>
       )}
 
+      {/* Tabla */}
       {!loading && eventos.length > 0 && (
         <div className="rounded-lg border border-border overflow-hidden">
           <Table>
@@ -192,17 +238,25 @@ export function CalendarioCoworking() {
               <TableRow className="bg-muted/50">
                 <TableHead className="text-xs font-semibold">Evento</TableHead>
                 <TableHead className="text-xs font-semibold w-[100px]">
-                  <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Fecha</span>
+                  <span className="flex items-center gap-1">
+                    <CalendarDays className="w-3 h-3" /> Fecha
+                  </span>
                 </TableHead>
                 <TableHead className="text-xs font-semibold w-[90px]">
-                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Horario</span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Horario
+                  </span>
                 </TableHead>
                 <TableHead className="text-xs font-semibold w-[80px]">Estado</TableHead>
                 <TableHead className="text-xs font-semibold w-[110px]">
-                  <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Organizador</span>
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3 h-3" /> Organizador
+                  </span>
                 </TableHead>
                 {tieneConvocatoria && (
-                  <TableHead className="text-xs font-semibold w-[55px] text-right">Conv.</TableHead>
+                  <TableHead className="text-xs font-semibold w-[55px] text-right">
+                    Conv.
+                  </TableHead>
                 )}
               </TableRow>
             </TableHeader>
@@ -211,9 +265,13 @@ export function CalendarioCoworking() {
                 <TableRow key={evento.id} className="hover:bg-muted/30 transition-colors">
                   <TableCell className="py-2.5">
                     <div className="space-y-0.5">
-                      <p className="text-xs font-medium text-foreground leading-tight line-clamp-2">{evento.titulo}</p>
+                      <p className="text-xs font-medium text-foreground leading-tight line-clamp-2">
+                        {evento.titulo}
+                      </p>
                       {evento.descripcion && (
-                        <p className="text-[10px] text-muted-foreground line-clamp-1">{evento.descripcion}</p>
+                        <p className="text-[10px] text-muted-foreground line-clamp-1">
+                          {evento.descripcion}
+                        </p>
                       )}
                     </div>
                   </TableCell>
@@ -221,7 +279,9 @@ export function CalendarioCoworking() {
                     <span className="text-xs text-foreground">
                       {formatFecha(evento.fechaDesde)}
                       {evento.fechaDesde.split("T")[0] !== evento.fechaHasta.split("T")[0] && (
-                        <span className="text-muted-foreground"> → {formatFecha(evento.fechaHasta)}</span>
+                        <span className="text-muted-foreground">
+                          {" → "}{formatFecha(evento.fechaHasta)}
+                        </span>
                       )}
                     </span>
                   </TableCell>
@@ -255,6 +315,7 @@ export function CalendarioCoworking() {
         </div>
       )}
 
+      {/* Footer */}
       {!loading && eventos.length > 0 && (
         <p className="text-[10px] text-muted-foreground text-right">
           {eventos.length} evento{eventos.length !== 1 ? "s" : ""} en Coworking este mes
@@ -268,7 +329,7 @@ EOF
 echo "✅  components/calendario-coworking.tsx"
 
 # ════════════════════════════════════════════════════════════════════════════
-# 2. app/page.tsx — reescritura completa (igual al original + calendario)
+# 2. app/page.tsx — reescritura completa (idéntico al actual + calendario)
 # ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "📄  Reescribiendo app/page.tsx..."
@@ -309,10 +370,10 @@ import { useToast } from "@/hooks/use-toast"
 type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
 
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin       },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid   },
-  { id: "mapa",           label: "Mapa",           icon: Map          },
-  { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
+  { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
+  { id: "mapa",           label: "Mapa",           icon: Map           },
+  { id: "agendar",        label: "Agendar",        icon: CalendarPlus  },
   { id: "calendario",     label: "Calendario",     icon: CalendarRange },
 ]
 
@@ -327,10 +388,7 @@ export default function CoworkingSeatsPage() {
   const [eventName,      setEventName]      = useState<string>()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Vista activa dentro del card
   const [vista,          setVista]          = useState<Vista>("asientos")
-
-  // Modales (Mapa y Agendar abren modal)
   const [mapaOpen,       setMapaOpen]       = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
@@ -349,7 +407,6 @@ export default function CoworkingSeatsPage() {
     toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
   }
 
-  // Al hacer clic en un botón de vista
   const handleVista = (v: Vista) => {
     if (v === "mapa")    { setMapaOpen(true);   return }
     if (v === "agendar") { setAgendarOpen(true); return }
@@ -359,7 +416,6 @@ export default function CoworkingSeatsPage() {
   const occupiedCount  = seats.filter((s) => s.status === "occupied").length
   const availableCount = seats.filter((s) => s.status === "available").length
 
-  // ── Loading ──────────────────────────────────────────────────
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -380,11 +436,10 @@ export default function CoworkingSeatsPage() {
     )
   }
 
-  // ── Render ───────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
 
-      {/* ══ Header — solo identidad + acciones globales ════════ */}
+      {/* ══ Header ════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-3">
 
@@ -399,7 +454,6 @@ export default function CoworkingSeatsPage() {
                 <p className="text-xs text-muted-foreground">{admin.nombre} · {admin.email}</p>
               </div>
             </div>
-
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
                 <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -432,7 +486,6 @@ export default function CoworkingSeatsPage() {
                 <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
               </div>
             </div>
-
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon">
@@ -477,7 +530,7 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido ══════════════════════════════════════════ */}
+      {/* ══ Contenido ══════════════════════════════════════════════ */}
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {/* Stats */}
@@ -505,17 +558,15 @@ export default function CoworkingSeatsPage() {
           />
         )}
 
-        {/* ══ Card principal con tabs ═══════════════════════ */}
+        {/* ══ Card principal con tabs ═══════════════════════════ */}
         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
 
-          {/* ── Barra de navegación de vistas ──────────────── */}
+          {/* Barra de vistas */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {VISTAS.map(({ id, label, icon: Icon }) => {
-                // Mapa y Agendar no tienen estado "activo" (abren modal)
                 const isModal  = id === "mapa" || id === "agendar"
                 const isActive = !isModal && vista === id
-
                 return (
                   <button
                     key={id}
@@ -525,10 +576,7 @@ export default function CoworkingSeatsPage() {
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                      // Agendar tiene color especial
-                      id === "agendar" && !isActive
-                        ? "hover:text-primary"
-                        : "",
+                      id === "agendar" && !isActive ? "hover:text-primary" : "",
                     )}
                   >
                     <Icon className="w-4 h-4" />
@@ -539,15 +587,13 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
-          {/* ── Contenido de la vista activa ───────────────── */}
+          {/* Contenido activo */}
           <div className="p-4 md:p-6">
 
-            {/* Disponibilidad */}
             {vista === "disponibilidad" && (
               <DisponibilidadInline onSuccess={fetchSeats} />
             )}
 
-            {/* Asientos */}
             {vista === "asientos" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -564,7 +610,6 @@ export default function CoworkingSeatsPage() {
               </div>
             )}
 
-            {/* Calendario Coworking */}
             {vista === "calendario" && (
               <CalendarioCoworking />
             )}
@@ -574,16 +619,9 @@ export default function CoworkingSeatsPage() {
 
       </div>
 
-      {/* ══ Modales ════════════════════════════════════════════ */}
-      <MapaModal
-        open={mapaOpen}
-        onOpenChange={setMapaOpen}
-      />
-      <AgendarModal
-        open={agendarOpen}
-        onOpenChange={setAgendarOpen}
-        onSuccess={fetchSeats}
-      />
+      {/* ══ Modales ════════════════════════════════════════════════ */}
+      <MapaModal open={mapaOpen} onOpenChange={setMapaOpen} />
+      <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
 
     </div>
   )
@@ -611,8 +649,11 @@ pnpm build
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  ✅  v3-calendario-coworking.sh completado                      ║"
+echo "║  ✅  v3-calendario-coworking.sh — v1.1.0 completado             ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "  [Disponibilidad] [Asientos] [Mapa↗] [Agendar↗] [Calendario]"
+echo "  Fix aplicado:"
+echo "  · Endpoint: /calendar?year=&month= (igual que app/calendario)"
+echo "  · Respuesta: lee data.events (objeto envuelto, no array directo)"
+echo "  · Filtro:    areas.includes('COWORKING')"
 echo ""
