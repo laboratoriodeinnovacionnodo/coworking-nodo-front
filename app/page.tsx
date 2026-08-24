@@ -32,7 +32,7 @@ import { useToast } from "@/hooks/use-toast"
 
 // ── Vistas disponibles dentro del card principal ──────────────
 type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
-
+//hola
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
   { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
   { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
