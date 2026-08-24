@@ -1,36 +1,30 @@
 #!/usr/bin/env bash
 # =============================================================================
-# front-layout-v2.sh  —  v1.0.0  —  PRODUCCIÓN
-#
-# Cambios vs versión anterior:
-#  · Header limpio: solo logo + datos admin + refresh + logout + switch admin
-#  · Dentro del card del mapa: 4 botones contextuales (Disponibilidad / Asientos / Mapa / Agendar)
-#  · "Disponibilidad" es un switch: activa una tabla inline dentro del mismo card
-#  · "Asientos" muestra el SeatGrid (default)
-#  · "Mapa" abre MapaModal (sin cambios)
-#  · "Agendar" abre AgendarModal (sin cambios)
+# v3-calendario-coworking.sh — v1.0.0 — PRODUCCIÓN
+# Reescribe app/page.tsx completo + crea components/calendario-coworking.tsx
 # =============================================================================
 set -euo pipefail
 
 echo ""
-echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  front-layout-v2.sh — v1.0.0                            ║"
-echo "╚══════════════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║  v3-calendario-coworking.sh — v1.0.0                        ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
-# ════════════════════════════════════════════════════════════════
-# 1. components/disponibilidad-inline.tsx
-#    Tabla inline — no modal — usada dentro del card principal
-# ════════════════════════════════════════════════════════════════
-cat > components/disponibilidad-inline.tsx << 'EOF'
+if [ ! -f "package.json" ] || [ ! -d "app" ]; then
+  echo "❌  Corré el script desde la raíz del proyecto Next.js"
+  exit 1
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# 1. components/calendario-coworking.tsx
+# ════════════════════════════════════════════════════════════════════════════
+echo "📄  Creando components/calendario-coworking.tsx..."
+cat > components/calendario-coworking.tsx << 'EOF'
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { ocupacionesApi } from "@/lib/ocupacion-api"
-import type { Ocupacion } from "@/types/ocupacion"
-import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -41,299 +35,243 @@ import {
 } from "@/components/ui/table"
 import {
   Loader2,
-  MapPin,
-  Clock,
-  Users,
-  Unlock,
   RefreshCw,
   Inbox,
-  Link2,
-  ChevronDown,
-  ChevronUp,
+  CalendarDays,
+  Clock,
+  Users,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
 
-interface DisponibilidadInlineProps {
-  onSuccess?: () => void
+type TipoEvento =
+  | "PENDIENTE"
+  | "EN_CURSO"
+  | "FINALIZADO"
+  | "CANCELADO"
+  | "MASIVO"
+  | "ESCOLAR"
+
+interface Evento {
+  id:                      string
+  titulo:                  string
+  descripcion?:            string
+  fechaDesde:              string
+  fechaHasta:              string
+  horaDesde:               string
+  horaHasta:               string
+  tipoEvento:              TipoEvento
+  areas?:                  string[]
+  organizadorSolicitante?: string
+  convocatoria?:           number
 }
 
-export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
-  const { toast } = useToast()
-  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [liberando,   setLiberando]   = useState<number | null>(null)
-  const [expandedId,  setExpandedId]  = useState<number | null>(null)
+const TIPO_LABELS: Record<TipoEvento, string> = {
+  PENDIENTE:  "Pendiente",
+  EN_CURSO:   "En curso",
+  FINALIZADO: "Finalizado",
+  CANCELADO:  "Cancelado",
+  MASIVO:     "Masivo",
+  ESCOLAR:    "Escolar",
+}
 
-  // ── Carga ────────────────────────────────────────────────────
-  const cargar = useCallback(async (silencioso = false) => {
-    if (!silencioso) setLoading(true)
+const TIPO_CLASS: Record<TipoEvento, string> = {
+  PENDIENTE:  "bg-amber-100 text-amber-800 border-amber-200",
+  EN_CURSO:   "bg-blue-100  text-blue-800  border-blue-200",
+  FINALIZADO: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  CANCELADO:  "bg-red-100   text-red-800   border-red-200",
+  MASIVO:     "bg-purple-100 text-purple-800 border-purple-200",
+  ESCOLAR:    "bg-pink-100  text-pink-800  border-pink-200",
+}
+
+const EVENTOS_API =
+  process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+
+function mesLabel(year: number, month: number): string {
+  return new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
+    month: "long",
+    year:  "numeric",
+  })
+}
+
+function formatFecha(iso: string): string {
+  const [y, m, d] = iso.split("T")[0].split("-")
+  return `${d}/${m}/${y}`
+}
+
+export function CalendarioCoworking() {
+  const now = new Date()
+  const [year,    setYear]    = useState(now.getFullYear())
+  const [month,   setMonth]   = useState(now.getMonth() + 1)
+  const [eventos, setEventos] = useState<Evento[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+
+  const fetchEventos = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const data = await ocupacionesApi.getAll()
-      setOcupaciones(data.filter((o) => !o.liberadaAt))
+      const desde   = `${year}-${String(month).padStart(2, "0")}-01`
+      const lastDay = new Date(year, month, 0).getDate()
+      const hasta   = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`
+      const url     = `${EVENTOS_API}/calendar/range?fechaDesde=${desde}&fechaHasta=${hasta}`
+      const res     = await fetch(url)
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const data: Evento[] = await res.json()
+      setEventos(data.filter((e) => Array.isArray(e.areas) && e.areas.includes("COWORKING")))
     } catch {
-      if (!silencioso)
-        toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
+      setError("No se pudieron cargar los eventos del calendario.")
+      setEventos([])
     } finally {
-      if (!silencioso) setLoading(false)
+      setLoading(false)
     }
-  }, [toast])
+  }, [year, month])
 
-  useEffect(() => { cargar() }, [cargar])
+  useEffect(() => { void fetchEventos() }, [fetchEventos])
 
-  // ── Liberar ──────────────────────────────────────────────────
-  const liberar = async (oc: Ocupacion) => {
-    setLiberando(oc.id)
-    try {
-      await ocupacionesApi.liberar(oc.id)
-      toast({
-        title:       "✅ Zonas liberadas",
-        description: `"${oc.titulo}" finalizada — áreas marcadas como LIBRE`,
-      })
-      await cargar(true)
-      onSuccess?.()
-    } catch (err) {
-      toast({
-        variant:     "destructive",
-        title:       "Error al liberar",
-        description: err instanceof Error ? err.message : "Error desconocido",
-      })
-    } finally {
-      setLiberando(null)
-    }
+  const prevMes = () => {
+    if (month === 1) { setYear((y) => y - 1); setMonth(12) }
+    else             { setMonth((m) => m - 1) }
+  }
+  const nextMes = () => {
+    if (month === 12) { setYear((y) => y + 1); setMonth(1) }
+    else              { setMonth((m) => m + 1) }
   }
 
-  const toggleExpand = (id: number) =>
-    setExpandedId(expandedId === id ? null : id)
+  const tieneConvocatoria = eventos.some((e) => e.convocatoria != null)
 
-  const formatFecha = (dia: string, hora: string) => {
-    try {
-      const [y, m, d] = dia.split("-")
-      return `${d}/${m}/${y} ${hora}`
-    } catch {
-      return `${dia} ${hora}`
-    }
-  }
-
-  // ── Loading ──────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin" />
-        <span className="text-sm">Cargando ocupaciones...</span>
-      </div>
-    )
-  }
-
-  // ── Vacío ────────────────────────────────────────────────────
-  if (ocupaciones.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
-        <Inbox className="w-10 h-10 opacity-25" />
-        <p className="text-sm font-medium">No hay zonas ocupadas</p>
-        <p className="text-xs opacity-60">Todas las áreas están disponibles</p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 mt-1"
-          onClick={() => cargar()}
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          Actualizar
-        </Button>
-      </div>
-    )
-  }
-
-  // ── Tabla ────────────────────────────────────────────────────
   return (
-    <div className="space-y-3">
-      {/* Encabezado de sección */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <MapPin className="w-4 h-4 text-primary" />
-          <span>
-            <span className="font-semibold text-foreground">{ocupaciones.length}</span>{" "}
-            ocupación{ocupaciones.length !== 1 ? "es" : ""} activa{ocupaciones.length !== 1 ? "s" : ""}
-            {" · "}
-            <span className="font-semibold text-foreground">
-              {ocupaciones.reduce((a, o) => a + o.areas.length, 0)}
-            </span>{" "}
-            zona{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""} ocupada{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""}
-          </span>
+    <div className="space-y-4">
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="w-4 h-4 text-primary" />
+          <h3 className="text-sm font-semibold capitalize text-foreground">
+            {mesLabel(year, month)}
+          </h3>
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cargar()}>
-          <RefreshCw className="w-3.5 h-3.5" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMes} disabled={loading} aria-label="Mes anterior">
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMes} disabled={loading} aria-label="Mes siguiente">
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={fetchEventos} disabled={loading} aria-label="Actualizar">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          </Button>
+        </div>
       </div>
 
-      {/* ── Desktop: tabla ──────────────────────────────────── */}
-      <div className="hidden md:block rounded-lg border overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/40">
-              <TableHead className="text-xs">Título</TableHead>
-              <TableHead className="text-xs">Organizador</TableHead>
-              <TableHead className="text-xs">
-                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Fecha / Hora</span>
-              </TableHead>
-              <TableHead className="text-xs">
-                <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Personas</span>
-              </TableHead>
-              <TableHead className="text-xs">
-                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> Zonas</span>
-              </TableHead>
-              <TableHead className="text-right text-xs">Acción</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {ocupaciones.map((oc) => (
-              <>
-                <TableRow
-                  key={oc.id}
-                  className="cursor-pointer hover:bg-muted/20"
-                  onClick={() => toggleExpand(oc.id)}
-                >
-                  <TableCell className="font-medium text-sm">
-                    <span className="flex items-center gap-1.5">
-                      {expandedId === oc.id
-                        ? <ChevronUp   className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                        : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-                      {oc.titulo}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{oc.organizador}</TableCell>
-                  <TableCell className="text-sm">{formatFecha(oc.dia, oc.hora)}</TableCell>
-                  <TableCell className="text-sm">{oc.cantidadPersonas}</TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {oc.areas.length > 0
-                        ? oc.areas.map((r) => (
-                            <Badge key={r.areaId} variant="secondary" className="text-xs">
-                              {r.area.nombre}
-                            </Badge>
-                          ))
-                        : <span className="text-xs text-muted-foreground">—</span>}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-muted-foreground">Área:</span>
+        <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium bg-teal-100 text-teal-800 border-teal-200">
+          Coworking
+        </span>
+      </div>
+
+      {error && <p className="text-xs text-destructive text-center py-2">{error}</p>}
+
+      {loading && (
+        <div className="flex justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      )}
+
+      {!loading && !error && eventos.length === 0 && (
+        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+          <Inbox className="w-8 h-8 opacity-40" />
+          <p className="text-sm">Sin eventos en Coworking este mes</p>
+        </div>
+      )}
+
+      {!loading && eventos.length > 0 && (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50">
+                <TableHead className="text-xs font-semibold">Evento</TableHead>
+                <TableHead className="text-xs font-semibold w-[100px]">
+                  <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Fecha</span>
+                </TableHead>
+                <TableHead className="text-xs font-semibold w-[90px]">
+                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Horario</span>
+                </TableHead>
+                <TableHead className="text-xs font-semibold w-[80px]">Estado</TableHead>
+                <TableHead className="text-xs font-semibold w-[110px]">
+                  <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Organizador</span>
+                </TableHead>
+                {tieneConvocatoria && (
+                  <TableHead className="text-xs font-semibold w-[55px] text-right">Conv.</TableHead>
+                )}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {eventos.map((evento) => (
+                <TableRow key={evento.id} className="hover:bg-muted/30 transition-colors">
+                  <TableCell className="py-2.5">
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-medium text-foreground leading-tight line-clamp-2">{evento.titulo}</p>
+                      {evento.descripcion && (
+                        <p className="text-[10px] text-muted-foreground line-clamp-1">{evento.descripcion}</p>
+                      )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1.5 text-xs h-7 border-green-300 text-green-700 hover:bg-green-50"
-                      disabled={liberando === oc.id}
-                      onClick={(e) => { e.stopPropagation(); liberar(oc) }}
-                    >
-                      {liberando === oc.id
-                        ? <Loader2 className="w-3 h-3 animate-spin" />
-                        : <Unlock  className="w-3 h-3" />}
-                      Liberar
-                    </Button>
+                  <TableCell className="py-2.5">
+                    <span className="text-xs text-foreground">
+                      {formatFecha(evento.fechaDesde)}
+                      {evento.fechaDesde.split("T")[0] !== evento.fechaHasta.split("T")[0] && (
+                        <span className="text-muted-foreground"> → {formatFecha(evento.fechaHasta)}</span>
+                      )}
+                    </span>
                   </TableCell>
-                </TableRow>
-
-                {/* Fila expandida */}
-                {expandedId === oc.id && (
-                  <TableRow key={`exp-${oc.id}`} className="bg-muted/10">
-                    <TableCell colSpan={6} className="py-3">
-                      <div className="space-y-1.5 text-sm pl-5">
-                        <p>
-                          <span className="font-medium">Requerimiento: </span>
-                          <span className="text-muted-foreground">{oc.requerimiento}</span>
-                        </p>
-                        {(oc.edadMin != null || oc.edadMax != null) && (
-                          <p>
-                            <span className="font-medium">Rango de edad: </span>
-                            <span className="text-muted-foreground">
-                              {oc.edadMin ?? "?"} — {oc.edadMax ?? "?"} años
-                            </span>
-                          </p>
-                        )}
-                        {oc.anexos.length > 0 && (
-                          <div className="flex flex-wrap gap-2 items-center">
-                            <span className="font-medium">Anexos:</span>
-                            {oc.anexos.map((url, i) => (
-                              <a
-                                key={i}
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-primary hover:underline text-xs"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Link2 className="w-3 h-3" />
-                                Anexo {i + 1}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                  <TableCell className="py-2.5">
+                    <span className="text-xs text-foreground tabular-nums">
+                      {evento.horaDesde} – {evento.horaHasta}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-2.5">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${TIPO_CLASS[evento.tipoEvento]}`}>
+                      {TIPO_LABELS[evento.tipoEvento]}
+                    </span>
+                  </TableCell>
+                  <TableCell className="py-2.5">
+                    <p className="text-[10px] text-muted-foreground line-clamp-2">
+                      {evento.organizadorSolicitante ?? "—"}
+                    </p>
+                  </TableCell>
+                  {tieneConvocatoria && (
+                    <TableCell className="py-2.5 text-right">
+                      {evento.convocatoria != null
+                        ? <span className="text-xs font-medium text-foreground tabular-nums">{evento.convocatoria}</span>
+                        : <span className="text-xs text-muted-foreground">—</span>
+                      }
                     </TableCell>
-                  </TableRow>
-                )}
-              </>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      {/* ── Mobile: cards ───────────────────────────────────── */}
-      <div className="md:hidden space-y-2">
-        {ocupaciones.map((oc) => (
-          <div key={oc.id} className="border rounded-xl p-3 bg-card space-y-2">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{oc.titulo}</p>
-                <p className="text-xs text-muted-foreground">{oc.organizador}</p>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1 text-xs flex-shrink-0 h-7 border-green-300 text-green-700 hover:bg-green-50"
-                disabled={liberando === oc.id}
-                onClick={() => liberar(oc)}
-              >
-                {liberando === oc.id
-                  ? <Loader2 className="w-3 h-3 animate-spin" />
-                  : <Unlock  className="w-3 h-3" />}
-                Liberar
-              </Button>
-            </div>
+      {!loading && eventos.length > 0 && (
+        <p className="text-[10px] text-muted-foreground text-right">
+          {eventos.length} evento{eventos.length !== 1 ? "s" : ""} en Coworking este mes
+        </p>
+      )}
 
-            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />{formatFecha(oc.dia, oc.hora)}
-              </span>
-              <span className="flex items-center gap-1">
-                <Users className="w-3 h-3" />{oc.cantidadPersonas} personas
-              </span>
-            </div>
-
-            <div className="flex flex-wrap gap-1">
-              {oc.areas.length > 0
-                ? oc.areas.map((r) => (
-                    <Badge key={r.areaId} variant="secondary" className="text-xs">
-                      {r.area.nombre}
-                    </Badge>
-                  ))
-                : <span className="text-xs text-muted-foreground">Sin zonas</span>}
-            </div>
-
-            {oc.requerimiento && (
-              <p className="text-xs text-muted-foreground border-t pt-2 line-clamp-2">
-                {oc.requerimiento}
-              </p>
-            )}
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
 EOF
-echo "✅  components/disponibilidad-inline.tsx"
+echo "✅  components/calendario-coworking.tsx"
 
-# ════════════════════════════════════════════════════════════════
-# 2. app/page.tsx — reescritura completa
-# ════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# 2. app/page.tsx — reescritura completa (igual al original + calendario)
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "📄  Reescribiendo app/page.tsx..."
 cat > app/page.tsx << 'EOF'
 "use client"
 
@@ -347,6 +285,7 @@ import { AdminPanel } from "@/components/admin-panel"
 import { AgendarModal } from "@/components/agendar-modal"
 import { MapaModal } from "@/components/mapa-modal"
 import { DisponibilidadInline } from "@/components/disponibilidad-inline"
+import { CalendarioCoworking } from "@/components/calendario-coworking"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
@@ -358,6 +297,7 @@ import {
   Menu,
   Armchair,
   CalendarPlus,
+  CalendarRange,
   MapPin,
   Map,
   LayoutGrid,
@@ -366,13 +306,14 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { useToast } from "@/hooks/use-toast"
 
 // ── Vistas disponibles dentro del card principal ──────────────
-type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
+type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
 
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin      },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid  },
-  { id: "mapa",           label: "Mapa",           icon: Map         },
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin       },
+  { id: "asientos",       label: "Asientos",       icon: LayoutGrid   },
+  { id: "mapa",           label: "Mapa",           icon: Map          },
   { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
+  { id: "calendario",     label: "Calendario",     icon: CalendarRange },
 ]
 
 export default function CoworkingSeatsPage() {
@@ -410,8 +351,8 @@ export default function CoworkingSeatsPage() {
 
   // Al hacer clic en un botón de vista
   const handleVista = (v: Vista) => {
-    if (v === "mapa")    { setMapaOpen(true);    return }
-    if (v === "agendar") { setAgendarOpen(true);  return }
+    if (v === "mapa")    { setMapaOpen(true);   return }
+    if (v === "agendar") { setAgendarOpen(true); return }
     setVista(v)
   }
 
@@ -444,44 +385,30 @@ export default function CoworkingSeatsPage() {
     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
 
       {/* ══ Header — solo identidad + acciones globales ════════ */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-primary/10">
-        <div className="px-4 md:px-6 py-3 max-w-7xl mx-auto">
+      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
+        <div className="max-w-2xl mx-auto px-4 py-3">
 
           {/* Desktop */}
           <div className="hidden md:flex items-center justify-between">
-            {/* Logo + título */}
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-50 rounded-full flex items-center justify-center">
-                <Armchair className="w-4 h-4 text-primary" />
+              <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
+                <Armchair className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h1 className="text-lg font-bold leading-tight">Gestión de Espacios</h1>
-                <p className="text-[11px] text-muted-foreground leading-none">NODO Tecnológico</p>
+                <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
+                <p className="text-xs text-muted-foreground">{admin.nombre} · {admin.email}</p>
               </div>
             </div>
 
-            {/* Acciones globales */}
             <div className="flex items-center gap-2">
-              <div className="text-right text-sm mr-1">
-                <p className="font-medium leading-tight">{admin.nombre}</p>
-                <p className="text-xs text-muted-foreground leading-none">{admin.email}</p>
-              </div>
-
-              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh} title="Actualizar">
-                <RefreshCw className="w-4 h-4" />
+              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
+                <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive hover:text-destructive"
-                onClick={logout}
-                title="Cerrar sesión"
-              >
+              <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8">
                 <LogOut className="w-4 h-4" />
               </Button>
-
               {isAdmin && (
-                <div className="flex items-center gap-1.5 pl-2 border-l border-border">
+                <div className="flex items-center gap-1.5 border rounded-lg px-2 py-1">
                   <Switch
                     id="admin-mode"
                     checked={isAdminMode}
@@ -526,14 +453,18 @@ export default function CoworkingSeatsPage() {
                     <RefreshCw className="w-4 h-4" /> Actualizar
                   </Button>
                   {isAdmin && (
-                    <div className="flex items-center justify-between py-2 border-t">
-                      <Label className="text-sm cursor-pointer">Modo admin</Label>
-                      <Switch checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+                    <div className="flex items-center gap-2 py-1">
+                      <Switch
+                        id="admin-mode-mobile"
+                        checked={isAdminMode}
+                        onCheckedChange={setIsAdminMode}
+                      />
+                      <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
                     </div>
                   )}
                   <Button
-                    variant="ghost"
-                    className="w-full justify-start gap-2 text-destructive"
+                    variant="outline"
+                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
                     onClick={logout}
                   >
                     <LogOut className="w-4 h-4" /> Cerrar sesión
@@ -546,17 +477,17 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido principal ════════════════════════════════ */}
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-28 space-y-5">
+      {/* ══ Contenido ══════════════════════════════════════════ */}
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-xl border border-primary/10 p-3 md:p-4 text-center shadow-sm">
+          <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
           </div>
           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-green-600">{availableCount}</p>
+            <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
           </div>
           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
@@ -582,8 +513,8 @@ export default function CoworkingSeatsPage() {
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {VISTAS.map(({ id, label, icon: Icon }) => {
                 // Mapa y Agendar no tienen estado "activo" (abren modal)
-                const isModal   = id === "mapa" || id === "agendar"
-                const isActive  = !isModal && vista === id
+                const isModal  = id === "mapa" || id === "agendar"
+                const isActive = !isModal && vista === id
 
                 return (
                   <button
@@ -633,6 +564,11 @@ export default function CoworkingSeatsPage() {
               </div>
             )}
 
+            {/* Calendario Coworking */}
+            {vista === "calendario" && (
+              <CalendarioCoworking />
+            )}
+
           </div>
         </div>
 
@@ -653,44 +589,30 @@ export default function CoworkingSeatsPage() {
   )
 }
 EOF
-echo "✅  app/page.tsx — reescrito con tabs contextuales"
+echo "✅  app/page.tsx reescrito"
 
-# ════════════════════════════════════════════════════════════════
-# 3. Verificar shadcn table (puede no estar instalado)
-# ════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
+# 3. shadcn table
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
 if [ ! -f "components/ui/table.tsx" ]; then
   echo "📦  Instalando shadcn table..."
   pnpm dlx shadcn@latest add table --yes
+else
+  echo "✅  components/ui/table.tsx ya existe"
 fi
 
-# ════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 # 4. Build
-# ════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "🔨  Compilando..."
 pnpm build
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  ✅  front-layout-v2.sh completado                              ║"
+echo "║  ✅  v3-calendario-coworking.sh completado                      ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "  Estructura de la pantalla:"
-echo ""
-echo "  ┌─ Header ────────────────────────────────────────────────┐"
-echo "  │  [Logo + Título]          [Refresh] [Logout] [Admin sw] │"
-echo "  └──────────────────────────────────────────────────────────┘"
-echo ""
-echo "  ┌─ Stats ──────────────────────────────────────────────────┐"
-echo "  │   Total · Libres · Ocupados                              │"
-echo "  └──────────────────────────────────────────────────────────┘"
-echo ""
-echo "  ┌─ Card principal ─────────────────────────────────────────┐"
-echo "  │  [Disponibilidad] [Asientos] [Mapa↗] [Agendar↗]         │"
-echo "  │  ─────────────────────────────────────────────────────── │"
-echo "  │  Disponibilidad → tabla inline + botones Liberar         │"
-echo "  │  Asientos       → SeatGrid (vista por defecto)           │"
-echo "  │  Mapa    ↗      → abre MapaModal                         │"
-echo "  │  Agendar ↗      → abre AgendarModal                      │"
-echo "  └──────────────────────────────────────────────────────────┘"
+echo "  [Disponibilidad] [Asientos] [Mapa↗] [Agendar↗] [Calendario]"
 echo ""
