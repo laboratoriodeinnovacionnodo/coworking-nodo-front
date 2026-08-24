@@ -12,6 +12,16 @@ export const ocupacionesApi = {
     return res.json()
   },
 
+  // Solo activas desde hoy (usa el nuevo endpoint del backend)
+  getActivas: async (): Promise<Ocupacion[]> => {
+    const res = await fetch(`${BASE}/ocupaciones/activas`, {
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    })
+    if (!res.ok) throw new Error(`Error al obtener ocupaciones activas: ${res.status}`)
+    return res.json()
+  },
+
   getById: async (id: number): Promise<Ocupacion> => {
     const res = await fetch(`${BASE}/ocupaciones/${id}`, {
       headers: { "Content-Type": "application/json" },
@@ -34,9 +44,7 @@ export const ocupacionesApi = {
   },
 
   liberar: async (id: number): Promise<Ocupacion> => {
-    const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, {
-      method: "PATCH",
-    })
+    const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, { method: "PATCH" })
     if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
     return res.json()
   },
