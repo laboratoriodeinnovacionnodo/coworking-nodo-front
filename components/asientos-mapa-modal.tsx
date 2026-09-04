@@ -29,7 +29,14 @@ export function AsientosMapaModal({
 }: AsientosMapaModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-screen-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      {/*
+        shadcn/ui DialogContent tiene max-w-lg hardcodeado en el componente base.
+        Se sobreescribe con style inline para evitar que Tailwind lo pise.
+      */}
+      <DialogContent
+        style={{ maxWidth: "min(1400px, 95vw)", width: "100%" }}
+        className="max-h-[90vh] overflow-hidden flex flex-col"
+      >
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <LayoutGrid className="w-5 h-5 text-primary" />
@@ -71,7 +78,7 @@ export function AsientosMapaModal({
                 <img
                   src="/NODO-PLANO-P1.svg"
                   alt="Plano planta 1 del coworking"
-                  className="max-w-full max-h-[400px] object-contain"
+                  className="max-w-full max-h-[460px] object-contain"
                   style={{ transform: "rotate(90deg)" }}
                 />
               </div>
