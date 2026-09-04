@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
-import { areasApi } from "@/lib/api"
+import { areasApi }       from "@/lib/api"
+import { getEventosActivosCoworking, type EventoCalendario } from "@/lib/eventos-api"
 import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
 import type { BackendArea } from "@/types/seat"
 import { useToast } from "@/hooks/use-toast"
@@ -63,44 +64,76 @@ function timeToMinutes(hhmm: string): number {
   return h * 60 + m
 }
 
+function rangoFechassolapa(
+  aDesde: string, aHasta: string,
+  bDesde: string, bHasta: string,
+): boolean {
+  return aDesde <= bHasta && aHasta >= bDesde
+}
+
+function rangoHorarioSolapa(
+  horaDesdeA: string, horaHastaA: string,
+  horaDesdeB: string, horaHastaB: string,
+): boolean {
+  const aI = timeToMinutes(horaDesdeA)
+  const aF = timeToMinutes(horaHastaA)
+  const bI = timeToMinutes(horaDesdeB)
+  const bF = timeToMinutes(horaHastaB)
+  return aI < bF && aF > bI
+}
+
 /**
- * Dado el form y las ocupaciones activas, retorna el set de areaIds
- * que tienen conflicto de fecha+hora con lo que el usuario está por agendar.
+ * Calcula qué areaIds del coworking-back tienen conflicto dado:
+ *   - ocupaciones activas (coworking-back)
+ *   - eventos activos del calendario (calendario-back) con área COWORKING
+ *
+ * Los eventos del calendario ocupan el coworking COMPLETO → bloquean TODAS
+ * las áreas cuando hay solapamiento de fecha+hora.
  */
-function calcularAreasConConflicto(
-  ocupaciones: Ocupacion[],
-  fechaDesde: string,
-  fechaHasta: string,
-  horaDesde:  string,
-  horaHasta:  string,
-): Set<number> {
-  const conflicto = new Set<number>()
+function calcularConflictos(
+  ocupaciones:     Ocupacion[],
+  eventosCalendario: EventoCalendario[],
+  todasLasAreas:   BackendArea[],
+  fechaDesde:      string,
+  fechaHasta:      string,
+  horaDesde:       string,
+  horaHasta:       string,
+): { areaIds: Set<number>; eventosBloqueantes: EventoCalendario[] } {
+  const areaIds: Set<number> = new Set()
+  const eventosBloqueantes:  EventoCalendario[] = []
 
-  // Si faltan datos todavía, no bloquear nada
-  if (!fechaDesde || !fechaHasta || !horaDesde || !horaHasta) return conflicto
-
-  const nuevaInicio = timeToMinutes(horaDesde)
-  const nuevaFin    = timeToMinutes(horaHasta)
-  if (nuevaInicio >= nuevaFin) return conflicto
-
-  for (const oc of ocupaciones) {
-    // Solapamiento de fechas
-    const ocDesde = oc.fechaDesde.split("T")[0]
-    const ocHasta = oc.fechaHasta.split("T")[0]
-    const solapanFechas = ocDesde <= fechaHasta && ocHasta >= fechaDesde
-    if (!solapanFechas) continue
-
-    // Solapamiento de horario
-    const ocInicio = timeToMinutes(oc.horaDesde)
-    const ocFin    = timeToMinutes(oc.horaHasta)
-    const solapanHoras = nuevaInicio < ocFin && nuevaFin > ocInicio
-    if (!solapanHoras) continue
-
-    // Esta ocupación conflicta → marcar sus áreas
-    oc.areas.forEach((r) => conflicto.add(r.areaId))
+  if (!fechaDesde || !fechaHasta || !horaDesde || !horaHasta) {
+    return { areaIds, eventosBloqueantes }
+  }
+  if (timeToMinutes(horaDesde) >= timeToMinutes(horaHasta)) {
+    return { areaIds, eventosBloqueantes }
   }
 
-  return conflicto
+  // ── 1. Ocupaciones del coworking-back ─────────────────────────────────
+  for (const oc of ocupaciones) {
+    const ocDesde = oc.fechaDesde.split("T")[0]
+    const ocHasta = oc.fechaHasta.split("T")[0]
+
+    if (!rangoFechassolapa(fechaDesde, fechaHasta, ocDesde, ocHasta)) continue
+    if (!rangoHorarioSolapa(horaDesde, horaHasta, oc.horaDesde, oc.horaHasta)) continue
+
+    oc.areas.forEach((r) => areaIds.add(r.areaId))
+  }
+
+  // ── 2. Eventos del calendario-back con área COWORKING ─────────────────
+  for (const ev of eventosCalendario) {
+    const evDesde = ev.fechaDesde.split("T")[0]
+    const evHasta = ev.fechaHasta.split("T")[0]
+
+    if (!rangoFechassolapa(fechaDesde, fechaHasta, evDesde, evHasta)) continue
+    if (!rangoHorarioSolapa(horaDesde, horaHasta, ev.horaDesde, ev.horaHasta)) continue
+
+    // Un evento en el calendario bloquea TODAS las áreas del coworking
+    todasLasAreas.forEach((a) => areaIds.add(a.id))
+    eventosBloqueantes.push(ev)
+  }
+
+  return { areaIds, eventosBloqueantes }
 }
 
 // ── Componente ─────────────────────────────────────────────────────────────
@@ -108,46 +141,59 @@ function calcularAreasConConflicto(
 export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
   const { toast } = useToast()
 
-  const [form,        setForm]        = useState(EMPTY_FORM)
-  const [anexos,      setAnexos]      = useState<string[]>([])
-  const [newAnexo,    setNewAnexo]    = useState("")
-  const [areas,       setAreas]       = useState<BackendArea[]>([])
-  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
-  const [areaIds,     setAreaIds]     = useState<number[]>([])
-  const [loading,     setLoading]     = useState(false)
-  const [loadAreas,   setLoadAreas]   = useState(false)
-  const [showEdad,    setShowEdad]    = useState(false)
-  const [showAnexos,  setShowAnexos]  = useState(false)
+  const [form,             setForm]             = useState(EMPTY_FORM)
+  const [anexos,           setAnexos]           = useState<string[]>([])
+  const [newAnexo,         setNewAnexo]         = useState("")
+  const [areas,            setAreas]            = useState<BackendArea[]>([])
+  const [ocupaciones,      setOcupaciones]      = useState<Ocupacion[]>([])
+  const [eventosCalendario,setEventosCalendario]= useState<EventoCalendario[]>([])
+  const [areaIds,          setAreaIds]          = useState<number[]>([])
+  const [loading,          setLoading]          = useState(false)
+  const [loadAreas,        setLoadAreas]        = useState(false)
+  const [loadingEventos,   setLoadingEventos]   = useState(false)
+  const [showEdad,         setShowEdad]         = useState(false)
+  const [showAnexos,       setShowAnexos]       = useState(false)
 
-  // Cargar áreas + ocupaciones activas al abrir
+  // Al abrir → cargar áreas y ocupaciones (datos base, no dependen de fechas)
   useEffect(() => {
     if (!open) return
     setLoadAreas(true)
-    Promise.all([
-      areasApi.getAll(),
-      ocupacionesApi.getActivas(),
-    ])
-      .then(([a, o]) => {
-        setAreas(a)
-        setOcupaciones(o)
-      })
-      .catch(() => toast({ variant: "destructive", title: "Error al cargar datos" }))
+    Promise.all([areasApi.getAll(), ocupacionesApi.getActivas()])
+      .then(([a, o]) => { setAreas(a); setOcupaciones(o) })
+      .catch(() => toast({ variant: "destructive", title: "Error al cargar áreas" }))
       .finally(() => setLoadAreas(false))
   }, [open, toast])
 
-  // Áreas con conflicto calculadas en tiempo real al cambiar fecha/hora
-  const areasConConflicto = useMemo(
-    () => calcularAreasConConflicto(
+  // Cuando cambian las fechas → cargar eventos del calendario para ese rango
+  useEffect(() => {
+    if (!open || !form.fechaDesde || !form.fechaHasta) {
+      setEventosCalendario([])
+      return
+    }
+    if (form.fechaDesde > form.fechaHasta) return
+
+    setLoadingEventos(true)
+    getEventosActivosCoworking(form.fechaDesde, form.fechaHasta)
+      .then(setEventosCalendario)
+      .catch(() => setEventosCalendario([]))  // silencioso — no bloquear la UX
+      .finally(() => setLoadingEventos(false))
+  }, [open, form.fechaDesde, form.fechaHasta])
+
+  // Conflictos reactivos: se recalculan ante cualquier cambio de fecha/hora
+  const { areaIds: areasConConflicto, eventosBloqueantes } = useMemo(
+    () => calcularConflictos(
       ocupaciones,
+      eventosCalendario,
+      areas,
       form.fechaDesde,
       form.fechaHasta,
       form.horaDesde,
       form.horaHasta,
     ),
-    [ocupaciones, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta],
+    [ocupaciones, eventosCalendario, areas, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta],
   )
 
-  // Si un área seleccionada queda bloqueada por cambio de fecha/hora → deseleccionar
+  // Auto-deseleccionar áreas que quedaron bloqueadas
   useEffect(() => {
     if (areasConConflicto.size === 0) return
     setAreaIds((prev) => prev.filter((id) => !areasConConflicto.has(id)))
@@ -160,6 +206,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     setAreaIds([])
     setShowEdad(false)
     setShowAnexos(false)
+    setEventosCalendario([])
   }, [])
 
   const handleClose = useCallback(() => {
@@ -168,7 +215,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
   }, [onOpenChange, resetForm])
 
   const toggleArea = (id: number) => {
-    if (areasConConflicto.has(id)) return // nunca seleccionar un área bloqueada
+    if (areasConConflicto.has(id)) return
     setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
   }
 
@@ -179,25 +226,17 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     setNewAnexo("")
   }
 
-  // Extrae el mensaje amigable del error del backend
   function parsearErrorBackend(err: unknown): string {
     if (!(err instanceof Error)) return "Error desconocido"
-    // El backend devuelve JSON con { message: string } o string plano
     try {
       const body = JSON.parse(err.message)
       if (typeof body?.message === "string") return body.message
       if (Array.isArray(body?.message))      return body.message.join(", ")
-    } catch {
-      // mensaje plano
-    }
-    // Simplificar el mensaje de conflicto del backend para mostrarlo al usuario
+    } catch { /* mensaje plano */ }
     const msg = err.message
     if (msg.includes("Conflicto de horario")) {
-      // "Conflicto de horario: las áreas [A1, A2] ya están ocupadas el 2026-09-10 de 09:00 a 12:00 (ocupación "Taller")"
       const match = msg.match(/las áreas \[([^\]]+)\].+\(ocupación "([^"]+)"\)/)
-      if (match) {
-        return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
-      }
+      if (match) return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
     }
     return msg
   }
@@ -211,6 +250,16 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     if (!form.horaDesde)            { toast({ variant: "destructive", title: "Falta la hora desde" });    return }
     if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" });    return }
     if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área disponible" }); return }
+
+    // Guardia final: si el calendario bloqueó todo, no dejar pasar
+    if (eventosBloqueantes.length > 0 && areaIds.every((id) => areasConConflicto.has(id))) {
+      toast({
+        variant:     "destructive",
+        title:       "Horario no disponible",
+        description: `Hay un evento en el calendario ("${eventosBloqueantes[0].titulo}") que ocupa el coworking en ese horario.`,
+      })
+      return
+    }
 
     const payload: CreateOcupacionPayload = {
       titulo:           form.titulo.trim(),
@@ -234,18 +283,15 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
       handleClose()
       onSuccess?.()
     } catch (err) {
-      toast({
-        variant:     "destructive",
-        title:       "No se pudo agendar",
-        description: parsearErrorBackend(err),
-      })
+      toast({ variant: "destructive", title: "No se pudo agendar", description: parsearErrorBackend(err) })
     } finally {
       setLoading(false)
     }
   }
 
-  const hayConflictoVisible = areasConConflicto.size > 0 &&
-    form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
+  const fechasCompletas = form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
+  const hayConflictoOcupacion = areasConConflicto.size > 0 && eventosBloqueantes.length === 0 && fechasCompletas
+  const hayConflictoEvento    = eventosBloqueantes.length > 0 && fechasCompletas
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -368,10 +414,29 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             </div>
           </div>
 
+          {/* Alerta: evento del calendario bloquea todo */}
+          {hayConflictoEvento && (
+            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" />
+              <div className="space-y-1">
+                <p className="font-medium">El coworking no está disponible en ese horario</p>
+                {eventosBloqueantes.map((ev) => (
+                  <p key={ev.id} className="text-xs text-orange-700">
+                    Evento: <span className="font-semibold">"{ev.titulo}"</span>
+                    {" "}· {ev.fechaDesde.split("T")[0]} {ev.horaDesde}–{ev.horaHasta}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Áreas */}
           <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5 text-sm font-medium">
               <MapPin className="w-3.5 h-3.5" /> Áreas a reservar *
+              {loadingEventos && (
+                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground ml-1" />
+              )}
             </Label>
 
             {loadAreas ? (
@@ -380,20 +445,18 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
               </div>
             ) : (
               <>
-                {/* Aviso de conflicto */}
-                {hayConflictoVisible && (
+                {/* Alerta de zonas ocupadas por otras ocupaciones */}
+                {hayConflictoOcupacion && (
                   <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/8 border border-destructive/20 text-destructive text-xs">
                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    <span>
-                      Algunas zonas ya están ocupadas en ese horario y no están disponibles.
-                    </span>
+                    <span>Algunas zonas ya están ocupadas en ese horario.</span>
                   </div>
                 )}
 
                 <div className="flex flex-wrap gap-2">
                   {areas.map((area) => {
-                    const bloqueada  = areasConConflicto.has(area.id)
-                    const sel        = areaIds.includes(area.id)
+                    const bloqueada = areasConConflicto.has(area.id)
+                    const sel       = areaIds.includes(area.id)
 
                     return (
                       <button
@@ -401,7 +464,13 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
                         type="button"
                         disabled={bloqueada}
                         onClick={() => toggleArea(area.id)}
-                        title={bloqueada ? "Zona ocupada en ese horario" : undefined}
+                        title={
+                          bloqueada && hayConflictoEvento
+                            ? "Zona bloqueada por evento del calendario"
+                            : bloqueada
+                            ? "Zona ocupada en ese horario"
+                            : undefined
+                        }
                         className={[
                           "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
                           bloqueada
@@ -414,8 +483,11 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
                         {sel && !bloqueada && <CheckSquare className="w-3.5 h-3.5" />}
                         {area.nombre}
                         {bloqueada && (
-                          <Badge variant="destructive" className="text-[9px] px-1 py-0 ml-0.5">
-                            Ocupada
+                          <Badge
+                            variant="destructive"
+                            className="text-[9px] px-1 py-0 ml-0.5"
+                          >
+                            {hayConflictoEvento ? "Evento" : "Ocupada"}
                           </Badge>
                         )}
                       </button>
