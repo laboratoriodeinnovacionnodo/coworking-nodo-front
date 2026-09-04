@@ -9,7 +9,6 @@ import { SeatGrid }             from "@/components/seat-grid"
 import { SeatLegend }           from "@/components/seat-legend"
 import { AdminPanel }           from "@/components/admin-panel"
 import { AgendarModal }         from "@/components/agendar-modal"
-import { MapaModal }            from "@/components/mapa-modal"
 import { DisponibilidadInline } from "@/components/disponibilidad-inline"
 import { CalendarioCoworking }  from "@/components/calendario-coworking"
 import { EventoActivoBanner }   from "@/components/evento-activo-banner"
@@ -20,18 +19,17 @@ import { cn }                   from "@/lib/utils"
 import { useToast }             from "@/hooks/use-toast"
 import {
   Loader2, RefreshCw, LogOut, Menu,
-  Armchair, CalendarPlus, MapPin, Map, LayoutGrid,
+  Armchair, CalendarPlus, MapPin, LayoutGrid,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// ── Vistas — "calendario" integrado en "disponibilidad" ──────────────────────
-type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
+// ── Vistas: Mapa integrado en Asientos, Mapa ya no es tab separado ───────────
+type Vista = "disponibilidad" | "asientos" | "agendar"
 
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin     },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid },
-  { id: "mapa",           label: "Mapa",           icon: Map        },
-  { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin       },
+  { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid  },
+  { id: "agendar",        label: "Agendar",         icon: CalendarPlus },
 ]
 
 const POLLING_MS = 30_000
@@ -45,9 +43,7 @@ export default function CoworkingSeatsPage() {
 
   const [isAdminMode,    setIsAdminMode]    = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  // ✅ Default: "disponibilidad"
   const [vista,          setVista]          = useState<Vista>("disponibilidad")
-  const [mapaOpen,       setMapaOpen]       = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
   const bloqueadoPorEventoRef = useRef<string | null>(null)
@@ -85,7 +81,6 @@ export default function CoworkingSeatsPage() {
   }
 
   const handleVista = (v: Vista) => {
-    if (v === "mapa")    { setMapaOpen(true);   return }
     if (v === "agendar") { setAgendarOpen(true); return }
     setVista(v)
   }
@@ -121,7 +116,6 @@ export default function CoworkingSeatsPage() {
 
       {/* ══ Header ══════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        {/* ✅ max-w-6xl para header también */}
         <div className="max-w-6xl mx-auto px-4 py-3">
 
           {/* Desktop */}
@@ -199,7 +193,7 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido — ✅ max-w-6xl ════════════════════════════════ */}
+      {/* ══ Contenido ════════════════════════════════════════════════ */}
       <div className="max-w-6xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
@@ -234,11 +228,11 @@ export default function CoworkingSeatsPage() {
         {/* ══ Card principal ═══════════════════════════════════════ */}
         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
 
-          {/* Barra de tabs */}
+          {/* Tabs */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {VISTAS.map(({ id, label, icon: Icon }) => {
-                const isModal  = id === "mapa" || id === "agendar"
+                const isModal  = id === "agendar"
                 const isActive = !isModal && vista === id
                 return (
                   <button
@@ -263,34 +257,56 @@ export default function CoworkingSeatsPage() {
           {/* Contenido */}
           <div className="p-4 md:p-6">
 
-            {/* Disponibilidad + Calendario lado a lado */}
+            {/* ── Disponibilidad + Calendario ── */}
             {vista === "disponibilidad" && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-                {/* Columna izquierda: zonas ocupadas */}
                 <div className="min-w-0">
                   <DisponibilidadInline onSuccess={fetchSeats} />
                 </div>
-                {/* Columna derecha: calendario de eventos */}
                 <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
                   <CalendarioCoworking />
                 </div>
               </div>
             )}
 
-            {/* Asientos */}
+            {/* ── Asientos + Mapa ── */}
             {vista === "asientos" && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <SeatLegend />
-                  {isBlocked && (
-                    <span className="text-xs text-destructive font-medium">
-                      {bloqueadoPorEvento ? `Evento: ${eventoActivo?.titulo}` : "Bloqueado"}
-                    </span>
-                  )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+
+                {/* Columna izquierda: grilla de asientos */}
+                <div className="min-w-0 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <SeatLegend />
+                    {isBlocked && (
+                      <span className="text-xs text-destructive font-medium">
+                        {bloqueadoPorEvento ? `Evento: ${eventoActivo?.titulo}` : "Bloqueado"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
+                  </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
+
+                {/* Columna derecha: mapa / plano */}
+                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+                  {/* Header de la sección mapa */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                      Plano del espacio
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground/60">Planta 1</span>
+                  </div>
+                  <div className="flex items-center justify-center bg-muted/20 rounded-xl p-3 min-h-[260px]">
+                    <img
+                      src="/NODO-PLANO-P1.svg"
+                      alt="Plano planta 1 del coworking"
+                      className="max-w-full max-h-[420px] object-contain"
+                      style={{ transform: "rotate(90deg)" }}
+                    />
+                  </div>
                 </div>
+
               </div>
             )}
 
@@ -299,7 +315,7 @@ export default function CoworkingSeatsPage() {
 
       </div>
 
-      <MapaModal    open={mapaOpen}    onOpenChange={setMapaOpen} />
+      {/* Solo Agendar como modal — Mapa ya no lo es */}
       <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
 
     </div>

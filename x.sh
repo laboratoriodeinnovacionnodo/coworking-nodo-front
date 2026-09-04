@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v19-fix-layout-disponibilidad.sh  — coworking-front
+#  v20-ui-asientos-mapa-sidesides.sh  — coworking-front
 #
-#  Fixes:
-#    · Calendario al lado de Zonas ocupadas (grid 2col real, sin div extra)
-#    · Contenedor max-w-4xl → max-w-6xl (más ancho)
-#    · Paginado en DisponibilidadInline (5 por página)
+#  Mejora UI: "Asientos" y "Mapa" en un solo tab, lado a lado,
+#  igual que Disponibilidad + Calendario.
+#
+#  Cambios:
+#    · app/page.tsx → tab "asientos" muestra SeatGrid (izq) + mapa (der)
+#                     tab "mapa" eliminado de la barra
+#                     mapaOpen/MapaModal modal ya no se usan desde la barra
+#    · La vista "asientos" es ahora un grid 2 cols en desktop
 #
 #  Sin cambios de lógica ni de backend.
 #
 #  Uso:
 #    cd coworking-front
-#    chmod +x v19-fix-layout-disponibilidad.sh
-#    ./v19-fix-layout-disponibilidad.sh
+#    chmod +x v20-ui-asientos-mapa-sidesides.sh
+#    ./v20-ui-asientos-mapa-sidesides.sh
 # ============================================================================
 set -euo pipefail
 
@@ -23,410 +27,336 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  🎨  v19 — Fix layout side-by-side + paginado                  ║"
+echo "║  🎨  v20 — Asientos + Mapa lado a lado en un solo tab           ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 
-# ════════════════════════════════════════════════════════════════════════════
-# 1. components/disponibilidad-inline.tsx — agrega paginado
-# ════════════════════════════════════════════════════════════════════════════
-echo "📄  components/disponibilidad-inline.tsx..."
-cat > components/disponibilidad-inline.tsx << 'EOF'
+echo "📄  app/page.tsx..."
+cat > app/page.tsx << 'EOF'
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
-import { ocupacionesApi } from "@/lib/ocupacion-api"
-import type { Ocupacion } from "@/types/ocupacion"
-import { useToast } from "@/hooks/use-toast"
-import { Button } from "@/components/ui/button"
-import { Badge }  from "@/components/ui/badge"
+import { useState, useEffect, useRef } from "react"
+import { useRouter }            from "next/navigation"
+import { useAuth }              from "@/contexts/auth-context"
+import { useSeats }             from "@/hooks/use-seats"
+import { useEventoActivo }      from "@/hooks/use-evento-activo"
+import { SeatGrid }             from "@/components/seat-grid"
+import { SeatLegend }           from "@/components/seat-legend"
+import { AdminPanel }           from "@/components/admin-panel"
+import { AgendarModal }         from "@/components/agendar-modal"
+import { DisponibilidadInline } from "@/components/disponibilidad-inline"
+import { CalendarioCoworking }  from "@/components/calendario-coworking"
+import { EventoActivoBanner }   from "@/components/evento-activo-banner"
+import { Button }               from "@/components/ui/button"
+import { Switch }               from "@/components/ui/switch"
+import { Label }                from "@/components/ui/label"
+import { cn }                   from "@/lib/utils"
+import { useToast }             from "@/hooks/use-toast"
 import {
-  Loader2, MapPin, Clock, Users, Unlock,
-  RefreshCw, Inbox, Link2, ChevronDown, ChevronUp,
-  CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
+  Loader2, RefreshCw, LogOut, Menu,
+  Armchair, CalendarPlus, MapPin, LayoutGrid,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-interface DisponibilidadInlineProps {
-  onSuccess?: () => void
-}
+// ── Vistas: Mapa integrado en Asientos, Mapa ya no es tab separado ───────────
+type Vista = "disponibilidad" | "asientos" | "agendar"
 
-const POR_PAGINA = 5
+const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin       },
+  { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid  },
+  { id: "agendar",        label: "Agendar",         icon: CalendarPlus },
+]
 
-function formatFecha(iso: string): string {
-  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
-    weekday: "short", day: "numeric", month: "short",
-  })
-}
+const POLLING_MS = 30_000
 
-function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number)
-  return h * 60 + m
-}
+export default function CoworkingSeatsPage() {
+  const router  = useRouter()
+  const { admin, isAdmin, logout, loading: authLoading } = useAuth()
+  const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
+  const { eventoActivo }      = useEventoActivo()
+  const { toast }             = useToast()
 
-function estadoOcupacion(oc: Ocupacion): "vencida" | "en-curso" | "proxima" {
-  const ar      = new Date(Date.now() - 3 * 60 * 60 * 1000)
-  const minNow  = ar.getUTCHours() * 60 + ar.getUTCMinutes()
-  const fechaHoy = ar.toISOString().split("T")[0]
+  const [isAdminMode,    setIsAdminMode]    = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [vista,          setVista]          = useState<Vista>("disponibilidad")
+  const [agendarOpen,    setAgendarOpen]    = useState(false)
 
-  const ocDesde = oc.fechaDesde.split("T")[0]
-  const ocHasta = oc.fechaHasta.split("T")[0]
+  const bloqueadoPorEventoRef = useRef<string | null>(null)
 
-  if (ocHasta < fechaHoy) return "vencida"
-  if (ocDesde > fechaHoy) return "proxima"
-  if (ocDesde < fechaHoy && ocHasta > fechaHoy) return "en-curso"
+  useEffect(() => {
+    if (!authLoading && !admin) router.push("/login")
+  }, [admin, authLoading, router])
 
-  if (ocDesde === fechaHoy && ocHasta === fechaHoy) {
-    const ini = timeToMinutes(oc.horaDesde)
-    const fin = timeToMinutes(oc.horaHasta)
-    if (minNow >= fin)  return "vencida"
-    if (minNow >= ini)  return "en-curso"
-    return "proxima"
-  }
-  if (ocDesde === fechaHoy) return minNow >= timeToMinutes(oc.horaDesde) ? "en-curso" : "proxima"
-  return minNow < timeToMinutes(oc.horaHasta) ? "en-curso" : "vencida"
-}
+  useEffect(() => {
+    fetchSeats()
+  }, [fetchSeats])
 
-const ESTADO_BADGE: Record<string, { label: string; className: string }> = {
-  "en-curso": { label: "En curso", className: "bg-blue-100 text-blue-700 border-blue-200" },
-  "proxima":  { label: "Próxima",  className: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  "vencida":  { label: "Vencida",  className: "bg-red-100 text-red-700 border-red-200" },
-}
+  useEffect(() => {
+    const id = setInterval(fetchSeats, POLLING_MS)
+    return () => clearInterval(id)
+  }, [fetchSeats])
 
-export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
-  const { toast } = useToast()
-  const toastRef  = useRef(toast)
-  useEffect(() => { toastRef.current = toast }, [toast])
-
-  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
-  const [loading,     setLoading]     = useState(false)
-  const [liberando,   setLiberando]   = useState<number | null>(null)
-  const [expandedId,  setExpandedId]  = useState<number | null>(null)
-  const [pagina,      setPagina]      = useState(1)
-
-  const cargar = useCallback(async (silencioso = false) => {
-    if (!silencioso) setLoading(true)
-    try {
-      const todas = await ocupacionesApi.getAll()
-      const pendientes = todas.filter((o) => !o.liberadaAt)
-      pendientes.sort((a, b) => {
-        const orden = { "en-curso": 0, "proxima": 1, "vencida": 2 }
-        const ea = estadoOcupacion(a)
-        const eb = estadoOcupacion(b)
-        if (ea !== eb) return orden[ea] - orden[eb]
-        return a.fechaDesde.localeCompare(b.fechaDesde)
-      })
-      setOcupaciones(pendientes)
-      setPagina(1) // resetear paginado al recargar
-    } catch {
-      if (!silencioso) {
-        toastRef.current({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
-      }
-    } finally {
-      if (!silencioso) setLoading(false)
+  useEffect(() => {
+    const eventoId = eventoActivo?.id ?? null
+    if (eventoId === bloqueadoPorEventoRef.current) return
+    if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
+      bloqueadoPorEventoRef.current = eventoId
+      toggleBlockAll(true).catch(() => {})
+    } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
+      bloqueadoPorEventoRef.current = null
+      toggleBlockAll(false).catch(() => {})
+    } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
+      bloqueadoPorEventoRef.current = eventoId
     }
-  }, [])
+  }, [eventoActivo, toggleBlockAll])
 
-  useEffect(() => { cargar() }, [cargar])
-
-  const liberar = async (oc: Ocupacion) => {
-    setLiberando(oc.id)
-    try {
-      await ocupacionesApi.liberar(oc.id)
-      toastRef.current({ title: "✅ Zonas liberadas", description: `"${oc.titulo}" finalizada` })
-      await cargar(true)
-      onSuccess?.()
-    } catch (err) {
-      toastRef.current({
-        variant: "destructive",
-        title: "Error al liberar",
-        description: err instanceof Error ? err.message : "Error desconocido",
-      })
-    } finally {
-      setLiberando(null)
-    }
+  const handleRefresh = async () => {
+    await fetchSeats()
+    toast({ title: "Datos actualizados" })
   }
 
-  const toggleExpand = (id: number) =>
-    setExpandedId((prev) => (prev === id ? null : id))
+  const handleVista = (v: Vista) => {
+    if (v === "agendar") { setAgendarOpen(true); return }
+    setVista(v)
+  }
 
-  // ── Paginado ──────────────────────────────────────────────────────────────
-  const totalPaginas   = Math.max(1, Math.ceil(ocupaciones.length / POR_PAGINA))
-  const paginaActual   = Math.min(pagina, totalPaginas)
-  const inicio         = (paginaActual - 1) * POR_PAGINA
-  const ocupacionesPag = ocupaciones.slice(inicio, inicio + POR_PAGINA)
+  const bloqueadoPorEvento = eventoActivo !== null
+  const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
+  const isBlocked          = bloqueadoPorEvento || bloqueadoManual
+  const occupiedCount      = seats.filter((s) => s.status === "occupied").length
+  const availableCount     = seats.filter((s) => s.status === "available").length
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+  if (!admin) return null
+
+  if (loading && seats.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <div className="text-center space-y-3">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground text-sm">Cargando áreas...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
-          <MapPin className="w-3.5 h-3.5" />
-          Zonas ocupadas
-          {ocupaciones.length > 0 && (
-            <span className="ml-1 text-xs font-normal normal-case">
-              ({ocupaciones.length})
-            </span>
-          )}
-        </h3>
-        <Button
-          variant="ghost" size="sm"
-          className="h-7 gap-1.5 text-xs"
-          onClick={() => cargar()}
-          disabled={loading}
-        >
-          <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
-          Actualizar
-        </Button>
-      </div>
+    <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
 
-      {/* Contenido */}
-      {loading ? (
-        <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Cargando...</span>
-        </div>
-      ) : ocupaciones.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-          <Inbox className="w-8 h-8 opacity-30" />
-          <p className="text-sm font-medium">Sin zonas ocupadas</p>
-          <p className="text-xs opacity-60">Todos los espacios están disponibles</p>
-        </div>
-      ) : (
-        <>
-          <div className="space-y-2">
-            {ocupacionesPag.map((oc) => {
-              const estado   = estadoOcupacion(oc)
-              const badge    = ESTADO_BADGE[estado]
-              const expanded = expandedId === oc.id
+      {/* ══ Header ══════════════════════════════════════════════════ */}
+      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
+        <div className="max-w-6xl mx-auto px-4 py-3">
 
-              return (
-                <div
-                  key={oc.id}
-                  className={cn(
-                    "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
-                    estado === "vencida" && "opacity-70",
-                  )}
-                >
-                  {/* Fila principal */}
-                  <button
-                    type="button"
-                    className="w-full text-left px-4 py-3 flex items-start justify-between gap-2 hover:bg-muted/30 transition-colors"
-                    onClick={() => toggleExpand(oc.id)}
-                  >
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm truncate">{oc.titulo}</span>
-                        <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 border", badge.className)}>
-                          {badge.label}
-                        </Badge>
-                        {estado === "vencida" && (
-                          <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <CalendarDays className="w-3 h-3" />
-                          {formatFecha(oc.fechaDesde)}
-                          {oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0] &&
-                            ` → ${formatFecha(oc.fechaHasta)}`}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {oc.horaDesde} – {oc.horaHasta}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3" />
-                          {oc.cantidadPersonas}
-                        </span>
-                      </div>
-                    </div>
-                    {expanded
-                      ? <ChevronUp   className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                      : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    }
-                  </button>
-
-                  {/* Detalle expandido */}
-                  {expanded && (
-                    <div className="px-4 pb-4 pt-0 space-y-3 border-t bg-muted/10">
-                      {estado === "vencida" && (
-                        <div className="flex items-center gap-2 pt-3 text-xs text-red-600">
-                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                          El horario ya pasó. Liberá las zonas para que queden disponibles.
-                        </div>
-                      )}
-                      <div className="space-y-1 pt-3">
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> Zonas:
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {oc.areas?.length > 0
-                            ? oc.areas.map((r) => (
-                                <Badge key={r.areaId} variant="secondary" className="text-xs">
-                                  {r.area?.nombre ?? `Área ${r.areaId}`}
-                                </Badge>
-                              ))
-                            : <span className="text-xs text-muted-foreground">Sin zonas</span>
-                          }
-                        </div>
-                      </div>
-                      {oc.requerimiento && (
-                        <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
-                      )}
-                      {oc.anexos?.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Link2 className="w-3 h-3" /> Anexos:
-                          </p>
-                          {oc.anexos.map((url, i) => (
-                            <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                              className="text-xs text-primary underline truncate block">{url}</a>
-                          ))}
-                        </div>
-                      )}
-                      <div className="pt-1">
-                        <Button
-                          size="sm" variant="outline"
-                          className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
-                          onClick={() => liberar(oc)}
-                          disabled={liberando === oc.id}
-                        >
-                          {liberando === oc.id
-                            ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
-                            : <><Unlock className="w-3 h-3" /> Liberar áreas</>
-                          }
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Paginado — solo si hay más de una página */}
-          {totalPaginas > 1 && (
-            <div className="flex items-center justify-between pt-1">
-              <p className="text-xs text-muted-foreground">
-                {inicio + 1}–{Math.min(inicio + POR_PAGINA, ocupaciones.length)} de {ocupaciones.length}
-              </p>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline" size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                  disabled={paginaActual === 1}
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
-                  <Button
-                    key={n}
-                    variant={n === paginaActual ? "default" : "outline"}
-                    size="icon"
-                    className="h-7 w-7 text-xs"
-                    onClick={() => setPagina(n)}
-                  >
-                    {n}
-                  </Button>
-                ))}
-                <Button
-                  variant="outline" size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                  disabled={paginaActual === totalPaginas}
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
+          {/* Desktop */}
+          <div className="hidden md:flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
+                <Armchair className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold leading-tight">Coworking</h1>
+                <p className="text-xs text-muted-foreground">{admin.email}</p>
               </div>
             </div>
-          )}
-        </>
-      )}
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
+                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              </Button>
+              {isAdmin && (
+                <div className="flex items-center gap-2">
+                  <Switch id="admin-mode" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+                  <Label htmlFor="admin-mode" className="text-sm cursor-pointer">Admin</Label>
+                </div>
+              )}
+              <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8 text-muted-foreground">
+                <LogOut className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Mobile */}
+          <div className="flex md:hidden items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                <Armchair className="w-4 h-4 text-primary" />
+              </div>
+              <span className="font-bold text-sm">Coworking</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
+                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              </Button>
+              <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Menu className="w-4 h-4" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-72">
+                  <div className="space-y-3 pt-4">
+                    <div className="pb-3 border-b">
+                      <p className="font-semibold">{admin.nombre}</p>
+                      <p className="text-xs text-muted-foreground">{admin.email}</p>
+                    </div>
+                    <Button variant="outline" className="w-full justify-start gap-2"
+                      onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
+                      <RefreshCw className="w-4 h-4" /> Actualizar
+                    </Button>
+                    {isAdmin && (
+                      <div className="flex items-center gap-2 py-1">
+                        <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+                        <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
+                      </div>
+                    )}
+                    <Button variant="outline"
+                      className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+                      onClick={logout}>
+                      <LogOut className="w-4 h-4" /> Cerrar sesión
+                    </Button>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* ══ Contenido ════════════════════════════════════════════════ */}
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4 pb-24">
+
+        {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
+          </div>
+          <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
+          </div>
+          <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
+          </div>
+        </div>
+
+        {/* Admin panel */}
+        {isAdminMode && isAdmin && !bloqueadoPorEvento && (
+          <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
+        )}
+        {isAdminMode && isAdmin && bloqueadoPorEvento && (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
+            El panel de administración está deshabilitado mientras haya un evento activo.
+            Las áreas se liberarán automáticamente cuando el evento termine.
+          </div>
+        )}
+
+        {/* ══ Card principal ═══════════════════════════════════════ */}
+        <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
+
+          {/* Tabs */}
+          <div className="border-b border-border px-4 pt-4 pb-0">
+            <div className="flex gap-1 overflow-x-auto scrollbar-none">
+              {VISTAS.map(({ id, label, icon: Icon }) => {
+                const isModal  = id === "agendar"
+                const isActive = !isModal && vista === id
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handleVista(id)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
+                      isActive
+                        ? "border-primary text-primary bg-primary/5"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                      id === "agendar" && !isActive ? "hover:text-primary" : "",
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Contenido */}
+          <div className="p-4 md:p-6">
+
+            {/* ── Disponibilidad + Calendario ── */}
+            {vista === "disponibilidad" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+                <div className="min-w-0">
+                  <DisponibilidadInline onSuccess={fetchSeats} />
+                </div>
+                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+                  <CalendarioCoworking />
+                </div>
+              </div>
+            )}
+
+            {/* ── Asientos + Mapa ── */}
+            {vista === "asientos" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+
+                {/* Columna izquierda: grilla de asientos */}
+                <div className="min-w-0 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <SeatLegend />
+                    {isBlocked && (
+                      <span className="text-xs text-destructive font-medium">
+                        {bloqueadoPorEvento ? `Evento: ${eventoActivo?.titulo}` : "Bloqueado"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
+                  </div>
+                </div>
+
+                {/* Columna derecha: mapa / plano */}
+                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+                  {/* Header de la sección mapa */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                      Plano del espacio
+                    </h3>
+                    <span className="text-[10px] text-muted-foreground/60">Planta 1</span>
+                  </div>
+                  <div className="flex items-center justify-center bg-muted/20 rounded-xl p-3 min-h-[260px]">
+                    <img
+                      src="/NODO-PLANO-P1.svg"
+                      alt="Plano planta 1 del coworking"
+                      className="max-w-full max-h-[420px] object-contain"
+                      style={{ transform: "rotate(90deg)" }}
+                    />
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+        </div>
+
+      </div>
+
+      {/* Solo Agendar como modal — Mapa ya no lo es */}
+      <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
+
     </div>
   )
 }
 EOF
-echo "✅  components/disponibilidad-inline.tsx"
-
-# ════════════════════════════════════════════════════════════════════════════
-# 2. app/page.tsx — layout correcto + max-w-6xl
-# ════════════════════════════════════════════════════════════════════════════
-echo "📄  app/page.tsx — layout side-by-side corregido..."
-
-# Reemplazar max-w-4xl por max-w-6xl (contenedor + header)
-sed -i 's/max-w-4xl/max-w-6xl/g' app/page.tsx
-
-# Reemplazar el bloque de disponibilidad con el grid correcto (2 cols sin div separador)
-node - << 'JSEOF'
-const fs  = require("fs")
-let   src = fs.readFileSync("app/page.tsx", "utf8")
-
-const OLD = `            {/* ✅ Disponibilidad + Calendario lado a lado */}
-            {vista === "disponibilidad" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Columna izquierda: zonas ocupadas */}
-                <div className="min-w-0">
-                  <DisponibilidadInline onSuccess={fetchSeats} />
-                </div>
-
-                {/* Separador vertical solo en desktop */}
-                <div className="hidden lg:block w-px bg-border self-stretch" />
-
-                {/* Columna derecha: calendario de eventos */}
-                <div className="min-w-0">
-                  {/* Label para diferenciar la sección en mobile */}
-                  <div className="lg:hidden mb-3 pt-3 border-t border-border">
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <span>📅</span> Calendario
-                    </h3>
-                  </div>
-                  <CalendarioCoworking />
-                </div>
-              </div>
-            )}`
-
-const NEW = `            {/* Disponibilidad + Calendario lado a lado */}
-            {vista === "disponibilidad" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-                {/* Columna izquierda: zonas ocupadas */}
-                <div className="min-w-0">
-                  <DisponibilidadInline onSuccess={fetchSeats} />
-                </div>
-                {/* Columna derecha: calendario de eventos */}
-                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
-                  <CalendarioCoworking />
-                </div>
-              </div>
-            )}`
-
-if (src.includes(OLD)) {
-  src = src.replace(OLD, NEW)
-  fs.writeFileSync("app/page.tsx", src, "utf8")
-  console.log("✅  Bloque disponibilidad reemplazado")
-} else {
-  // Fallback: buscar el bloque por patrón más simple
-  const re = /\{\/\* ✅ Disponibilidad \+ Calendario[\s\S]*?vista === "disponibilidad" &&[\s\S]*?\}\s*\}\s*\}\)/
-  if (re.test(src)) {
-    src = src.replace(re, `{/* Disponibilidad + Calendario lado a lado */}
-            {vista === "disponibilidad" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-                <div className="min-w-0">
-                  <DisponibilidadInline onSuccess={fetchSeats} />
-                </div>
-                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
-                  <CalendarioCoworking />
-                </div>
-              </div>
-            )}`)
-    fs.writeFileSync("app/page.tsx", src, "utf8")
-    console.log("✅  Bloque disponibilidad reemplazado (fallback)")
-  } else {
-    console.log("⚠️  No se encontró el bloque exacto — editá manualmente el grid en app/page.tsx")
-  }
-}
-JSEOF
+echo "✅  app/page.tsx"
 
 # ════════════════════════════════════════════════════════════════════════════
 # Build
@@ -437,12 +367,16 @@ pnpm build
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  ✅  v19-fix-layout-disponibilidad.sh completado                ║"
+echo "║  ✅  v20-ui-asientos-mapa-sidesides.sh completado               ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Cambios:"
-echo "    · disponibilidad-inline.tsx → paginado de 5 por página"
-echo "    · app/page.tsx → grid 2 cols sin div separador extra"
-echo "    · app/page.tsx → max-w-4xl → max-w-6xl"
-echo "    · Divisor: border-l en desktop, border-t en mobile"
+echo "    · Tab 'Asientos / Mapa' → grid 2 cols igual que Disponibilidad"
+echo "      col-izq: SeatGrid + SeatLegend"
+echo "      col-der: plano SVG del coworking"
+echo "    · Tab 'Mapa' eliminado de la barra (integrado en Asientos)"
+echo "    · MapaModal ya no se usa (el mapa está inline)"
+echo "    · Tabs finales: Disponibilidad | Asientos / Mapa | Agendar"
+echo ""
+echo "  Sin cambios de lógica ni de backend."
 echo ""
