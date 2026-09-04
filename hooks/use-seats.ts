@@ -1,186 +1,116 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
-import type { Seat, SeatStatus } from "@/types/seat"
-import { usuariosApi } from "@/lib/api"
-import type { BackendUsuario } from "@/types/seat"
+import type { Seat } from "@/types/seat"
 import { useToast } from "@/hooks/use-toast"
 
+// Polling cada 30s — suficiente para datos en tiempo real sin saturar la DB
+const POLLING_MS = 30_000
+
 export function useSeats() {
-  const [seats, setSeats] = useState<Seat[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [defaultUser, setDefaultUser] = useState<BackendUsuario | null>(null)
-  const { toast } = useToast()
+  const { toast }    = useToast()
+  const toastRef     = useRef(toast)
+  useEffect(() => { toastRef.current = toast }, [toast])
 
-  const ensureDefaultUser = async () => {
-    try {
-      const usuarios = await usuariosApi.getAll()
-      if (usuarios.length > 0) {
-        setDefaultUser(usuarios[0])
-        return usuarios[0]
-      }
+  const [seats,   setSeats]   = useState<Seat[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
 
-      // Crear usuario por defecto si no existe
-      const newUser = await usuariosApi.create({
-        nombre: "Usuario Coworking",
-        email: "usuario@coworking.com",
-      })
-      setDefaultUser(newUser)
-      return newUser
-    } catch (err) {
-      return null
-    }
-  }
-
-  // Cargar datos del backend
-  const fetchSeats = async () => {
+  // ── fetchSeats: estable, no se recrea entre renders ──────────────────────
+  const fetchSeats = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-
-      const user = await ensureDefaultUser()
-
-      const [areas, reservas] = await Promise.all([areasApi.getAll(), reservasApi.getAll().catch(() => [])])
-
-
-      const seatsData = areas.map((area) => convertBackendAreaToSeat(area, reservas))
-
-      setSeats(seatsData)
-      setError(null)
+      const [areas, reservas] = await Promise.all([
+        areasApi.getAll(),
+        reservasApi.getAll(),
+      ])
+      setSeats(areas.map((area) => convertBackendAreaToSeat(area, reservas)))
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Error al cargar datos"
-      setError(errorMsg)
-      toast({
-        variant: "destructive",
-        title: "Error al cargar asientos",
-        description: errorMsg,
-      })
+      const msg = err instanceof Error ? err.message : "Error al cargar áreas"
+      setError(msg)
     } finally {
       setLoading(false)
     }
-  }
+  }, []) // sin deps → referencia estable entre renders
 
-  const updateSeatStatus = async (
-    seatId: string,
-    newStatus: SeatStatus,
+  // ── updateSeatStatus ─────────────────────────────────────────────────────
+  const updateSeatStatus = useCallback(async (
+    seat: Seat,
+    newStatus: string,
     userName?: string,
+    peopleCount?: number,
     shareLimit?: number,
-    peopleCount = 1,
   ) => {
+    if (!seat.backendId) throw new Error("Asiento sin ID de backend")
+
     try {
-      const seat = seats.find((s) => s.id === seatId)
-      if (!seat || !seat.backendId) return
+      if (newStatus === "occupied" || newStatus === "for-share" || newStatus === "shared") {
+        if (!userName) throw new Error("Nombre de usuario requerido")
 
-      // Asegurar que tenemos un usuario
-      const user = defaultUser || (await ensureDefaultUser())
-      if (!user) {
-        throw new Error("No se pudo crear usuario")
-      }
+        // Buscar usuario por nombre
+        const user = await (async () => {
+          try {
+            const res = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL ?? ""}/usuario`,
+              { headers: { "Content-Type": "application/json" } }
+            )
+            if (!res.ok) return null
+            const usuarios = await res.json()
+            return usuarios.find((u: { nombre: string; id: number }) => u.nombre === userName) ?? null
+          } catch { return null }
+        })()
 
-      if (newStatus === "available") {
-        const reservas = await reservasApi.getAll()
-        const activeReservas = reservas.filter((r) => r.areaId === seat.backendId && r.fin === null)
-
-        await Promise.all(activeReservas.map((r) => reservasApi.completar(r.id)))
-
-        toast({
-          title: "Asiento liberado",
-          description: `${seat.id} ahora está disponible`,
-        })
-      } else if (userName) {
-        const detalles =
+        const usuarioId = user?.id ?? 1
+        const detalles  =
           newStatus === "for-share"
             ? `Para compartir (límite: ${shareLimit || 6}, personas: ${peopleCount})`
             : `Ocupado por ${peopleCount} persona(s)`
 
-        await reservasApi.create({
-          nombre: userName,
-          detalles,
-          usuarioId: user.id,
-          areaId: seat.backendId,
-        })
+        await reservasApi.create({ nombre: userName, detalles, usuarioId, areaId: seat.backendId })
 
-        // Verificar si debe cambiar a compartido
         if (newStatus === "for-share") {
-          const reservas = await reservasApi.getAll()
-          const activeReservas = reservas.filter((r) => r.areaId === seat.backendId && r.fin === null)
-
-          if (activeReservas.length >= (shareLimit || 6)) {
-            await areasApi.cambiarEstado(seat.backendId, "shared")
-          } else {
-            await areasApi.cambiarEstado(seat.backendId, newStatus)
-          }
+          const reservas    = await reservasApi.getAll()
+          const activeCount = reservas.filter((r) => r.areaId === seat.backendId && r.fin === null).length
+          await areasApi.cambiarEstado(seat.backendId, activeCount >= (shareLimit || 6) ? "shared" : newStatus)
         } else {
           await areasApi.cambiarEstado(seat.backendId, newStatus)
         }
 
-        toast({
-          title: "Reserva creada exitosamente",
-          description: `${seat.id} ha sido asignado a ${userName}`,
-        })
+        toastRef.current({ title: "Reserva creada", description: `${seat.id} asignado a ${userName}` })
       } else {
         await areasApi.cambiarEstado(seat.backendId, newStatus)
-
-        toast({
-          title: "Estado actualizado",
-          description: `${seat.id} cambió de estado correctamente`,
-        })
+        toastRef.current({ title: "Estado actualizado", description: `${seat.id} cambió de estado` })
       }
 
-      // Recargar datos
       await fetchSeats()
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Error al actualizar"
-      setError(errorMsg)
-      toast({
-        variant: "destructive",
-        title: "Error al actualizar asiento",
-        description: errorMsg,
-      })
+      const msg = err instanceof Error ? err.message : "Error al actualizar"
+      setError(msg)
+      toastRef.current({ variant: "destructive", title: "Error al actualizar asiento", description: msg })
       throw err
     }
-  }
+  }, [fetchSeats])
 
-  const toggleBlockAll = async (block: boolean) => {
+  // ── toggleBlockAll ───────────────────────────────────────────────────────
+  const toggleBlockAll = useCallback(async (block: boolean) => {
     try {
       setLoading(true)
-
-      // Usar la nueva función del API que actualiza todas las áreas
       await areasApi.bloquearTodas(block)
-
-      toast({
-        title: block ? "Áreas bloqueadas" : "Áreas desbloqueadas",
-        description: block ? "Todas las áreas han sido bloqueadas por el evento" : "Todas las áreas han sido liberadas",
+      toastRef.current({
+        title:       block ? "Coworking bloqueado" : "Coworking desbloqueado",
+        description: block ? "Todas las áreas están bloqueadas" : "Las áreas volvieron a su estado libre",
       })
-
-      // Recargar datos después del bloqueo/desbloqueo
       await fetchSeats()
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Error al bloquear áreas"
-      setError(errorMsg)
-      toast({
-        variant: "destructive",
-        title: "Error en la operación",
-        description: errorMsg,
-      })
+      const msg = err instanceof Error ? err.message : "Error al operar"
+      setError(msg)
+      toastRef.current({ variant: "destructive", title: "Error", description: msg })
     } finally {
       setLoading(false)
     }
-  }
+  }, [fetchSeats])
 
-  useEffect(() => {
-    fetchSeats()
-  }, [])
-
-  return {
-    seats,
-    loading,
-    error,
-    fetchSeats,
-    updateSeatStatus,
-    toggleBlockAll,
-    defaultUser,
-  }
+  return { seats, loading, error, fetchSeats, updateSeatStatus, toggleBlockAll, POLLING_MS }
 }

@@ -6,25 +6,25 @@
  * Detecta si hay un evento del calendario-back activo AHORA MISMO
  * en el área COWORKING (horario Argentina UTC-3).
  *
- * Hace polling cada INTERVALO_MS ms.
- * Retorna el evento activo o null.
+ * Polling cada INTERVALO_MS con AbortController para cancelar
+ * fetches en vuelo al desmontar — evita race conditions al navegar.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
 
-const EVENTOS_BASE = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? ""
-const INTERVALO_MS = 60_000 // 1 minuto
+const EVENTOS_BASE    = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? ""
+const INTERVALO_MS    = 60_000
 const ESTADOS_INACTIVOS = new Set(["CANCELADO", "FINALIZADO"])
 
 export interface EventoActivo {
-  id:         string
-  titulo:     string
-  fechaDesde: string
-  fechaHasta: string
-  horaDesde:  string
-  horaHasta:  string
-  tipoEvento: string
-  areas?:     string[]
+  id:          string
+  titulo:      string
+  fechaDesde:  string
+  fechaHasta:  string
+  horaDesde:   string
+  horaHasta:   string
+  tipoEvento:  string
+  areas?:      string[]
   organizadorSolicitante?: string
 }
 
@@ -35,19 +35,13 @@ function timeToMinutes(hhmm: string): number {
   return h * 60 + m
 }
 
-/** Hora y fecha actuales en Argentina (UTC-3), sin mutabilidad */
 function ahoraArgentina(): { fecha: string; minutos: number } {
-  const now      = new Date()
-  const ar       = new Date(now.getTime() - 3 * 60 * 60 * 1000)
-  const fecha    = ar.toISOString().split("T")[0]          // "YYYY-MM-DD"
-  const minutos  = ar.getUTCHours() * 60 + ar.getUTCMinutes()
+  const ar      = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  const fecha   = ar.toISOString().split("T")[0]
+  const minutos = ar.getUTCHours() * 60 + ar.getUTCMinutes()
   return { fecha, minutos }
 }
 
-/**
- * Dado un evento, determina si está activo en este instante.
- * Para eventos multi-día usa lógica de rango completo.
- */
 function estaActivoAhora(ev: EventoActivo): boolean {
   if (ESTADOS_INACTIVOS.has(ev.tipoEvento)) return false
   if (!Array.isArray(ev.areas) || !ev.areas.includes("COWORKING")) return false
@@ -56,21 +50,64 @@ function estaActivoAhora(ev: EventoActivo): boolean {
   const evDesde = ev.fechaDesde.split("T")[0]
   const evHasta = ev.fechaHasta.split("T")[0]
 
-  // La fecha actual debe estar dentro del rango del evento
   if (fecha < evDesde || fecha > evHasta) return false
 
   const inicioMin = timeToMinutes(ev.horaDesde)
   const finMin    = timeToMinutes(ev.horaHasta)
 
-  if (evDesde === evHasta) {
-    // Mismo día: verificar rango horario exacto
-    return minutos >= inicioMin && minutos < finMin
-  }
+  if (evDesde === evHasta) return minutos >= inicioMin && minutos < finMin
+  if (fecha === evDesde)   return minutos >= inicioMin
+  if (fecha === evHasta)   return minutos < finMin
+  return true
+}
 
-  // Multi-día
-  if (fecha === evDesde) return minutos >= inicioMin   // primer día: desde la hora de inicio
-  if (fecha === evHasta) return minutos < finMin        // último día: hasta la hora de fin
-  return true                                           // días intermedios: todo el día
+async function fetchEventoActivo(signal: AbortSignal): Promise<EventoActivo | null> {
+  if (!EVENTOS_BASE) return null
+
+  try {
+    const { fecha } = ahoraArgentina()
+    const [y, m]    = fecha.split("-").map(Number)
+
+    // Consultar mes actual y el siguiente si estamos cerca del fin de mes
+    const meses: { y: number; m: number }[] = [{ y, m }]
+    const diasEnMes = new Date(y, m, 0).getDate()
+    const diaActual = Number(fecha.split("-")[2])
+    if (diasEnMes - diaActual <= 3) {
+      meses.push(m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 })
+    }
+
+    const resultados = await Promise.all(
+      meses.map(async ({ y, m }) => {
+        try {
+          const res = await fetch(
+            `${EVENTOS_BASE}/calendar?year=${y}&month=${m}`,
+            { cache: "no-store", signal }
+          )
+          if (!res.ok) return []
+          const data = await res.json()
+          return (data.events ?? []) as EventoActivo[]
+        } catch {
+          return []
+        }
+      })
+    )
+
+    const todos = resultados.flat()
+
+    // Deduplicar
+    const vistos = new Set<string>()
+    const unicos = todos.filter((e) => {
+      if (vistos.has(e.id)) return false
+      vistos.add(e.id)
+      return true
+    })
+
+    return unicos.find(estaActivoAhora) ?? null
+  } catch (err) {
+    // AbortError es esperado al desmontar — ignorar silenciosamente
+    if (err instanceof DOMException && err.name === "AbortError") return null
+    return null
+  }
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -78,49 +115,47 @@ function estaActivoAhora(ev: EventoActivo): boolean {
 export function useEventoActivo() {
   const [eventoActivo, setEventoActivo] = useState<EventoActivo | null>(null)
   const [cargando,     setCargando]     = useState(true)
-  const intervalRef                     = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const verificar = useCallback(async () => {
-    if (!EVENTOS_BASE) { setCargando(false); return }
-
-    try {
-      const { fecha } = ahoraArgentina()
-      const [y, m]    = fecha.split("-").map(Number)
-
-      // Consultar mes actual (y el siguiente si estamos en los últimos días del mes)
-      const meses: { y: number; m: number }[] = [{ y, m }]
-      const diasEnMes = new Date(y, m, 0).getDate()
-      const diaActual = Number(fecha.split("-")[2])
-      if (diasEnMes - diaActual <= 3) {
-        meses.push(m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 })
-      }
-
-      const resultados = await Promise.all(
-        meses.map(({ y, m }) =>
-          fetch(`${EVENTOS_BASE}/calendar?year=${y}&month=${m}`, { cache: "no-store" })
-            .then((r) => r.ok ? r.json() : { events: [] })
-            .then((d) => (d.events ?? []) as EventoActivo[])
-            .catch(() => [] as EventoActivo[])
-        )
-      )
-
-      const todos = resultados.flat()
-      const activo = todos.find(estaActivoAhora) ?? null
-      setEventoActivo(activo)
-    } catch {
-      // silencioso — no romper la UI si el calendario-back falla
-    } finally {
-      setCargando(false)
-    }
-  }, [])
+  // Ref para el AbortController activo y el intervalo
+  const abortRef    = useRef<AbortController | null>(null)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
-    verificar()
-    intervalRef.current = setInterval(verificar, INTERVALO_MS)
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+    let montado = true
+
+    const ejecutar = async () => {
+      // Cancelar fetch anterior si sigue en vuelo
+      if (abortRef.current) abortRef.current.abort()
+      abortRef.current = new AbortController()
+
+      const activo = await fetchEventoActivo(abortRef.current.signal)
+
+      // Solo actualizar estado si el componente sigue montado
+      if (montado) {
+        setEventoActivo(activo)
+        setCargando(false)
+      }
     }
-  }, [verificar])
+
+    // Ejecución inmediata
+    ejecutar()
+
+    // Polling
+    intervalRef.current = setInterval(ejecutar, INTERVALO_MS)
+
+    return () => {
+      // Cleanup al desmontar: cancelar fetch en vuelo + limpiar intervalo
+      montado = false
+      if (abortRef.current) {
+        abortRef.current.abort()
+        abortRef.current = null
+      }
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+    }
+  }, []) // sin dependencias → solo monta/desmonta una vez
 
   return { eventoActivo, cargando }
 }
