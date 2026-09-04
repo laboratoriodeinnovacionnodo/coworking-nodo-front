@@ -30,7 +30,6 @@ export function useSeats() {
       setDefaultUser(newUser)
       return newUser
     } catch (err) {
-      console.error("[v0] Error ensuring default user:", err)
       return null
     }
   }
@@ -38,7 +37,6 @@ export function useSeats() {
   // Cargar datos del backend
   const fetchSeats = async () => {
     try {
-      console.log("[v0] Starting to fetch seats...")
       setLoading(true)
       setError(null)
 
@@ -46,18 +44,14 @@ export function useSeats() {
 
       const [areas, reservas] = await Promise.all([areasApi.getAll(), reservasApi.getAll().catch(() => [])])
 
-      console.log("[v0] Areas loaded:", areas)
-      console.log("[v0] Reservas loaded:", reservas)
 
       const seatsData = areas.map((area) => convertBackendAreaToSeat(area, reservas))
-      console.log("[v0] Seats converted:", seatsData)
 
       setSeats(seatsData)
       setError(null)
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Error al cargar datos"
       setError(errorMsg)
-      console.error("[v0] Error fetching seats:", err)
       toast({
         variant: "destructive",
         title: "Error al cargar asientos",
@@ -140,7 +134,6 @@ export function useSeats() {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Error al actualizar"
       setError(errorMsg)
-      console.error("[v0] Error updating seat:", err)
       toast({
         variant: "destructive",
         title: "Error al actualizar asiento",
@@ -152,7 +145,6 @@ export function useSeats() {
 
   const toggleBlockAll = async (block: boolean) => {
     try {
-      console.log("[v0] Toggling block all areas:", block)
       setLoading(true)
 
       // Usar la nueva función del API que actualiza todas las áreas
@@ -168,7 +160,6 @@ export function useSeats() {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Error al bloquear áreas"
       setError(errorMsg)
-      console.error("[v0] Error toggling block:", err)
       toast({
         variant: "destructive",
         title: "Error en la operación",
