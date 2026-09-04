@@ -29,7 +29,7 @@ export function AsientosMapaModal({
 }: AsientosMapaModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-screen-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <LayoutGrid className="w-5 h-5 text-primary" />
