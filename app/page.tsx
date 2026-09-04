@@ -119,7 +119,7 @@ export default function CoworkingSeatsPage() {
 
       {/* ══ Header ══════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-3">
+        <div className="max-w-screen-2xl mx-auto px-4 py-3">
 
           {/* Desktop */}
           <div className="hidden md:flex items-center justify-between">
@@ -197,7 +197,7 @@ export default function CoworkingSeatsPage() {
       </div>
 
       {/* ══ Contenido ════════════════════════════════════════════════ */}
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4 pb-24">
+      <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
 
