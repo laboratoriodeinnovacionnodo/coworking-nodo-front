@@ -55,6 +55,7 @@ components/
   admin-panel.tsx
   agendar-modal.tsx
   bottom-navbar.tsx
+  calendario-coworking.tsx
   cors-info-banner.tsx
   display-seat-grid.tsx
   display-seat-info-modal.tsx
@@ -95,506 +96,6 @@ x.sh
 ```
 
 # Files
-
-## File: components/agendar-modal.tsx
-```typescript
-  1: "use client"
-  2: 
-  3: import { useState, useCallback, useEffect } from "react"
-  4: import { ocupacionesApi } from "@/lib/ocupacion-api"
-  5: import { areasApi } from "@/lib/api"
-  6: import type { CreateOcupacionPayload } from "@/types/ocupacion"
-  7: import type { BackendArea } from "@/types/seat"
-  8: import { useToast } from "@/hooks/use-toast"
-  9: 
- 10: import { Button }   from "@/components/ui/button"
- 11: import { Input }    from "@/components/ui/input"
- 12: import { Label }    from "@/components/ui/label"
- 13: import { Textarea } from "@/components/ui/textarea"
- 14: import { Badge }    from "@/components/ui/badge"
- 15: import {
- 16:   Dialog,
- 17:   DialogContent,
- 18:   DialogHeader,
- 19:   DialogTitle,
- 20:   DialogFooter,
- 21:   DialogDescription,
- 22: } from "@/components/ui/dialog"
- 23: import {
- 24:   CalendarDays,
- 25:   Clock,
- 26:   Users,
- 27:   User,
- 28:   FileText,
- 29:   Link2,
- 30:   Plus,
- 31:   Trash2,
- 32:   Loader2,
- 33:   ChevronDown,
- 34:   ChevronUp,
- 35:   MapPin,
- 36:   X,
- 37:   CheckSquare,
- 38: } from "lucide-react"
- 39: 
- 40: // ── tipos internos ───────────────────────────────────────────────────────────
- 41: interface AgendarModalProps {
- 42:   open:         boolean
- 43:   onOpenChange: (open: boolean) => void
- 44:   onSuccess?:  () => void
- 45: }
- 46: 
- 47: const EMPTY_FORM: CreateOcupacionPayload = {
- 48:   titulo:           "",
- 49:   requerimiento:    "",
- 50:   cantidadPersonas: 1,
- 51:   organizador:      "",
- 52:   dia:              "",
- 53:   hora:             "",
- 54:   edadMin:          undefined,
- 55:   edadMax:          undefined,
- 56:   anexos:           [],
- 57:   areaIds:          [],
- 58: }
- 59: 
- 60: // ── componente ───────────────────────────────────────────────────────────────
- 61: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
- 62:   const { toast } = useToast()
- 63: 
- 64:   const [form,       setForm]       = useState<CreateOcupacionPayload>(EMPTY_FORM)
- 65:   const [nuevoAnexo, setNuevoAnexo] = useState("")
- 66:   const [loading,    setLoading]    = useState(false)
- 67:   const [showEdad,   setShowEdad]   = useState(false)
- 68: 
- 69:   // áreas del coworking disponibles
- 70:   const [areas,        setAreas]        = useState<BackendArea[]>([])
- 71:   const [loadingAreas, setLoadingAreas] = useState(false)
- 72: 
- 73:   // ── cargar áreas cuando se abre el modal ───────────────────────────────
- 74:   useEffect(() => {
- 75:     if (!open) return
- 76:     setLoadingAreas(true)
- 77:     areasApi
- 78:       .getAll()
- 79:       .then((data) => setAreas(data))
- 80:       .catch(() =>
- 81:         toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }),
- 82:       )
- 83:       .finally(() => setLoadingAreas(false))
- 84:   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
- 85: 
- 86:   // ── helpers ────────────────────────────────────────────────────────────
- 87:   const set = useCallback(
- 88:     <K extends keyof CreateOcupacionPayload>(key: K, val: CreateOcupacionPayload[K]) =>
- 89:       setForm((p) => ({ ...p, [key]: val })),
- 90:     [],
- 91:   )
- 92: 
- 93:   const toggleArea = (id: number) => {
- 94:     const ids = form.areaIds
- 95:     set("areaIds", ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
- 96:   }
- 97: 
- 98:   const agregarAnexo = () => {
- 99:     const url = nuevoAnexo.trim()
-100:     if (!url) return
-101:     try { new URL(url) } catch {
-102:       toast({ variant: "destructive", title: "URL inválida", description: "Ingresá una URL con http/https" })
-103:       return
-104:     }
-105:     if ((form.anexos ?? []).includes(url)) {
-106:       toast({ variant: "destructive", title: "Duplicado", description: "Esa URL ya fue agregada" })
-107:       return
-108:     }
-109:     set("anexos", [...(form.anexos ?? []), url])
-110:     setNuevoAnexo("")
-111:   }
-112: 
-113:   const quitarAnexo = (i: number) =>
-114:     set("anexos", (form.anexos ?? []).filter((_, idx) => idx !== i))
-115: 
-116:   const resetForm = () => {
-117:     setForm(EMPTY_FORM)
-118:     setNuevoAnexo("")
-119:     setShowEdad(false)
-120:   }
-121: 
-122:   // ── submit ─────────────────────────────────────────────────────────────
-123:   const handleSubmit = async () => {
-124:     if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Requerido", description: "Ingresá un título" });            return }
-125:     if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Requerido", description: "Ingresá el requerimiento" });     return }
-126:     if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Requerido", description: "Ingresá el organizador" });       return }
-127:     if (!form.dia)                  { toast({ variant: "destructive", title: "Requerido", description: "Seleccioná una fecha" });         return }
-128:     if (!form.hora)                 { toast({ variant: "destructive", title: "Requerido", description: "Ingresá una hora" });             return }
-129:     if (form.cantidadPersonas < 1)  { toast({ variant: "destructive", title: "Inválido",  description: "Mínimo 1 persona" });             return }
-130:     if (form.areaIds.length === 0)  { toast({ variant: "destructive", title: "Requerido", description: "Seleccioná al menos un área" }); return }
-131: 
-132:     if (
-133:       form.edadMin !== undefined &&
-134:       form.edadMax !== undefined &&
-135:       form.edadMin > form.edadMax
-136:     ) {
-137:       toast({ variant: "destructive", title: "Rango inválido", description: "La edad mínima no puede superar la máxima" })
-138:       return
-139:     }
-140: 
-141:     try {
-142:       setLoading(true)
-143:       const payload: CreateOcupacionPayload = {
-144:         titulo:           form.titulo.trim(),
-145:         requerimiento:    form.requerimiento.trim(),
-146:         cantidadPersonas: Number(form.cantidadPersonas),
-147:         organizador:      form.organizador.trim(),
-148:         dia:              form.dia,
-149:         hora:             form.hora,
-150:         areaIds:          form.areaIds,
-151:         anexos:           form.anexos ?? [],
-152:         ...(form.edadMin !== undefined && { edadMin: Number(form.edadMin) }),
-153:         ...(form.edadMax !== undefined && { edadMax: Number(form.edadMax) }),
-154:       }
-155: 
-156:       await ocupacionesApi.create(payload)
-157: 
-158:       toast({
-159:         title:       "✅ Ocupación agendada",
-160:         description: `"${payload.titulo}" registrada — áreas marcadas como ocupadas`,
-161:       })
-162: 
-163:       resetForm()
-164:       onOpenChange(false)
-165:       onSuccess?.()
-166:     } catch (err) {
-167:       const msg = err instanceof Error ? err.message : "Error desconocido"
-168:       toast({ variant: "destructive", title: "Error al agendar", description: msg })
-169:     } finally {
-170:       setLoading(false)
-171:     }
-172:   }
-173: 
-174:   const handleClose = () => {
-175:     if (loading) return
-176:     resetForm()
-177:     onOpenChange(false)
-178:   }
-179: 
-180:   // ── UI ─────────────────────────────────────────────────────────────────
-181:   return (
-182:     <Dialog open={open} onOpenChange={handleClose}>
-183:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
-184:         <DialogHeader>
-185:           <DialogTitle className="text-xl flex items-center gap-2">
-186:             <CalendarDays className="w-5 h-5 text-primary" />
-187:             Agendar Ocupación
-188:           </DialogTitle>
-189:           <DialogDescription>
-190:             Completá los datos y seleccioná las áreas a ocupar.
-191:           </DialogDescription>
-192:         </DialogHeader>
-193: 
-194:         <div className="space-y-5 py-2">
-195: 
-196:           {/* Título */}
-197:           <div className="space-y-1.5">
-198:             <Label htmlFor="oc-titulo" className="flex items-center gap-1.5 text-sm font-medium">
-199:               <FileText className="w-3.5 h-3.5 text-primary" /> Título <span className="text-destructive">*</span>
-200:             </Label>
-201:             <Input
-202:               id="oc-titulo"
-203:               placeholder="Ej: Taller de programación"
-204:               value={form.titulo}
-205:               onChange={(e) => set("titulo", e.target.value)}
-206:               disabled={loading}
-207:               maxLength={120}
-208:             />
-209:           </div>
-210: 
-211:           {/* Requerimiento */}
-212:           <div className="space-y-1.5">
-213:             <Label htmlFor="oc-req" className="flex items-center gap-1.5 text-sm font-medium">
-214:               <FileText className="w-3.5 h-3.5 text-primary" /> Requerimiento <span className="text-destructive">*</span>
-215:             </Label>
-216:             <Textarea
-217:               id="oc-req"
-218:               placeholder="Equipamiento, condiciones, necesidades especiales..."
-219:               value={form.requerimiento}
-220:               onChange={(e) => set("requerimiento", e.target.value)}
-221:               disabled={loading}
-222:               rows={3}
-223:               className="resize-none"
-224:             />
-225:           </div>
-226: 
-227:           {/* Organizador */}
-228:           <div className="space-y-1.5">
-229:             <Label htmlFor="oc-org" className="flex items-center gap-1.5 text-sm font-medium">
-230:               <User className="w-3.5 h-3.5 text-primary" /> Solicitante / Organizador <span className="text-destructive">*</span>
-231:             </Label>
-232:             <Input
-233:               id="oc-org"
-234:               placeholder="Nombre completo o institución"
-235:               value={form.organizador}
-236:               onChange={(e) => set("organizador", e.target.value)}
-237:               disabled={loading}
-238:             />
-239:           </div>
-240: 
-241:           {/* Cantidad de personas */}
-242:           <div className="space-y-1.5">
-243:             <Label htmlFor="oc-cant" className="flex items-center gap-1.5 text-sm font-medium">
-244:               <Users className="w-3.5 h-3.5 text-primary" /> Cantidad de personas <span className="text-destructive">*</span>
-245:             </Label>
-246:             <Input
-247:               id="oc-cant"
-248:               type="number"
-249:               min={1}
-250:               max={9999}
-251:               placeholder="Ej: 30"
-252:               value={form.cantidadPersonas}
-253:               onChange={(e) => set("cantidadPersonas", parseInt(e.target.value) || 1)}
-254:               disabled={loading}
-255:             />
-256:           </div>
-257: 
-258:           {/* Día y Hora */}
-259:           <div className="grid grid-cols-2 gap-3">
-260:             <div className="space-y-1.5">
-261:               <Label htmlFor="oc-dia" className="flex items-center gap-1.5 text-sm font-medium">
-262:                 <CalendarDays className="w-3.5 h-3.5 text-primary" /> Día <span className="text-destructive">*</span>
-263:               </Label>
-264:               <Input
-265:                 id="oc-dia"
-266:                 type="date"
-267:                 value={form.dia}
-268:                 onChange={(e) => set("dia", e.target.value)}
-269:                 disabled={loading}
-270:                 min={new Date().toISOString().split("T")[0]}
-271:               />
-272:             </div>
-273:             <div className="space-y-1.5">
-274:               <Label htmlFor="oc-hora" className="flex items-center gap-1.5 text-sm font-medium">
-275:                 <Clock className="w-3.5 h-3.5 text-primary" /> Hora <span className="text-destructive">*</span>
-276:               </Label>
-277:               <Input
-278:                 id="oc-hora"
-279:                 type="time"
-280:                 value={form.hora}
-281:                 onChange={(e) => set("hora", e.target.value)}
-282:                 disabled={loading}
-283:               />
-284:             </div>
-285:           </div>
-286: 
-287:           {/* Selector de áreas ─────────────────────────────────────────── */}
-288:           <div className="space-y-2">
-289:             <Label className="flex items-center gap-1.5 text-sm font-medium">
-290:               <MapPin className="w-3.5 h-3.5 text-primary" />
-291:               Áreas del coworking <span className="text-destructive">*</span>
-292:             </Label>
-293: 
-294:             {loadingAreas ? (
-295:               <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
-296:                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
-297:               </div>
-298:             ) : areas.length === 0 ? (
-299:               <p className="text-sm text-muted-foreground py-2">No hay áreas disponibles</p>
-300:             ) : (
-301:               <div className="grid grid-cols-2 gap-2">
-302:                 {areas.map((area) => {
-303:                   const selected = form.areaIds.includes(area.id)
-304:                   const libre    = area.estado === "LIBRE"
-305:                   return (
-306:                     <button
-307:                       key={area.id}
-308:                       type="button"
-309:                       onClick={() => libre && toggleArea(area.id)}
-310:                       disabled={loading || !libre}
-311:                       className={[
-312:                         "flex items-start gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
-313:                         selected
-314:                           ? "border-primary bg-primary/10 text-primary"
-315:                           : libre
-316:                             ? "border-border hover:border-primary/50 hover:bg-muted/40"
-317:                             : "border-border bg-muted/20 text-muted-foreground cursor-not-allowed opacity-60",
-318:                       ].join(" ")}
-319:                     >
-320:                       <CheckSquare
-321:                         className={[
-322:                           "w-4 h-4 mt-0.5 flex-shrink-0 transition-colors",
-323:                           selected ? "text-primary" : "text-muted-foreground/50",
-324:                         ].join(" ")}
-325:                       />
-326:                       <span className="flex-1 min-w-0">
-327:                         <span className="font-medium block truncate">{area.nombre}</span>
-328:                         {area.descripcion && (
-329:                           <span className="text-xs text-muted-foreground line-clamp-1">
-330:                             {area.descripcion}
-331:                           </span>
-332:                         )}
-333:                         {!libre && (
-334:                           <span className="text-xs text-destructive font-medium">Ocupada</span>
-335:                         )}
-336:                       </span>
-337:                     </button>
-338:                   )
-339:                 })}
-340:               </div>
-341:             )}
-342: 
-343:             {/* badges de áreas seleccionadas */}
-344:             {form.areaIds.length > 0 && (
-345:               <div className="flex flex-wrap gap-1.5 pt-1">
-346:                 {form.areaIds.map((id) => {
-347:                   const area = areas.find((a) => a.id === id)
-348:                   return (
-349:                     <Badge
-350:                       key={id}
-351:                       variant="secondary"
-352:                       className="gap-1 pr-1 text-xs bg-primary/10 text-primary border-primary/20"
-353:                     >
-354:                       {area?.nombre ?? `Área ${id}`}
-355:                       <button
-356:                         type="button"
-357:                         onClick={() => toggleArea(id)}
-358:                         disabled={loading}
-359:                         className="ml-0.5 rounded-full hover:bg-primary/20 p-0.5 transition-colors"
-360:                       >
-361:                         <X className="w-2.5 h-2.5" />
-362:                       </button>
-363:                     </Badge>
-364:                   )
-365:                 })}
-366:               </div>
-367:             )}
-368:           </div>
-369: 
-370:           {/* Rango de edad (colapsable) ──────────────────────────────────── */}
-371:           <div className="border rounded-lg overflow-hidden">
-372:             <button
-373:               type="button"
-374:               onClick={() => setShowEdad(!showEdad)}
-375:               className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium bg-muted/40 hover:bg-muted/70 transition-colors"
-376:             >
-377:               <span className="flex items-center gap-1.5">
-378:                 <Users className="w-3.5 h-3.5 text-primary" />
-379:                 Rango de edad del público
-380:                 <span className="text-xs text-muted-foreground font-normal">(opcional)</span>
-381:               </span>
-382:               {showEdad
-383:                 ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
-384:                 : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-385:             </button>
-386: 
-387:             {showEdad && (
-388:               <div className="px-4 py-4 grid grid-cols-2 gap-3 bg-background">
-389:                 <div className="space-y-1.5">
-390:                   <Label htmlFor="oc-emin" className="text-xs font-medium text-muted-foreground">Edad mínima</Label>
-391:                   <Input
-392:                     id="oc-emin"
-393:                     type="number"
-394:                     min={0}
-395:                     max={120}
-396:                     placeholder="Ej: 10"
-397:                     value={form.edadMin ?? ""}
-398:                     onChange={(e) => set("edadMin", e.target.value ? parseInt(e.target.value) : undefined)}
-399:                     disabled={loading}
-400:                   />
-401:                 </div>
-402:                 <div className="space-y-1.5">
-403:                   <Label htmlFor="oc-emax" className="text-xs font-medium text-muted-foreground">Edad máxima</Label>
-404:                   <Input
-405:                     id="oc-emax"
-406:                     type="number"
-407:                     min={0}
-408:                     max={120}
-409:                     placeholder="Ej: 20"
-410:                     value={form.edadMax ?? ""}
-411:                     onChange={(e) => set("edadMax", e.target.value ? parseInt(e.target.value) : undefined)}
-412:                     disabled={loading}
-413:                   />
-414:                 </div>
-415:                 {form.edadMin !== undefined && form.edadMax !== undefined && form.edadMin <= form.edadMax && (
-416:                   <p className="col-span-2 text-xs text-muted-foreground">
-417:                     Público de <strong>{form.edadMin}</strong> a <strong>{form.edadMax}</strong> años
-418:                   </p>
-419:                 )}
-420:               </div>
-421:             )}
-422:           </div>
-423: 
-424:           {/* Anexos ──────────────────────────────────────────────────────── */}
-425:           <div className="space-y-2">
-426:             <Label className="flex items-center gap-1.5 text-sm font-medium">
-427:               <Link2 className="w-3.5 h-3.5 text-primary" />
-428:               Anexos
-429:               <span className="text-xs text-muted-foreground font-normal">(opcional — máx. 10 URLs)</span>
-430:             </Label>
-431: 
-432:             {(form.anexos ?? []).length > 0 && (
-433:               <ul className="space-y-1.5">
-434:                 {(form.anexos ?? []).map((url, i) => (
-435:                   <li key={i} className="flex items-center gap-2 text-xs bg-muted/40 rounded-md px-3 py-2 group">
-436:                     <Link2 className="w-3 h-3 text-primary flex-shrink-0" />
-437:                     <a href={url} target="_blank" rel="noopener noreferrer"
-438:                        className="flex-1 truncate text-primary hover:underline">
-439:                       {url}
-440:                     </a>
-441:                     <button
-442:                       type="button"
-443:                       onClick={() => quitarAnexo(i)}
-444:                       disabled={loading}
-445:                       className="opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-446:                     >
-447:                       <Trash2 className="w-3.5 h-3.5" />
-448:                     </button>
-449:                   </li>
-450:                 ))}
-451:               </ul>
-452:             )}
-453: 
-454:             {(form.anexos ?? []).length < 10 && (
-455:               <div className="flex gap-2">
-456:                 <Input
-457:                   type="url"
-458:                   placeholder="https://drive.google.com/..."
-459:                   value={nuevoAnexo}
-460:                   onChange={(e) => setNuevoAnexo(e.target.value)}
-461:                   onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarAnexo())}
-462:                   disabled={loading}
-463:                   className="text-sm"
-464:                 />
-465:                 <Button
-466:                   type="button"
-467:                   variant="outline"
-468:                   size="icon"
-469:                   onClick={agregarAnexo}
-470:                   disabled={loading || !nuevoAnexo.trim()}
-471:                   className="flex-shrink-0"
-472:                 >
-473:                   <Plus className="w-4 h-4" />
-474:                 </Button>
-475:               </div>
-476:             )}
-477:           </div>
-478: 
-479:         </div>
-480: 
-481:         <DialogFooter className="flex-col-reverse sm:flex-row gap-2 pt-2">
-482:           <Button variant="outline" onClick={handleClose} disabled={loading} className="bg-transparent">
-483:             Cancelar
-484:           </Button>
-485:           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
-486:             {loading ? (
-487:               <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
-488:             ) : (
-489:               <><CalendarDays className="w-4 h-4" /> Agendar</>
-490:             )}
-491:           </Button>
-492:         </DialogFooter>
-493:       </DialogContent>
-494:     </Dialog>
-495:   )
-496: }
-```
 
 ## File: components/bottom-navbar.tsx
 ```typescript
@@ -682,315 +183,6 @@ x.sh
 82:     </nav>
 83:   )
 84: }
-```
-
-## File: components/disponibilidad-inline.tsx
-```typescript
-  1: "use client"
-  2: 
-  3: import { useState, useEffect, useCallback } from "react"
-  4: import { ocupacionesApi } from "@/lib/ocupacion-api"
-  5: import type { Ocupacion } from "@/types/ocupacion"
-  6: import { useToast } from "@/hooks/use-toast"
-  7: import { Button } from "@/components/ui/button"
-  8: import { Badge } from "@/components/ui/badge"
-  9: import {
- 10:   Table,
- 11:   TableBody,
- 12:   TableCell,
- 13:   TableHead,
- 14:   TableHeader,
- 15:   TableRow,
- 16: } from "@/components/ui/table"
- 17: import {
- 18:   Loader2,
- 19:   MapPin,
- 20:   Clock,
- 21:   Users,
- 22:   Unlock,
- 23:   RefreshCw,
- 24:   Inbox,
- 25:   Link2,
- 26:   ChevronDown,
- 27:   ChevronUp,
- 28: } from "lucide-react"
- 29: 
- 30: interface DisponibilidadInlineProps {
- 31:   onSuccess?: () => void
- 32: }
- 33: 
- 34: export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
- 35:   const { toast } = useToast()
- 36:   const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
- 37:   const [loading,     setLoading]     = useState(true)
- 38:   const [liberando,   setLiberando]   = useState<number | null>(null)
- 39:   const [expandedId,  setExpandedId]  = useState<number | null>(null)
- 40: 
- 41:   // ── Carga ────────────────────────────────────────────────────
- 42:   const cargar = useCallback(async (silencioso = false) => {
- 43:     if (!silencioso) setLoading(true)
- 44:     try {
- 45:       const data = await ocupacionesApi.getAll()
- 46:       setOcupaciones(data.filter((o) => !o.liberadaAt))
- 47:     } catch {
- 48:       if (!silencioso)
- 49:         toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
- 50:     } finally {
- 51:       if (!silencioso) setLoading(false)
- 52:     }
- 53:   }, [toast])
- 54: 
- 55:   useEffect(() => { cargar() }, [cargar])
- 56: 
- 57:   // ── Liberar ──────────────────────────────────────────────────
- 58:   const liberar = async (oc: Ocupacion) => {
- 59:     setLiberando(oc.id)
- 60:     try {
- 61:       await ocupacionesApi.liberar(oc.id)
- 62:       toast({
- 63:         title:       "✅ Zonas liberadas",
- 64:         description: `"${oc.titulo}" finalizada — áreas marcadas como LIBRE`,
- 65:       })
- 66:       await cargar(true)
- 67:       onSuccess?.()
- 68:     } catch (err) {
- 69:       toast({
- 70:         variant:     "destructive",
- 71:         title:       "Error al liberar",
- 72:         description: err instanceof Error ? err.message : "Error desconocido",
- 73:       })
- 74:     } finally {
- 75:       setLiberando(null)
- 76:     }
- 77:   }
- 78: 
- 79:   const toggleExpand = (id: number) =>
- 80:     setExpandedId(expandedId === id ? null : id)
- 81: 
- 82:   const formatFecha = (dia: string, hora: string) => {
- 83:     try {
- 84:       const [y, m, d] = dia.split("-")
- 85:       return `${d}/${m}/${y} ${hora}`
- 86:     } catch {
- 87:       return `${dia} ${hora}`
- 88:     }
- 89:   }
- 90: 
- 91:   // ── Loading ──────────────────────────────────────────────────
- 92:   if (loading) {
- 93:     return (
- 94:       <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
- 95:         <Loader2 className="w-5 h-5 animate-spin" />
- 96:         <span className="text-sm">Cargando ocupaciones...</span>
- 97:       </div>
- 98:     )
- 99:   }
-100: 
-101:   // ── Vacío ────────────────────────────────────────────────────
-102:   if (ocupaciones.length === 0) {
-103:     return (
-104:       <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
-105:         <Inbox className="w-10 h-10 opacity-25" />
-106:         <p className="text-sm font-medium">No hay zonas ocupadas</p>
-107:         <p className="text-xs opacity-60">Todas las áreas están disponibles</p>
-108:         <Button
-109:           variant="ghost"
-110:           size="sm"
-111:           className="gap-1.5 mt-1"
-112:           onClick={() => cargar()}
-113:         >
-114:           <RefreshCw className="w-3.5 h-3.5" />
-115:           Actualizar
-116:         </Button>
-117:       </div>
-118:     )
-119:   }
-120: 
-121:   // ── Tabla ────────────────────────────────────────────────────
-122:   return (
-123:     <div className="space-y-3">
-124:       {/* Encabezado de sección */}
-125:       <div className="flex items-center justify-between">
-126:         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-127:           <MapPin className="w-4 h-4 text-primary" />
-128:           <span>
-129:             <span className="font-semibold text-foreground">{ocupaciones.length}</span>{" "}
-130:             ocupación{ocupaciones.length !== 1 ? "es" : ""} activa{ocupaciones.length !== 1 ? "s" : ""}
-131:             {" · "}
-132:             <span className="font-semibold text-foreground">
-133:               {ocupaciones.reduce((a, o) => a + o.areas.length, 0)}
-134:             </span>{" "}
-135:             zona{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""} ocupada{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""}
-136:           </span>
-137:         </div>
-138:         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cargar()}>
-139:           <RefreshCw className="w-3.5 h-3.5" />
-140:         </Button>
-141:       </div>
-142: 
-143:       {/* ── Desktop: tabla ──────────────────────────────────── */}
-144:       <div className="hidden md:block rounded-lg border overflow-hidden">
-145:         <Table>
-146:           <TableHeader>
-147:             <TableRow className="bg-muted/40">
-148:               <TableHead className="text-xs">Título</TableHead>
-149:               <TableHead className="text-xs">Organizador</TableHead>
-150:               <TableHead className="text-xs">
-151:                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Fecha / Hora</span>
-152:               </TableHead>
-153:               <TableHead className="text-xs">
-154:                 <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Personas</span>
-155:               </TableHead>
-156:               <TableHead className="text-xs">
-157:                 <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> Zonas</span>
-158:               </TableHead>
-159:               <TableHead className="text-right text-xs">Acción</TableHead>
-160:             </TableRow>
-161:           </TableHeader>
-162:           <TableBody>
-163:             {ocupaciones.map((oc) => (
-164:               <>
-165:                 <TableRow
-166:                   key={oc.id}
-167:                   className="cursor-pointer hover:bg-muted/20"
-168:                   onClick={() => toggleExpand(oc.id)}
-169:                 >
-170:                   <TableCell className="font-medium text-sm">
-171:                     <span className="flex items-center gap-1.5">
-172:                       {expandedId === oc.id
-173:                         ? <ChevronUp   className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-174:                         : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-175:                       {oc.titulo}
-176:                     </span>
-177:                   </TableCell>
-178:                   <TableCell className="text-sm text-muted-foreground">{oc.organizador}</TableCell>
-179:                   <TableCell className="text-sm">{formatFecha(oc.dia, oc.hora)}</TableCell>
-180:                   <TableCell className="text-sm">{oc.cantidadPersonas}</TableCell>
-181:                   <TableCell>
-182:                     <div className="flex flex-wrap gap-1">
-183:                       {oc.areas.length > 0
-184:                         ? oc.areas.map((r) => (
-185:                             <Badge key={r.areaId} variant="secondary" className="text-xs">
-186:                               {r.area.nombre}
-187:                             </Badge>
-188:                           ))
-189:                         : <span className="text-xs text-muted-foreground">—</span>}
-190:                     </div>
-191:                   </TableCell>
-192:                   <TableCell className="text-right">
-193:                     <Button
-194:                       size="sm"
-195:                       variant="outline"
-196:                       className="gap-1.5 text-xs h-7 border-green-300 text-green-700 hover:bg-green-50"
-197:                       disabled={liberando === oc.id}
-198:                       onClick={(e) => { e.stopPropagation(); liberar(oc) }}
-199:                     >
-200:                       {liberando === oc.id
-201:                         ? <Loader2 className="w-3 h-3 animate-spin" />
-202:                         : <Unlock  className="w-3 h-3" />}
-203:                       Liberar
-204:                     </Button>
-205:                   </TableCell>
-206:                 </TableRow>
-207: 
-208:                 {/* Fila expandida */}
-209:                 {expandedId === oc.id && (
-210:                   <TableRow key={`exp-${oc.id}`} className="bg-muted/10">
-211:                     <TableCell colSpan={6} className="py-3">
-212:                       <div className="space-y-1.5 text-sm pl-5">
-213:                         <p>
-214:                           <span className="font-medium">Requerimiento: </span>
-215:                           <span className="text-muted-foreground">{oc.requerimiento}</span>
-216:                         </p>
-217:                         {(oc.edadMin != null || oc.edadMax != null) && (
-218:                           <p>
-219:                             <span className="font-medium">Rango de edad: </span>
-220:                             <span className="text-muted-foreground">
-221:                               {oc.edadMin ?? "?"} — {oc.edadMax ?? "?"} años
-222:                             </span>
-223:                           </p>
-224:                         )}
-225:                         {oc.anexos.length > 0 && (
-226:                           <div className="flex flex-wrap gap-2 items-center">
-227:                             <span className="font-medium">Anexos:</span>
-228:                             {oc.anexos.map((url, i) => (
-229:                               <a
-230:                                 key={i}
-231:                                 href={url}
-232:                                 target="_blank"
-233:                                 rel="noopener noreferrer"
-234:                                 className="flex items-center gap-1 text-primary hover:underline text-xs"
-235:                                 onClick={(e) => e.stopPropagation()}
-236:                               >
-237:                                 <Link2 className="w-3 h-3" />
-238:                                 Anexo {i + 1}
-239:                               </a>
-240:                             ))}
-241:                           </div>
-242:                         )}
-243:                       </div>
-244:                     </TableCell>
-245:                   </TableRow>
-246:                 )}
-247:               </>
-248:             ))}
-249:           </TableBody>
-250:         </Table>
-251:       </div>
-252: 
-253:       {/* ── Mobile: cards ───────────────────────────────────── */}
-254:       <div className="md:hidden space-y-2">
-255:         {ocupaciones.map((oc) => (
-256:           <div key={oc.id} className="border rounded-xl p-3 bg-card space-y-2">
-257:             <div className="flex items-start justify-between gap-2">
-258:               <div className="min-w-0">
-259:                 <p className="font-semibold text-sm truncate">{oc.titulo}</p>
-260:                 <p className="text-xs text-muted-foreground">{oc.organizador}</p>
-261:               </div>
-262:               <Button
-263:                 size="sm"
-264:                 variant="outline"
-265:                 className="gap-1 text-xs flex-shrink-0 h-7 border-green-300 text-green-700 hover:bg-green-50"
-266:                 disabled={liberando === oc.id}
-267:                 onClick={() => liberar(oc)}
-268:               >
-269:                 {liberando === oc.id
-270:                   ? <Loader2 className="w-3 h-3 animate-spin" />
-271:                   : <Unlock  className="w-3 h-3" />}
-272:                 Liberar
-273:               </Button>
-274:             </div>
-275: 
-276:             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-277:               <span className="flex items-center gap-1">
-278:                 <Clock className="w-3 h-3" />{formatFecha(oc.dia, oc.hora)}
-279:               </span>
-280:               <span className="flex items-center gap-1">
-281:                 <Users className="w-3 h-3" />{oc.cantidadPersonas} personas
-282:               </span>
-283:             </div>
-284: 
-285:             <div className="flex flex-wrap gap-1">
-286:               {oc.areas.length > 0
-287:                 ? oc.areas.map((r) => (
-288:                     <Badge key={r.areaId} variant="secondary" className="text-xs">
-289:                       {r.area.nombre}
-290:                     </Badge>
-291:                   ))
-292:                 : <span className="text-xs text-muted-foreground">Sin zonas</span>}
-293:             </div>
-294: 
-295:             {oc.requerimiento && (
-296:               <p className="text-xs text-muted-foreground border-t pt-2 line-clamp-2">
-297:                 {oc.requerimiento}
-298:               </p>
-299:             )}
-300:           </div>
-301:         ))}
-302:       </div>
-303:     </div>
-304:   )
-305: }
 ```
 
 ## File: components/disponibilidad-tabla.tsx
@@ -1365,99 +557,6 @@ x.sh
 42: }
 ```
 
-## File: lib/ocupacion-api.ts
-```typescript
- 1: import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
- 2: 
- 3: const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
- 4: 
- 5: export const ocupacionesApi = {
- 6:   getAll: async (): Promise<Ocupacion[]> => {
- 7:     const res = await fetch(`${BASE}/ocupaciones`, {
- 8:       headers: { "Content-Type": "application/json" },
- 9:       cache: "no-store",
-10:     })
-11:     if (!res.ok) throw new Error(`Error al obtener ocupaciones: ${res.status}`)
-12:     return res.json()
-13:   },
-14: 
-15:   getById: async (id: number): Promise<Ocupacion> => {
-16:     const res = await fetch(`${BASE}/ocupaciones/${id}`, {
-17:       headers: { "Content-Type": "application/json" },
-18:     })
-19:     if (!res.ok) throw new Error(`Error al obtener ocupación ${id}`)
-20:     return res.json()
-21:   },
-22: 
-23:   create: async (data: CreateOcupacionPayload): Promise<Ocupacion> => {
-24:     const res = await fetch(`${BASE}/ocupaciones`, {
-25:       method:  "POST",
-26:       headers: { "Content-Type": "application/json" },
-27:       body:    JSON.stringify(data),
-28:     })
-29:     if (!res.ok) {
-30:       const body = await res.text()
-31:       throw new Error(`Error al crear ocupación: ${body}`)
-32:     }
-33:     return res.json()
-34:   },
-35: 
-36:   liberar: async (id: number): Promise<Ocupacion> => {
-37:     const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, {
-38:       method: "PATCH",
-39:     })
-40:     if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
-41:     return res.json()
-42:   },
-43: 
-44:   delete: async (id: number): Promise<void> => {
-45:     const res = await fetch(`${BASE}/ocupaciones/${id}`, { method: "DELETE" })
-46:     if (!res.ok) throw new Error(`Error al eliminar ocupación ${id}`)
-47:   },
-48: }
-```
-
-## File: types/ocupacion.ts
-```typescript
- 1: import type { BackendArea } from "@/types/seat"
- 2: 
- 3: export interface OcupacionArea {
- 4:   ocupacionId: number
- 5:   areaId:      number
- 6:   area:        BackendArea
- 7: }
- 8: 
- 9: export interface Ocupacion {
-10:   id:               number
-11:   titulo:           string
-12:   requerimiento:    string
-13:   cantidadPersonas: number
-14:   organizador:      string
-15:   dia:              string
-16:   hora:             string
-17:   edadMin?:         number | null
-18:   edadMax?:         number | null
-19:   anexos:           string[]
-20:   liberadaAt?:      string | null
-21:   areas:            OcupacionArea[]
-22:   createdAt:        string
-23:   updatedAt:        string
-24: }
-25: 
-26: export interface CreateOcupacionPayload {
-27:   titulo:           string
-28:   requerimiento:    string
-29:   cantidadPersonas: number
-30:   organizador:      string
-31:   dia:              string
-32:   hora:             string
-33:   edadMin?:         number
-34:   edadMax?:         number
-35:   anexos?:          string[]
-36:   areaIds:          number[]
-37: }
-```
-
 ## File: .dockerignore
 ```
 1: node_modules
@@ -1623,6 +722,435 @@ x.sh
 112:     </div>
 113:   )
 114: }
+```
+
+## File: components/agendar-modal.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useCallback, useEffect } from "react"
+  4: import { ocupacionesApi } from "@/lib/ocupacion-api"
+  5: import { areasApi } from "@/lib/api"
+  6: import type { CreateOcupacionPayload } from "@/types/ocupacion"
+  7: import type { BackendArea } from "@/types/seat"
+  8: import { useToast } from "@/hooks/use-toast"
+  9: 
+ 10: import { Button }   from "@/components/ui/button"
+ 11: import { Input }    from "@/components/ui/input"
+ 12: import { Label }    from "@/components/ui/label"
+ 13: import { Textarea } from "@/components/ui/textarea"
+ 14: import { Badge }    from "@/components/ui/badge"
+ 15: import {
+ 16:   Dialog,
+ 17:   DialogContent,
+ 18:   DialogHeader,
+ 19:   DialogTitle,
+ 20:   DialogFooter,
+ 21:   DialogDescription,
+ 22: } from "@/components/ui/dialog"
+ 23: import {
+ 24:   CalendarDays,
+ 25:   Clock,
+ 26:   Users,
+ 27:   User,
+ 28:   FileText,
+ 29:   Link2,
+ 30:   Plus,
+ 31:   Trash2,
+ 32:   Loader2,
+ 33:   ChevronDown,
+ 34:   ChevronUp,
+ 35:   MapPin,
+ 36:   X,
+ 37:   CheckSquare,
+ 38: } from "lucide-react"
+ 39: 
+ 40: interface AgendarModalProps {
+ 41:   open:         boolean
+ 42:   onOpenChange: (open: boolean) => void
+ 43:   onSuccess?:   () => void
+ 44: }
+ 45: 
+ 46: const hoy = () => new Date().toISOString().split("T")[0]
+ 47: 
+ 48: const EMPTY_FORM: CreateOcupacionPayload = {
+ 49:   titulo:           "",
+ 50:   requerimiento:    "",
+ 51:   cantidadPersonas: 1,
+ 52:   organizador:      "",
+ 53:   fechaDesde:       hoy(),
+ 54:   fechaHasta:       hoy(),
+ 55:   horaDesde:        "09:00",
+ 56:   horaHasta:        "12:00",
+ 57:   edadMin:          undefined,
+ 58:   edadMax:          undefined,
+ 59:   anexos:           [],
+ 60:   areaIds:          [],
+ 61: }
+ 62: 
+ 63: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
+ 64:   const { toast } = useToast()
+ 65: 
+ 66:   const [form,       setForm]       = useState<CreateOcupacionPayload>(EMPTY_FORM)
+ 67:   const [nuevoAnexo, setNuevoAnexo] = useState("")
+ 68:   const [loading,    setLoading]    = useState(false)
+ 69:   const [showEdad,   setShowEdad]   = useState(false)
+ 70: 
+ 71:   const [areas,        setAreas]        = useState<BackendArea[]>([])
+ 72:   const [loadingAreas, setLoadingAreas] = useState(false)
+ 73: 
+ 74:   useEffect(() => {
+ 75:     if (!open) return
+ 76:     setLoadingAreas(true)
+ 77:     areasApi
+ 78:       .getAll()
+ 79:       .then((data) => setAreas(data))
+ 80:       .catch(() => toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }))
+ 81:       .finally(() => setLoadingAreas(false))
+ 82:   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+ 83: 
+ 84:   const set = useCallback(
+ 85:     <K extends keyof CreateOcupacionPayload>(key: K, val: CreateOcupacionPayload[K]) =>
+ 86:       setForm((p) => ({ ...p, [key]: val })),
+ 87:     [],
+ 88:   )
+ 89: 
+ 90:   const toggleArea = (id: number) => {
+ 91:     const ids = form.areaIds
+ 92:     set("areaIds", ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
+ 93:   }
+ 94: 
+ 95:   const agregarAnexo = () => {
+ 96:     const url = nuevoAnexo.trim()
+ 97:     if (!url) return
+ 98:     try { new URL(url) } catch {
+ 99:       toast({ variant: "destructive", title: "URL inválida", description: "Ingresá una URL con http/https" })
+100:       return
+101:     }
+102:     if ((form.anexos ?? []).includes(url)) {
+103:       toast({ variant: "destructive", title: "Duplicado", description: "Esa URL ya fue agregada" })
+104:       return
+105:     }
+106:     set("anexos", [...(form.anexos ?? []), url])
+107:     setNuevoAnexo("")
+108:   }
+109: 
+110:   const quitarAnexo = (i: number) =>
+111:     set("anexos", (form.anexos ?? []).filter((_, idx) => idx !== i))
+112: 
+113:   const resetForm = () => {
+114:     setForm({ ...EMPTY_FORM, fechaDesde: hoy(), fechaHasta: hoy() })
+115:     setNuevoAnexo("")
+116:     setShowEdad(false)
+117:   }
+118: 
+119:   const handleSubmit = async () => {
+120:     // Validaciones
+121:     if (!form.titulo.trim())        return toast({ variant: "destructive", title: "Requerido", description: "Ingresá un título" })
+122:     if (!form.requerimiento.trim()) return toast({ variant: "destructive", title: "Requerido", description: "Ingresá el requerimiento" })
+123:     if (!form.organizador.trim())   return toast({ variant: "destructive", title: "Requerido", description: "Ingresá el organizador" })
+124:     if (!form.fechaDesde)           return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná la fecha de inicio" })
+125:     if (!form.fechaHasta)           return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná la fecha de fin" })
+126:     if (!form.horaDesde)            return toast({ variant: "destructive", title: "Requerido", description: "Ingresá la hora de inicio" })
+127:     if (!form.horaHasta)            return toast({ variant: "destructive", title: "Requerido", description: "Ingresá la hora de fin" })
+128:     if (form.cantidadPersonas < 1)  return toast({ variant: "destructive", title: "Inválido",  description: "Mínimo 1 persona" })
+129:     if (form.areaIds.length === 0)  return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná al menos un área" })
+130: 
+131:     if (form.fechaDesde > form.fechaHasta) {
+132:       return toast({ variant: "destructive", title: "Fecha inválida", description: "La fecha de inicio no puede ser posterior a la de fin" })
+133:     }
+134:     if (form.fechaDesde === form.fechaHasta && form.horaDesde >= form.horaHasta) {
+135:       return toast({ variant: "destructive", title: "Hora inválida", description: "La hora de inicio debe ser anterior a la de fin" })
+136:     }
+137:     if (form.edadMin !== undefined && form.edadMax !== undefined && form.edadMin > form.edadMax) {
+138:       return toast({ variant: "destructive", title: "Rango inválido", description: "La edad mínima no puede superar la máxima" })
+139:     }
+140: 
+141:     try {
+142:       setLoading(true)
+143:       const payload: CreateOcupacionPayload = {
+144:         titulo:           form.titulo.trim(),
+145:         requerimiento:    form.requerimiento.trim(),
+146:         cantidadPersonas: Number(form.cantidadPersonas),
+147:         organizador:      form.organizador.trim(),
+148:         fechaDesde:       form.fechaDesde,
+149:         fechaHasta:       form.fechaHasta,
+150:         horaDesde:        form.horaDesde,
+151:         horaHasta:        form.horaHasta,
+152:         areaIds:          form.areaIds,
+153:         anexos:           form.anexos ?? [],
+154:         ...(form.edadMin !== undefined && { edadMin: Number(form.edadMin) }),
+155:         ...(form.edadMax !== undefined && { edadMax: Number(form.edadMax) }),
+156:       }
+157: 
+158:       await ocupacionesApi.create(payload)
+159: 
+160:       toast({
+161:         title:       "✅ Ocupación agendada",
+162:         description: `"${payload.titulo}" registrada — áreas marcadas como ocupadas`,
+163:       })
+164: 
+165:       resetForm()
+166:       onOpenChange(false)
+167:       onSuccess?.()
+168:     } catch (err) {
+169:       const raw = err instanceof Error ? err.message : "Error desconocido"
+170:       // El backend devuelve el mensaje de conflicto en el body
+171:       const msg = raw.includes("Conflicto")
+172:         ? raw.replace("Error al crear ocupación: ", "").replace(/^\{"message":"/, "").replace(/".*$/, "")
+173:         : raw
+174:       toast({ variant: "destructive", title: "Error al agendar", description: msg })
+175:     } finally {
+176:       setLoading(false)
+177:     }
+178:   }
+179: 
+180:   const handleClose = () => {
+181:     if (loading) return
+182:     resetForm()
+183:     onOpenChange(false)
+184:   }
+185: 
+186:   return (
+187:     <Dialog open={open} onOpenChange={handleClose}>
+188:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+189:         <DialogHeader>
+190:           <DialogTitle className="text-xl flex items-center gap-2">
+191:             <CalendarDays className="w-5 h-5 text-primary" />
+192:             Agendar Ocupación
+193:           </DialogTitle>
+194:           <DialogDescription>
+195:             Completá los datos y seleccioná las áreas a ocupar.
+196:           </DialogDescription>
+197:         </DialogHeader>
+198: 
+199:         <div className="space-y-5 py-2">
+200: 
+201:           {/* Título */}
+202:           <div className="space-y-1.5">
+203:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+204:               <FileText className="w-3.5 h-3.5" /> Título
+205:             </Label>
+206:             <Input
+207:               placeholder="Ej: Reunión de equipo"
+208:               value={form.titulo}
+209:               onChange={(e) => set("titulo", e.target.value)}
+210:             />
+211:           </div>
+212: 
+213:           {/* Organizador */}
+214:           <div className="space-y-1.5">
+215:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+216:               <User className="w-3.5 h-3.5" /> Organizador
+217:             </Label>
+218:             <Input
+219:               placeholder="Nombre del responsable"
+220:               value={form.organizador}
+221:               onChange={(e) => set("organizador", e.target.value)}
+222:             />
+223:           </div>
+224: 
+225:           {/* Fechas */}
+226:           <div className="grid grid-cols-2 gap-3">
+227:             <div className="space-y-1.5">
+228:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+229:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha inicio
+230:               </Label>
+231:               <Input
+232:                 type="date"
+233:                 min={hoy()}
+234:                 value={form.fechaDesde}
+235:                 onChange={(e) => {
+236:                   set("fechaDesde", e.target.value)
+237:                   if (e.target.value > form.fechaHasta) set("fechaHasta", e.target.value)
+238:                 }}
+239:               />
+240:             </div>
+241:             <div className="space-y-1.5">
+242:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+243:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha fin
+244:               </Label>
+245:               <Input
+246:                 type="date"
+247:                 min={form.fechaDesde || hoy()}
+248:                 value={form.fechaHasta}
+249:                 onChange={(e) => set("fechaHasta", e.target.value)}
+250:               />
+251:             </div>
+252:           </div>
+253: 
+254:           {/* Horarios */}
+255:           <div className="grid grid-cols-2 gap-3">
+256:             <div className="space-y-1.5">
+257:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+258:                 <Clock className="w-3.5 h-3.5" /> Hora inicio
+259:               </Label>
+260:               <Input
+261:                 type="time"
+262:                 value={form.horaDesde}
+263:                 onChange={(e) => set("horaDesde", e.target.value)}
+264:               />
+265:             </div>
+266:             <div className="space-y-1.5">
+267:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+268:                 <Clock className="w-3.5 h-3.5" /> Hora fin
+269:               </Label>
+270:               <Input
+271:                 type="time"
+272:                 value={form.horaHasta}
+273:                 onChange={(e) => set("horaHasta", e.target.value)}
+274:               />
+275:             </div>
+276:           </div>
+277: 
+278:           {/* Personas */}
+279:           <div className="space-y-1.5">
+280:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+281:               <Users className="w-3.5 h-3.5" /> Cantidad de personas
+282:             </Label>
+283:             <Input
+284:               type="number"
+285:               min={1}
+286:               value={form.cantidadPersonas}
+287:               onChange={(e) => set("cantidadPersonas", Number(e.target.value))}
+288:             />
+289:           </div>
+290: 
+291:           {/* Requerimiento */}
+292:           <div className="space-y-1.5">
+293:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+294:               <FileText className="w-3.5 h-3.5" /> Requerimientos
+295:             </Label>
+296:             <Textarea
+297:               placeholder="Descripción o necesidades especiales"
+298:               rows={3}
+299:               value={form.requerimiento}
+300:               onChange={(e) => set("requerimiento", e.target.value)}
+301:             />
+302:           </div>
+303: 
+304:           {/* Áreas */}
+305:           <div className="space-y-2">
+306:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+307:               <MapPin className="w-3.5 h-3.5" /> Áreas a ocupar
+308:             </Label>
+309:             {loadingAreas ? (
+310:               <div className="flex items-center gap-2 py-3 text-muted-foreground">
+311:                 <Loader2 className="w-4 h-4 animate-spin" />
+312:                 <span className="text-sm">Cargando áreas...</span>
+313:               </div>
+314:             ) : (
+315:               <div className="flex flex-wrap gap-2">
+316:                 {areas.map((area) => {
+317:                   const sel = form.areaIds.includes(area.id)
+318:                   return (
+319:                     <button
+320:                       key={area.id}
+321:                       type="button"
+322:                       onClick={() => toggleArea(area.id)}
+323:                       className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+324:                         sel
+325:                           ? "bg-primary text-primary-foreground border-primary"
+326:                           : area.estado === "OCUPADO"
+327:                             ? "bg-red-50 text-red-500 border-red-200 opacity-60 cursor-not-allowed"
+328:                             : "bg-muted/40 hover:bg-muted border-border"
+329:                       }`}
+330:                       disabled={area.estado === "OCUPADO" && !sel}
+331:                     >
+332:                       {sel && <CheckSquare className="w-3.5 h-3.5" />}
+333:                       <span>{area.nombre}</span>
+334:                       {area.estado === "OCUPADO" && !sel && (
+335:                         <Badge variant="destructive" className="text-[10px] px-1 py-0 ml-1">Ocupada</Badge>
+336:                       )}
+337:                     </button>
+338:                   )
+339:                 })}
+340:               </div>
+341:             )}
+342:           </div>
+343: 
+344:           {/* Edad opcional */}
+345:           <div className="border rounded-lg overflow-hidden">
+346:             <button
+347:               type="button"
+348:               onClick={() => setShowEdad(!showEdad)}
+349:               className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-muted/40 transition-colors"
+350:             >
+351:               <span>Rango de edad (opcional)</span>
+352:               {showEdad ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+353:             </button>
+354:             {showEdad && (
+355:               <div className="grid grid-cols-2 gap-3 px-4 pb-4 pt-2 border-t">
+356:                 <div className="space-y-1.5">
+357:                   <Label className="text-xs">Edad mínima</Label>
+358:                   <Input
+359:                     type="number"
+360:                     min={0}
+361:                     max={120}
+362:                     placeholder="0"
+363:                     value={form.edadMin ?? ""}
+364:                     onChange={(e) => set("edadMin", e.target.value ? Number(e.target.value) : undefined)}
+365:                   />
+366:                 </div>
+367:                 <div className="space-y-1.5">
+368:                   <Label className="text-xs">Edad máxima</Label>
+369:                   <Input
+370:                     type="number"
+371:                     min={0}
+372:                     max={120}
+373:                     placeholder="120"
+374:                     value={form.edadMax ?? ""}
+375:                     onChange={(e) => set("edadMax", e.target.value ? Number(e.target.value) : undefined)}
+376:                   />
+377:                 </div>
+378:               </div>
+379:             )}
+380:           </div>
+381: 
+382:           {/* Anexos */}
+383:           <div className="space-y-2">
+384:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+385:               <Link2 className="w-3.5 h-3.5" /> Anexos (URLs, opcional)
+386:             </Label>
+387:             <div className="flex gap-2">
+388:               <Input
+389:                 placeholder="https://..."
+390:                 value={nuevoAnexo}
+391:                 onChange={(e) => setNuevoAnexo(e.target.value)}
+392:                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarAnexo())}
+393:               />
+394:               <Button type="button" variant="outline" size="icon" onClick={agregarAnexo}>
+395:                 <Plus className="w-4 h-4" />
+396:               </Button>
+397:             </div>
+398:             {(form.anexos ?? []).length > 0 && (
+399:               <div className="space-y-1.5">
+400:                 {(form.anexos ?? []).map((url, i) => (
+401:                   <div key={i} className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+402:                     <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+403:                     <span className="text-xs truncate flex-1">{url}</span>
+404:                     <button type="button" onClick={() => quitarAnexo(i)}>
+405:                       <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+406:                     </button>
+407:                   </div>
+408:                 ))}
+409:               </div>
+410:             )}
+411:           </div>
+412:         </div>
+413: 
+414:         <DialogFooter className="gap-2 pt-2">
+415:           <Button variant="outline" onClick={handleClose} disabled={loading}>
+416:             Cancelar
+417:           </Button>
+418:           <Button onClick={handleSubmit} disabled={loading}>
+419:             {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Agendando...</> : "Agendar"}
+420:           </Button>
+421:         </DialogFooter>
+422:       </DialogContent>
+423:     </Dialog>
+424:   )
+425: }
 ```
 
 ## File: components/cors-info-banner.tsx
@@ -1917,6 +1445,252 @@ x.sh
 246:     </Dialog>
 247:   )
 248: }
+```
+
+## File: components/disponibilidad-inline.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect, useCallback } from "react"
+  4: import { ocupacionesApi } from "@/lib/ocupacion-api"
+  5: import type { Ocupacion } from "@/types/ocupacion"
+  6: import { useToast } from "@/hooks/use-toast"
+  7: import { Button } from "@/components/ui/button"
+  8: import { Badge }  from "@/components/ui/badge"
+  9: import {
+ 10:   Loader2,
+ 11:   MapPin,
+ 12:   Clock,
+ 13:   Users,
+ 14:   Unlock,
+ 15:   RefreshCw,
+ 16:   Inbox,
+ 17:   Link2,
+ 18:   ChevronDown,
+ 19:   ChevronUp,
+ 20:   CalendarDays,
+ 21: } from "lucide-react"
+ 22: import { cn } from "@/lib/utils"
+ 23: 
+ 24: interface DisponibilidadInlineProps {
+ 25:   onSuccess?: () => void
+ 26: }
+ 27: 
+ 28: function formatFecha(iso: string): string {
+ 29:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+ 30:   return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
+ 31:     weekday: "short", day: "numeric", month: "short",
+ 32:   })
+ 33: }
+ 34: 
+ 35: function esHoy(iso: string): boolean {
+ 36:   const hoy = new Date()
+ 37:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+ 38:   const f = new Date(y, m - 1, d)
+ 39:   return f.getDate() === hoy.getDate() && f.getMonth() === hoy.getMonth() && f.getFullYear() === hoy.getFullYear()
+ 40: }
+ 41: 
+ 42: export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
+ 43:   const { toast } = useToast()
+ 44:   const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
+ 45:   const [loading,     setLoading]     = useState(false)
+ 46:   const [liberando,   setLiberando]   = useState<number | null>(null)
+ 47:   const [expandedId,  setExpandedId]  = useState<number | null>(null)
+ 48: 
+ 49:   const cargar = useCallback(async (silencioso = false) => {
+ 50:     if (!silencioso) setLoading(true)
+ 51:     try {
+ 52:       // Usa el endpoint /activas — solo las vigentes desde hoy
+ 53:       const data = await ocupacionesApi.getActivas()
+ 54:       setOcupaciones(data)
+ 55:     } catch {
+ 56:       if (!silencioso) toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
+ 57:     } finally {
+ 58:       if (!silencioso) setLoading(false)
+ 59:     }
+ 60:   }, [toast])
+ 61: 
+ 62:   useEffect(() => { cargar() }, [cargar])
+ 63: 
+ 64:   const liberar = async (oc: Ocupacion) => {
+ 65:     setLiberando(oc.id)
+ 66:     try {
+ 67:       await ocupacionesApi.liberar(oc.id)
+ 68:       toast({ title: "✅ Zonas liberadas", description: `"${oc.titulo}" finalizada` })
+ 69:       await cargar(true)
+ 70:       onSuccess?.()
+ 71:     } catch (err) {
+ 72:       toast({ variant: "destructive", title: "Error", description: err instanceof Error ? err.message : "Error" })
+ 73:     } finally {
+ 74:       setLiberando(null)
+ 75:     }
+ 76:   }
+ 77: 
+ 78:   const toggleExpand = (id: number) => setExpandedId(expandedId === id ? null : id)
+ 79: 
+ 80:   if (loading) {
+ 81:     return (
+ 82:       <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+ 83:         <Loader2 className="w-5 h-5 animate-spin" />
+ 84:         <span className="text-sm">Cargando ocupaciones...</span>
+ 85:       </div>
+ 86:     )
+ 87:   }
+ 88: 
+ 89:   if (ocupaciones.length === 0) {
+ 90:     return (
+ 91:       <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+ 92:         <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center">
+ 93:           <Inbox className="w-7 h-7 opacity-50" />
+ 94:         </div>
+ 95:         <div className="text-center">
+ 96:           <p className="text-sm font-medium">Sin ocupaciones activas</p>
+ 97:           <p className="text-xs opacity-60 mt-0.5">Todas las áreas están disponibles</p>
+ 98:         </div>
+ 99:         <Button variant="ghost" size="sm" onClick={() => cargar()} className="gap-1.5 text-xs">
+100:           <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+101:         </Button>
+102:       </div>
+103:     )
+104:   }
+105: 
+106:   return (
+107:     <div className="space-y-4">
+108:       {/* Cabecera */}
+109:       <div className="flex items-center justify-between">
+110:         <div>
+111:           <span className="text-sm font-semibold text-foreground">
+112:             {ocupaciones.length} ocupación{ocupaciones.length !== 1 ? "es" : ""} activa{ocupaciones.length !== 1 ? "s" : ""}
+113:           </span>
+114:           <span className="text-xs text-muted-foreground ml-2">
+115:             · {ocupaciones.reduce((a, o) => a + o.areas.length, 0)} zona{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""} ocupada{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""}
+116:           </span>
+117:         </div>
+118:         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cargar()}>
+119:           <RefreshCw className="w-3.5 h-3.5" />
+120:         </Button>
+121:       </div>
+122: 
+123:       {/* Cards */}
+124:       <div className="space-y-3">
+125:         {ocupaciones.map((oc) => {
+126:           const hoy      = esHoy(oc.fechaDesde)
+127:           const multidia = oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0]
+128:           const expanded = expandedId === oc.id
+129: 
+130:           return (
+131:             <div
+132:               key={oc.id}
+133:               className={cn(
+134:                 "rounded-xl border border-l-4 border-l-primary bg-white shadow-sm overflow-hidden",
+135:                 hoy && "ring-1 ring-primary/20",
+136:               )}
+137:             >
+138:               {/* Header clickeable */}
+139:               <button
+140:                 type="button"
+141:                 onClick={() => toggleExpand(oc.id)}
+142:                 className="w-full flex items-start justify-between gap-3 px-4 py-3 hover:bg-muted/20 transition-colors text-left"
+143:               >
+144:                 <div className="min-w-0 space-y-1">
+145:                   <div className="flex items-center gap-2 flex-wrap">
+146:                     <p className="text-sm font-semibold text-foreground">{oc.titulo}</p>
+147:                     {hoy && (
+148:                       <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+149:                         Hoy
+150:                       </span>
+151:                     )}
+152:                   </div>
+153:                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+154:                     <span className="flex items-center gap-1">
+155:                       <CalendarDays className="w-3 h-3" />
+156:                       {formatFecha(oc.fechaDesde)}
+157:                       {multidia && <> → {formatFecha(oc.fechaHasta)}</>}
+158:                     </span>
+159:                     <span className="flex items-center gap-1 tabular-nums">
+160:                       <Clock className="w-3 h-3" />
+161:                       {oc.horaDesde} – {oc.horaHasta}
+162:                     </span>
+163:                     <span className="flex items-center gap-1">
+164:                       <Users className="w-3 h-3" />
+165:                       {oc.cantidadPersonas} personas
+166:                     </span>
+167:                   </div>
+168:                 </div>
+169:                 {expanded ? <ChevronUp className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground" />}
+170:               </button>
+171: 
+172:               {/* Detalle expandible */}
+173:               {expanded && (
+174:                 <div className="border-t px-4 py-3 space-y-3 bg-muted/10">
+175:                   {/* Organizador */}
+176:                   <div className="flex items-center gap-2 text-xs">
+177:                     <Users className="w-3.5 h-3.5 text-muted-foreground" />
+178:                     <span className="text-muted-foreground">Organizador:</span>
+179:                     <span className="font-medium text-foreground">{oc.organizador}</span>
+180:                   </div>
+181: 
+182:                   {/* Áreas */}
+183:                   <div className="space-y-1">
+184:                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+185:                       <MapPin className="w-3.5 h-3.5" /> Áreas ocupadas:
+186:                     </div>
+187:                     <div className="flex flex-wrap gap-1.5">
+188:                       {oc.areas.length > 0
+189:                         ? oc.areas.map((r) => (
+190:                             <Badge key={r.areaId} variant="secondary" className="text-xs">
+191:                               {r.area.nombre}
+192:                             </Badge>
+193:                           ))
+194:                         : <span className="text-xs text-muted-foreground">Sin zonas</span>
+195:                       }
+196:                     </div>
+197:                   </div>
+198: 
+199:                   {/* Requerimiento */}
+200:                   {oc.requerimiento && (
+201:                     <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
+202:                   )}
+203: 
+204:                   {/* Anexos */}
+205:                   {oc.anexos?.length > 0 && (
+206:                     <div className="space-y-1">
+207:                       <p className="text-xs text-muted-foreground flex items-center gap-1">
+208:                         <Link2 className="w-3 h-3" /> Anexos:
+209:                       </p>
+210:                       {oc.anexos.map((url, i) => (
+211:                         <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+212:                           className="text-xs text-primary underline truncate block">
+213:                           {url}
+214:                         </a>
+215:                       ))}
+216:                     </div>
+217:                   )}
+218: 
+219:                   {/* Acción liberar */}
+220:                   <div className="pt-1">
+221:                     <Button
+222:                       size="sm"
+223:                       variant="outline"
+224:                       className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
+225:                       onClick={() => liberar(oc)}
+226:                       disabled={liberando === oc.id}
+227:                     >
+228:                       {liberando === oc.id
+229:                         ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
+230:                         : <><Unlock className="w-3 h-3" /> Liberar áreas</>
+231:                       }
+232:                     </Button>
+233:                   </div>
+234:                 </div>
+235:               )}
+236:             </div>
+237:           )
+238:         })}
+239:       </div>
+240:     </div>
+241:   )
+242: }
 ```
 
 ## File: components/theme-provider.tsx
@@ -2351,6 +2125,66 @@ x.sh
 191: export { useToast, toast }
 ```
 
+## File: lib/ocupacion-api.ts
+```typescript
+ 1: import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
+ 2: 
+ 3: const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+ 4: 
+ 5: export const ocupacionesApi = {
+ 6:   getAll: async (): Promise<Ocupacion[]> => {
+ 7:     const res = await fetch(`${BASE}/ocupaciones`, {
+ 8:       headers: { "Content-Type": "application/json" },
+ 9:       cache: "no-store",
+10:     })
+11:     if (!res.ok) throw new Error(`Error al obtener ocupaciones: ${res.status}`)
+12:     return res.json()
+13:   },
+14: 
+15:   // Solo activas desde hoy (usa el nuevo endpoint del backend)
+16:   getActivas: async (): Promise<Ocupacion[]> => {
+17:     const res = await fetch(`${BASE}/ocupaciones/activas`, {
+18:       headers: { "Content-Type": "application/json" },
+19:       cache: "no-store",
+20:     })
+21:     if (!res.ok) throw new Error(`Error al obtener ocupaciones activas: ${res.status}`)
+22:     return res.json()
+23:   },
+24: 
+25:   getById: async (id: number): Promise<Ocupacion> => {
+26:     const res = await fetch(`${BASE}/ocupaciones/${id}`, {
+27:       headers: { "Content-Type": "application/json" },
+28:     })
+29:     if (!res.ok) throw new Error(`Error al obtener ocupación ${id}`)
+30:     return res.json()
+31:   },
+32: 
+33:   create: async (data: CreateOcupacionPayload): Promise<Ocupacion> => {
+34:     const res = await fetch(`${BASE}/ocupaciones`, {
+35:       method:  "POST",
+36:       headers: { "Content-Type": "application/json" },
+37:       body:    JSON.stringify(data),
+38:     })
+39:     if (!res.ok) {
+40:       const body = await res.text()
+41:       throw new Error(`Error al crear ocupación: ${body}`)
+42:     }
+43:     return res.json()
+44:   },
+45: 
+46:   liberar: async (id: number): Promise<Ocupacion> => {
+47:     const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, { method: "PATCH" })
+48:     if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
+49:     return res.json()
+50:   },
+51: 
+52:   delete: async (id: number): Promise<void> => {
+53:     const res = await fetch(`${BASE}/ocupaciones/${id}`, { method: "DELETE" })
+54:     if (!res.ok) throw new Error(`Error al eliminar ocupación ${id}`)
+55:   },
+56: }
+```
+
 ## File: lib/utils.ts
 ```typescript
 1: import { clsx, type ClassValue } from 'clsx'
@@ -2490,6 +2324,52 @@ x.sh
 125: }
 ```
 
+## File: types/ocupacion.ts
+```typescript
+ 1: import type { BackendArea } from "@/types/seat"
+ 2: 
+ 3: export interface OcupacionArea {
+ 4:   ocupacionId: number
+ 5:   areaId:      number
+ 6:   area:        BackendArea
+ 7: }
+ 8: 
+ 9: export interface Ocupacion {
+10:   id:               number
+11:   titulo:           string
+12:   requerimiento:    string
+13:   cantidadPersonas: number
+14:   organizador:      string
+15:   // Nuevos campos — reemplaza dia + hora
+16:   fechaDesde:       string   // ISO: "2026-08-25T00:00:00.000Z"
+17:   fechaHasta:       string   // ISO: "2026-08-25T23:59:59.000Z"
+18:   horaDesde:        string   // "HH:mm"
+19:   horaHasta:        string   // "HH:mm"
+20:   edadMin?:         number | null
+21:   edadMax?:         number | null
+22:   anexos:           string[]
+23:   liberadaAt?:      string | null
+24:   areas:            OcupacionArea[]
+25:   createdAt:        string
+26:   updatedAt:        string
+27: }
+28: 
+29: export interface CreateOcupacionPayload {
+30:   titulo:           string
+31:   requerimiento:    string
+32:   cantidadPersonas: number
+33:   organizador:      string
+34:   fechaDesde:       string   // "YYYY-MM-DD"
+35:   fechaHasta:       string   // "YYYY-MM-DD"
+36:   horaDesde:        string   // "HH:mm"
+37:   horaHasta:        string   // "HH:mm"
+38:   edadMin?:         number
+39:   edadMax?:         number
+40:   anexos?:          string[]
+41:   areaIds:          number[]
+42: }
+```
+
 ## File: .gitignore
 ```
  1: # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
@@ -2615,6 +2495,432 @@ x.sh
 78:     </Card>
 79:   )
 80: }
+```
+
+## File: components/calendario-coworking.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect, useCallback } from "react"
+  4: import { Button } from "@/components/ui/button"
+  5: import { Badge }  from "@/components/ui/badge"
+  6: import {
+  7:   Loader2,
+  8:   RefreshCw,
+  9:   Inbox,
+ 10:   CalendarDays,
+ 11:   Clock,
+ 12:   Users,
+ 13:   ChevronLeft,
+ 14:   ChevronRight,
+ 15:   Building2,
+ 16: } from "lucide-react"
+ 17: import { cn } from "@/lib/utils"
+ 18: 
+ 19: // ── Tipos ─────────────────────────────────────────────────────────────────────
+ 20: 
+ 21: type TipoEvento =
+ 22:   | "PENDIENTE"
+ 23:   | "EN_CURSO"
+ 24:   | "FINALIZADO"
+ 25:   | "CANCELADO"
+ 26:   | "MASIVO"
+ 27:   | "ESCOLAR"
+ 28: 
+ 29: interface Evento {
+ 30:   id:                      string
+ 31:   titulo:                  string
+ 32:   descripcion?:            string
+ 33:   informacion?:            string
+ 34:   fechaDesde:              string
+ 35:   fechaHasta:              string
+ 36:   horaDesde:               string
+ 37:   horaHasta:               string
+ 38:   tipoEvento:              TipoEvento
+ 39:   areas?:                  string[]
+ 40:   organizadorSolicitante?: string
+ 41:   convocatoria?:           number
+ 42: }
+ 43: 
+ 44: interface CalendarResponse {
+ 45:   events:      Evento[]
+ 46:   totalEvents: number
+ 47: }
+ 48: 
+ 49: // ── Constantes ────────────────────────────────────────────────────────────────
+ 50: 
+ 51: const POR_PAGINA = 5
+ 52: 
+ 53: const EVENTOS_API =
+ 54:   process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? "https://localhost:3000/api"
+ 55: 
+ 56: const TIPO_LABELS: Record<TipoEvento, string> = {
+ 57:   PENDIENTE:  "Pendiente",
+ 58:   EN_CURSO:   "En curso",
+ 59:   FINALIZADO: "Finalizado",
+ 60:   CANCELADO:  "Cancelado",
+ 61:   MASIVO:     "Masivo",
+ 62:   ESCOLAR:    "Escolar",
+ 63: }
+ 64: 
+ 65: const TIPO_STYLES: Record<TipoEvento, string> = {
+ 66:   PENDIENTE:  "bg-amber-50  text-amber-700  border-amber-200  ring-amber-100",
+ 67:   EN_CURSO:   "bg-blue-50   text-blue-700   border-blue-200   ring-blue-100",
+ 68:   FINALIZADO: "bg-emerald-50 text-emerald-700 border-emerald-200 ring-emerald-100",
+ 69:   CANCELADO:  "bg-red-50    text-red-700    border-red-200    ring-red-100",
+ 70:   MASIVO:     "bg-purple-50 text-purple-700 border-purple-200 ring-purple-100",
+ 71:   ESCOLAR:    "bg-pink-50   text-pink-700   border-pink-200   ring-pink-100",
+ 72: }
+ 73: 
+ 74: const TIPO_DOT: Record<TipoEvento, string> = {
+ 75:   PENDIENTE:  "bg-amber-400",
+ 76:   EN_CURSO:   "bg-blue-500",
+ 77:   FINALIZADO: "bg-emerald-500",
+ 78:   CANCELADO:  "bg-red-500",
+ 79:   MASIVO:     "bg-purple-500",
+ 80:   ESCOLAR:    "bg-pink-500",
+ 81: }
+ 82: 
+ 83: const TIPO_BORDER: Record<TipoEvento, string> = {
+ 84:   PENDIENTE:  "border-l-amber-400",
+ 85:   EN_CURSO:   "border-l-blue-500",
+ 86:   FINALIZADO: "border-l-emerald-500",
+ 87:   CANCELADO:  "border-l-red-500",
+ 88:   MASIVO:     "border-l-purple-500",
+ 89:   ESCOLAR:    "border-l-pink-500",
+ 90: }
+ 91: 
+ 92: // ── Helpers ───────────────────────────────────────────────────────────────────
+ 93: 
+ 94: function mesLabel(year: number, month: number): string {
+ 95:   return new Date(year, month - 1, 1).toLocaleDateString("es-AR", {
+ 96:     month: "long",
+ 97:     year:  "numeric",
+ 98:   })
+ 99: }
+100: 
+101: function formatFechaLarga(iso: string): string {
+102:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+103:   return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
+104:     weekday: "short",
+105:     day:     "numeric",
+106:     month:   "short",
+107:   })
+108: }
+109: 
+110: function esHoyOFuturo(iso: string): boolean {
+111:   const hoy = new Date()
+112:   hoy.setHours(0, 0, 0, 0)
+113:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+114:   return new Date(y, m - 1, d) >= hoy
+115: }
+116: 
+117: function esHoy(iso: string): boolean {
+118:   const hoy = new Date()
+119:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+120:   const fecha = new Date(y, m - 1, d)
+121:   return (
+122:     fecha.getDate()     === hoy.getDate()     &&
+123:     fecha.getMonth()    === hoy.getMonth()    &&
+124:     fecha.getFullYear() === hoy.getFullYear()
+125:   )
+126: }
+127: 
+128: // ── Componente ────────────────────────────────────────────────────────────────
+129: 
+130: export function CalendarioCoworking() {
+131:   const now = new Date()
+132:   const [year,    setYear]    = useState(now.getFullYear())
+133:   const [month,   setMonth]   = useState(now.getMonth() + 1)
+134:   const [todos,   setTodos]   = useState<Evento[]>([])
+135:   const [loading, setLoading] = useState(false)
+136:   const [error,   setError]   = useState<string | null>(null)
+137:   const [pagina,  setPagina]  = useState(1)
+138: 
+139:   // ── Fetch ──────────────────────────────────────────────────────────────────
+140:   const fetchEventos = useCallback(async () => {
+141:     setLoading(true)
+142:     setError(null)
+143:     setPagina(1)
+144:     try {
+145:       const url = `${EVENTOS_API}/calendar?year=${year}&month=${month}`
+146:       const res = await fetch(url, { cache: "no-store" })
+147:       if (!res.ok) throw new Error(`Error ${res.status}`)
+148:       const data: CalendarResponse = await res.json()
+149: 
+150:       // Filtrar COWORKING + desde hoy en adelante (por fechaHasta para incluir eventos que terminan hoy)
+151:       const filtrados = (data.events ?? []).filter(
+152:         (e) =>
+153:           Array.isArray(e.areas) &&
+154:           e.areas.includes("COWORKING") &&
+155:           esHoyOFuturo(e.fechaDesde),
+156:       )
+157: 
+158:       // Ordenar por fecha ascendente
+159:       filtrados.sort((a, b) =>
+160:         a.fechaDesde.localeCompare(b.fechaDesde) ||
+161:         a.horaDesde.localeCompare(b.horaDesde),
+162:       )
+163: 
+164:       setTodos(filtrados)
+165:     } catch (err) {
+166:       console.error("[CalendarioCoworking]", err)
+167:       setError("No se pudieron cargar los eventos.")
+168:       setTodos([])
+169:     } finally {
+170:       setLoading(false)
+171:     }
+172:   }, [year, month])
+173: 
+174:   useEffect(() => { void fetchEventos() }, [fetchEventos])
+175: 
+176:   // ── Navegación mes ─────────────────────────────────────────────────────────
+177:   const prevMes = () => {
+178:     setPagina(1)
+179:     if (month === 1) { setYear((y) => y - 1); setMonth(12) }
+180:     else             { setMonth((m) => m - 1) }
+181:   }
+182:   const nextMes = () => {
+183:     setPagina(1)
+184:     if (month === 12) { setYear((y) => y + 1); setMonth(1) }
+185:     else              { setMonth((m) => m + 1) }
+186:   }
+187: 
+188:   // ── Paginado ───────────────────────────────────────────────────────────────
+189:   const totalPaginas = Math.ceil(todos.length / POR_PAGINA)
+190:   const eventos      = todos.slice((pagina - 1) * POR_PAGINA, pagina * POR_PAGINA)
+191: 
+192:   // ── Render ─────────────────────────────────────────────────────────────────
+193:   return (
+194:     <div className="space-y-5">
+195: 
+196:       {/* ── Cabecera ─────────────────────────────────────────────── */}
+197:       <div className="flex items-center justify-between gap-2">
+198:         <div className="flex items-center gap-2.5">
+199:           <div className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0">
+200:             <Building2 className="w-4 h-4 text-teal-600" />
+201:           </div>
+202:           <div>
+203:             <h3 className="text-sm font-semibold text-foreground leading-tight capitalize">
+204:               {mesLabel(year, month)}
+205:             </h3>
+206:             <p className="text-[10px] text-muted-foreground">Área Coworking · desde hoy</p>
+207:           </div>
+208:         </div>
+209: 
+210:         <div className="flex items-center gap-1">
+211:           <Button
+212:             variant="ghost" size="icon" className="h-8 w-8"
+213:             onClick={prevMes} disabled={loading} aria-label="Mes anterior"
+214:           >
+215:             <ChevronLeft className="w-4 h-4" />
+216:           </Button>
+217:           <Button
+218:             variant="ghost" size="icon" className="h-8 w-8"
+219:             onClick={nextMes} disabled={loading} aria-label="Mes siguiente"
+220:           >
+221:             <ChevronRight className="w-4 h-4" />
+222:           </Button>
+223:           <Button
+224:             variant="ghost" size="icon" className="h-8 w-8"
+225:             onClick={fetchEventos} disabled={loading} aria-label="Actualizar"
+226:           >
+227:             {loading
+228:               ? <Loader2 className="w-4 h-4 animate-spin" />
+229:               : <RefreshCw className="w-4 h-4" />
+230:             }
+231:           </Button>
+232:         </div>
+233:       </div>
+234: 
+235:       {/* ── Error ────────────────────────────────────────────────── */}
+236:       {error && (
+237:         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+238:           {error}
+239:         </div>
+240:       )}
+241: 
+242:       {/* ── Loading ───────────────────────────────────────────────── */}
+243:       {loading && (
+244:         <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+245:           <Loader2 className="w-7 h-7 animate-spin text-primary" />
+246:           <p className="text-sm">Cargando eventos...</p>
+247:         </div>
+248:       )}
+249: 
+250:       {/* ── Sin eventos ───────────────────────────────────────────── */}
+251:       {!loading && !error && todos.length === 0 && (
+252:         <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+253:           <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center">
+254:             <Inbox className="w-7 h-7 opacity-50" />
+255:           </div>
+256:           <div className="text-center">
+257:             <p className="text-sm font-medium">Sin eventos próximos</p>
+258:             <p className="text-xs opacity-60 mt-0.5">No hay eventos de Coworking desde hoy en este mes</p>
+259:           </div>
+260:         </div>
+261:       )}
+262: 
+263:       {/* ── Cards de eventos ──────────────────────────────────────── */}
+264:       {!loading && eventos.length > 0 && (
+265:         <div className="space-y-3">
+266:           {eventos.map((evento) => {
+267:             const hoy      = esHoy(evento.fechaDesde)
+268:             const multidia = evento.fechaDesde.split("T")[0] !== evento.fechaHasta.split("T")[0]
+269: 
+270:             return (
+271:               <div
+272:                 key={evento.id}
+273:                 className={cn(
+274:                   "rounded-xl border border-l-4 bg-white shadow-sm p-4 space-y-3 transition-shadow hover:shadow-md",
+275:                   TIPO_BORDER[evento.tipoEvento],
+276:                   hoy && "ring-1 ring-primary/20",
+277:                 )}
+278:               >
+279:                 {/* Fila 1: título + badge estado */}
+280:                 <div className="flex items-start justify-between gap-3">
+281:                   <div className="flex items-start gap-2.5 min-w-0">
+282:                     <div className={cn("mt-1.5 w-2 h-2 rounded-full flex-shrink-0", TIPO_DOT[evento.tipoEvento])} />
+283:                     <div className="min-w-0">
+284:                       <p className="text-sm font-semibold text-foreground leading-snug">
+285:                         {evento.titulo}
+286:                         {hoy && (
+287:                           <span className="ml-2 inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+288:                             Hoy
+289:                           </span>
+290:                         )}
+291:                       </p>
+292:                       {evento.descripcion && (
+293:                         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+294:                           {evento.descripcion}
+295:                         </p>
+296:                       )}
+297:                     </div>
+298:                   </div>
+299: 
+300:                   <span className={cn(
+301:                     "flex-shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
+302:                     TIPO_STYLES[evento.tipoEvento],
+303:                   )}>
+304:                     {TIPO_LABELS[evento.tipoEvento]}
+305:                   </span>
+306:                 </div>
+307: 
+308:                 {/* Fila 2: fecha, horario, organizador, convocatoria */}
+309:                 <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+310:                   {/* Fecha */}
+311:                   <div className="flex items-center gap-2">
+312:                     <CalendarDays className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+313:                     <div className="min-w-0">
+314:                       <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Fecha</p>
+315:                       <p className="text-xs font-medium text-foreground capitalize">
+316:                         {formatFechaLarga(evento.fechaDesde)}
+317:                         {multidia && (
+318:                           <span className="text-muted-foreground font-normal">
+319:                             {" → "}{formatFechaLarga(evento.fechaHasta)}
+320:                           </span>
+321:                         )}
+322:                       </p>
+323:                     </div>
+324:                   </div>
+325: 
+326:                   {/* Horario */}
+327:                   <div className="flex items-center gap-2">
+328:                     <Clock className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+329:                     <div>
+330:                       <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Horario</p>
+331:                       <p className="text-xs font-medium text-foreground tabular-nums">
+332:                         {evento.horaDesde} – {evento.horaHasta}
+333:                       </p>
+334:                     </div>
+335:                   </div>
+336: 
+337:                   {/* Organizador */}
+338:                   {evento.organizadorSolicitante && (
+339:                     <div className="flex items-center gap-2 col-span-2">
+340:                       <Users className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+341:                       <div className="min-w-0">
+342:                         <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Organizador</p>
+343:                         <p className="text-xs text-foreground truncate">{evento.organizadorSolicitante}</p>
+344:                       </div>
+345:                     </div>
+346:                   )}
+347: 
+348:                   {/* Convocatoria */}
+349:                   {evento.convocatoria != null && (
+350:                     <div className="flex items-center gap-2">
+351:                       <Users className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+352:                       <div>
+353:                         <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Convocatoria</p>
+354:                         <p className="text-xs font-medium text-foreground tabular-nums">
+355:                           {evento.convocatoria} personas
+356:                         </p>
+357:                       </div>
+358:                     </div>
+359:                   )}
+360:                 </div>
+361:               </div>
+362:             )
+363:           })}
+364:         </div>
+365:       )}
+366: 
+367:       {/* ── Paginado ──────────────────────────────────────────────── */}
+368:       {!loading && totalPaginas > 1 && (
+369:         <div className="flex items-center justify-between pt-1">
+370:           <p className="text-xs text-muted-foreground">
+371:             {((pagina - 1) * POR_PAGINA) + 1}–{Math.min(pagina * POR_PAGINA, todos.length)} de {todos.length} eventos
+372:           </p>
+373:           <div className="flex items-center gap-1">
+374:             <Button
+375:               variant="outline"
+376:               size="icon"
+377:               className="h-7 w-7"
+378:               onClick={() => setPagina((p) => Math.max(1, p - 1))}
+379:               disabled={pagina === 1}
+380:               aria-label="Página anterior"
+381:             >
+382:               <ChevronLeft className="w-3.5 h-3.5" />
+383:             </Button>
+384: 
+385:             {/* Números de página */}
+386:             {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
+387:               <Button
+388:                 key={n}
+389:                 variant={n === pagina ? "default" : "outline"}
+390:                 size="icon"
+391:                 className="h-7 w-7 text-xs"
+392:                 onClick={() => setPagina(n)}
+393:                 aria-label={`Página ${n}`}
+394:               >
+395:                 {n}
+396:               </Button>
+397:             ))}
+398: 
+399:             <Button
+400:               variant="outline"
+401:               size="icon"
+402:               className="h-7 w-7"
+403:               onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+404:               disabled={pagina === totalPaginas}
+405:               aria-label="Página siguiente"
+406:             >
+407:               <ChevronRight className="w-3.5 h-3.5" />
+408:             </Button>
+409:           </div>
+410:         </div>
+411:       )}
+412: 
+413:       {/* ── Footer contador ───────────────────────────────────────── */}
+414:       {!loading && todos.length > 0 && totalPaginas <= 1 && (
+415:         <p className="text-[10px] text-muted-foreground text-right pt-1">
+416:           {todos.length} evento{todos.length !== 1 ? "s" : ""} en Coworking este mes
+417:         </p>
+418:       )}
+419: 
+420:     </div>
+421:   )
+422: }
 ```
 
 ## File: components/display-seat-grid.tsx
@@ -4514,327 +4820,6 @@ x.sh
 87: }
 ```
 
-## File: app/page.tsx
-```typescript
-  1: "use client"
-  2: 
-  3: import { useState, useEffect } from "react"
-  4: import { useRouter } from "next/navigation"
-  5: import { useAuth } from "@/contexts/auth-context"
-  6: import { useSeats } from "@/hooks/use-seats"
-  7: import { SeatGrid } from "@/components/seat-grid"
-  8: import { SeatLegend } from "@/components/seat-legend"
-  9: import { AdminPanel } from "@/components/admin-panel"
- 10: import { AgendarModal } from "@/components/agendar-modal"
- 11: import { MapaModal } from "@/components/mapa-modal"
- 12: import { DisponibilidadInline } from "@/components/disponibilidad-inline"
- 13: import { Button } from "@/components/ui/button"
- 14: import { Switch } from "@/components/ui/switch"
- 15: import { Label } from "@/components/ui/label"
- 16: import { cn } from "@/lib/utils"
- 17: import {
- 18:   Loader2,
- 19:   RefreshCw,
- 20:   LogOut,
- 21:   Menu,
- 22:   Armchair,
- 23:   CalendarPlus,
- 24:   MapPin,
- 25:   Map,
- 26:   LayoutGrid,
- 27: } from "lucide-react"
- 28: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
- 29: import { useToast } from "@/hooks/use-toast"
- 30: 
- 31: // ── Vistas disponibles dentro del card principal ──────────────
- 32: type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
- 33: 
- 34: const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
- 35:   { id: "disponibilidad", label: "Disponibilidad", icon: MapPin      },
- 36:   { id: "asientos",       label: "Asientos",       icon: LayoutGrid  },
- 37:   { id: "mapa",           label: "Mapa",           icon: Map         },
- 38:   { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
- 39: ]
- 40: 
- 41: export default function CoworkingSeatsPage() {
- 42:   const router = useRouter()
- 43:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
- 44:   const { seats, loading, fetchSeats, toggleBlockAll } = useSeats()
- 45:   const { toast } = useToast()
- 46: 
- 47:   const [isAdminMode,    setIsAdminMode]    = useState(false)
- 48:   const [isBlocked,      setIsBlocked]      = useState(false)
- 49:   const [eventName,      setEventName]      = useState<string>()
- 50:   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
- 51: 
- 52:   // Vista activa dentro del card
- 53:   const [vista,          setVista]          = useState<Vista>("asientos")
- 54: 
- 55:   // Modales (Mapa y Agendar abren modal)
- 56:   const [mapaOpen,       setMapaOpen]       = useState(false)
- 57:   const [agendarOpen,    setAgendarOpen]    = useState(false)
- 58: 
- 59:   useEffect(() => {
- 60:     if (!authLoading && !admin) router.push("/login")
- 61:   }, [admin, authLoading, router])
- 62: 
- 63:   const handleToggleBlock = async (block: boolean, newEventName?: string) => {
- 64:     setIsBlocked(block)
- 65:     setEventName(newEventName)
- 66:     await toggleBlockAll(block)
- 67:   }
- 68: 
- 69:   const handleRefresh = async () => {
- 70:     await fetchSeats()
- 71:     toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
- 72:   }
- 73: 
- 74:   // Al hacer clic en un botón de vista
- 75:   const handleVista = (v: Vista) => {
- 76:     if (v === "mapa")    { setMapaOpen(true);    return }
- 77:     if (v === "agendar") { setAgendarOpen(true);  return }
- 78:     setVista(v)
- 79:   }
- 80: 
- 81:   const occupiedCount  = seats.filter((s) => s.status === "occupied").length
- 82:   const availableCount = seats.filter((s) => s.status === "available").length
- 83: 
- 84:   // ── Loading ──────────────────────────────────────────────────
- 85:   if (authLoading) {
- 86:     return (
- 87:       <div className="min-h-screen flex items-center justify-center">
- 88:         <Loader2 className="w-8 h-8 animate-spin text-primary" />
- 89:       </div>
- 90:     )
- 91:   }
- 92:   if (!admin) return null
- 93: 
- 94:   if (loading && seats.length === 0) {
- 95:     return (
- 96:       <div className="min-h-screen flex items-center justify-center px-4">
- 97:         <div className="text-center space-y-3">
- 98:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
- 99:           <p className="text-muted-foreground text-sm">Cargando áreas...</p>
-100:         </div>
-101:       </div>
-102:     )
-103:   }
-104: 
-105:   // ── Render ───────────────────────────────────────────────────
-106:   return (
-107:     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
-108: 
-109:       {/* ══ Header — solo identidad + acciones globales ════════ */}
-110:       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-primary/10">
-111:         <div className="px-4 md:px-6 py-3 max-w-7xl mx-auto">
-112: 
-113:           {/* Desktop */}
-114:           <div className="hidden md:flex items-center justify-between">
-115:             {/* Logo + título */}
-116:             <div className="flex items-center gap-3">
-117:               <div className="w-9 h-9 bg-blue-50 rounded-full flex items-center justify-center">
-118:                 <Armchair className="w-4 h-4 text-primary" />
-119:               </div>
-120:               <div>
-121:                 <h1 className="text-lg font-bold leading-tight">Gestión de Espacios</h1>
-122:                 <p className="text-[11px] text-muted-foreground leading-none">NODO Tecnológico</p>
-123:               </div>
-124:             </div>
-125: 
-126:             {/* Acciones globales */}
-127:             <div className="flex items-center gap-2">
-128:               <div className="text-right text-sm mr-1">
-129:                 <p className="font-medium leading-tight">{admin.nombre}</p>
-130:                 <p className="text-xs text-muted-foreground leading-none">{admin.email}</p>
-131:               </div>
-132: 
-133:               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh} title="Actualizar">
-134:                 <RefreshCw className="w-4 h-4" />
-135:               </Button>
-136:               <Button
-137:                 variant="ghost"
-138:                 size="icon"
-139:                 className="h-8 w-8 text-destructive hover:text-destructive"
-140:                 onClick={logout}
-141:                 title="Cerrar sesión"
-142:               >
-143:                 <LogOut className="w-4 h-4" />
-144:               </Button>
-145: 
-146:               {isAdmin && (
-147:                 <div className="flex items-center gap-1.5 pl-2 border-l border-border">
-148:                   <Switch
-149:                     id="admin-mode"
-150:                     checked={isAdminMode}
-151:                     onCheckedChange={setIsAdminMode}
-152:                     className="scale-90"
-153:                   />
-154:                   <Label htmlFor="admin-mode" className="text-xs cursor-pointer">Admin</Label>
-155:                 </div>
-156:               )}
-157:             </div>
-158:           </div>
-159: 
-160:           {/* Mobile */}
-161:           <div className="md:hidden flex items-center justify-between">
-162:             <div className="flex items-center gap-2">
-163:               <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center">
-164:                 <Armchair className="w-4 h-4 text-primary" />
-165:               </div>
-166:               <div>
-167:                 <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
-168:                 <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
-169:               </div>
-170:             </div>
-171: 
-172:             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-173:               <SheetTrigger asChild>
-174:                 <Button variant="ghost" size="icon">
-175:                   <Menu className="w-5 h-5" />
-176:                 </Button>
-177:               </SheetTrigger>
-178:               <SheetContent side="right" className="w-72">
-179:                 <div className="space-y-3 pt-4">
-180:                   <div className="pb-3 border-b">
-181:                     <p className="font-semibold">{admin.nombre}</p>
-182:                     <p className="text-xs text-muted-foreground">{admin.email}</p>
-183:                   </div>
-184:                   <Button
-185:                     variant="outline"
-186:                     className="w-full justify-start gap-2"
-187:                     onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}
-188:                   >
-189:                     <RefreshCw className="w-4 h-4" /> Actualizar
-190:                   </Button>
-191:                   {isAdmin && (
-192:                     <div className="flex items-center justify-between py-2 border-t">
-193:                       <Label className="text-sm cursor-pointer">Modo admin</Label>
-194:                       <Switch checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-195:                     </div>
-196:                   )}
-197:                   <Button
-198:                     variant="ghost"
-199:                     className="w-full justify-start gap-2 text-destructive"
-200:                     onClick={logout}
-201:                   >
-202:                     <LogOut className="w-4 h-4" /> Cerrar sesión
-203:                   </Button>
-204:                 </div>
-205:               </SheetContent>
-206:             </Sheet>
-207:           </div>
-208: 
-209:         </div>
-210:       </div>
-211: 
-212:       {/* ══ Contenido principal ════════════════════════════════ */}
-213:       <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-28 space-y-5">
-214: 
-215:         {/* Stats */}
-216:         <div className="grid grid-cols-3 gap-3">
-217:           <div className="bg-white rounded-xl border border-primary/10 p-3 md:p-4 text-center shadow-sm">
-218:             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
-219:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
-220:           </div>
-221:           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
-222:             <p className="text-xl md:text-2xl font-bold text-green-600">{availableCount}</p>
-223:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
-224:           </div>
-225:           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
-226:             <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
-227:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
-228:           </div>
-229:         </div>
-230: 
-231:         {/* Admin panel */}
-232:         {isAdminMode && isAdmin && (
-233:           <AdminPanel
-234:             isBlocked={isBlocked}
-235:             eventName={eventName}
-236:             onToggleBlock={handleToggleBlock}
-237:           />
-238:         )}
-239: 
-240:         {/* ══ Card principal con tabs ═══════════════════════ */}
-241:         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
-242: 
-243:           {/* ── Barra de navegación de vistas ──────────────── */}
-244:           <div className="border-b border-border px-4 pt-4 pb-0">
-245:             <div className="flex gap-1 overflow-x-auto scrollbar-none">
-246:               {VISTAS.map(({ id, label, icon: Icon }) => {
-247:                 // Mapa y Agendar no tienen estado "activo" (abren modal)
-248:                 const isModal   = id === "mapa" || id === "agendar"
-249:                 const isActive  = !isModal && vista === id
-250: 
-251:                 return (
-252:                   <button
-253:                     key={id}
-254:                     onClick={() => handleVista(id)}
-255:                     className={cn(
-256:                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
-257:                       isActive
-258:                         ? "border-primary text-primary bg-primary/5"
-259:                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-260:                       // Agendar tiene color especial
-261:                       id === "agendar" && !isActive
-262:                         ? "hover:text-primary"
-263:                         : "",
-264:                     )}
-265:                   >
-266:                     <Icon className="w-4 h-4" />
-267:                     <span>{label}</span>
-268:                   </button>
-269:                 )
-270:               })}
-271:             </div>
-272:           </div>
-273: 
-274:           {/* ── Contenido de la vista activa ───────────────── */}
-275:           <div className="p-4 md:p-6">
-276: 
-277:             {/* Disponibilidad */}
-278:             {vista === "disponibilidad" && (
-279:               <DisponibilidadInline onSuccess={fetchSeats} />
-280:             )}
-281: 
-282:             {/* Asientos */}
-283:             {vista === "asientos" && (
-284:               <div className="space-y-4">
-285:                 <div className="flex items-center justify-between">
-286:                   <SeatLegend />
-287:                   {isBlocked && (
-288:                     <span className="text-xs text-destructive font-medium">
-289:                       Bloqueado · {eventName}
-290:                     </span>
-291:                   )}
-292:                 </div>
-293:                 <div className="overflow-x-auto">
-294:                   <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
-295:                 </div>
-296:               </div>
-297:             )}
-298: 
-299:           </div>
-300:         </div>
-301: 
-302:       </div>
-303: 
-304:       {/* ══ Modales ════════════════════════════════════════════ */}
-305:       <MapaModal
-306:         open={mapaOpen}
-307:         onOpenChange={setMapaOpen}
-308:       />
-309:       <AgendarModal
-310:         open={agendarOpen}
-311:         onOpenChange={setAgendarOpen}
-312:         onSuccess={fetchSeats}
-313:       />
-314: 
-315:     </div>
-316:   )
-317: }
-```
-
 ## File: package.json
 ```json
  1: {
@@ -4924,702 +4909,1140 @@ x.sh
 85: }
 ```
 
+## File: app/page.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect } from "react"
+  4: import { useRouter } from "next/navigation"
+  5: import { useAuth } from "@/contexts/auth-context"
+  6: import { useSeats } from "@/hooks/use-seats"
+  7: import { SeatGrid } from "@/components/seat-grid"
+  8: import { SeatLegend } from "@/components/seat-legend"
+  9: import { AdminPanel } from "@/components/admin-panel"
+ 10: import { AgendarModal } from "@/components/agendar-modal"
+ 11: import { MapaModal } from "@/components/mapa-modal"
+ 12: import { DisponibilidadInline } from "@/components/disponibilidad-inline"
+ 13: import { CalendarioCoworking } from "@/components/calendario-coworking"
+ 14: import { Button } from "@/components/ui/button"
+ 15: import { Switch } from "@/components/ui/switch"
+ 16: import { Label } from "@/components/ui/label"
+ 17: import { cn } from "@/lib/utils"
+ 18: import {
+ 19:   Loader2,
+ 20:   RefreshCw,
+ 21:   LogOut,
+ 22:   Menu,
+ 23:   Armchair,
+ 24:   CalendarPlus,
+ 25:   CalendarRange,
+ 26:   MapPin,
+ 27:   Map,
+ 28:   LayoutGrid,
+ 29: } from "lucide-react"
+ 30: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+ 31: import { useToast } from "@/hooks/use-toast"
+ 32: 
+ 33: // ── Vistas disponibles dentro del card principal ──────────────
+ 34: type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
+ 35: //hola
+ 36: const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
+ 37:   { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
+ 38:   { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
+ 39:   { id: "mapa",           label: "Mapa",           icon: Map           },
+ 40:   { id: "agendar",        label: "Agendar",        icon: CalendarPlus  },
+ 41:   { id: "calendario",     label: "Calendario",     icon: CalendarRange },
+ 42: ]
+ 43: 
+ 44: export default function CoworkingSeatsPage() {
+ 45:   const router = useRouter()
+ 46:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
+ 47:   const { seats, loading, fetchSeats, toggleBlockAll } = useSeats()
+ 48:   const { toast } = useToast()
+ 49: 
+ 50:   const [isAdminMode,    setIsAdminMode]    = useState(false)
+ 51:   const [isBlocked,      setIsBlocked]      = useState(false)
+ 52:   const [eventName,      setEventName]      = useState<string>()
+ 53:   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+ 54: 
+ 55:   const [vista,          setVista]          = useState<Vista>("asientos")
+ 56:   const [mapaOpen,       setMapaOpen]       = useState(false)
+ 57:   const [agendarOpen,    setAgendarOpen]    = useState(false)
+ 58: 
+ 59:   useEffect(() => {
+ 60:     if (!authLoading && !admin) router.push("/login")
+ 61:   }, [admin, authLoading, router])
+ 62: 
+ 63:   const handleToggleBlock = async (block: boolean, newEventName?: string) => {
+ 64:     setIsBlocked(block)
+ 65:     setEventName(newEventName)
+ 66:     await toggleBlockAll(block)
+ 67:   }
+ 68: 
+ 69:   const handleRefresh = async () => {
+ 70:     await fetchSeats()
+ 71:     toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
+ 72:   }
+ 73: 
+ 74:   const handleVista = (v: Vista) => {
+ 75:     if (v === "mapa")    { setMapaOpen(true);   return }
+ 76:     if (v === "agendar") { setAgendarOpen(true); return }
+ 77:     setVista(v)
+ 78:   }
+ 79: 
+ 80:   const occupiedCount  = seats.filter((s) => s.status === "occupied").length
+ 81:   const availableCount = seats.filter((s) => s.status === "available").length
+ 82: 
+ 83:   if (authLoading) {
+ 84:     return (
+ 85:       <div className="min-h-screen flex items-center justify-center">
+ 86:         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+ 87:       </div>
+ 88:     )
+ 89:   }
+ 90:   if (!admin) return null
+ 91: 
+ 92:   if (loading && seats.length === 0) {
+ 93:     return (
+ 94:       <div className="min-h-screen flex items-center justify-center px-4">
+ 95:         <div className="text-center space-y-3">
+ 96:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+ 97:           <p className="text-muted-foreground text-sm">Cargando áreas...</p>
+ 98:         </div>
+ 99:       </div>
+100:     )
+101:   }
+102: 
+103:   return (
+104:     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
+105: 
+106:       {/* ══ Header ════════════════════════════════════════════════ */}
+107:       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
+108:         <div className="max-w-2xl mx-auto px-4 py-3">
+109: 
+110:           {/* Desktop */}
+111:           <div className="hidden md:flex items-center justify-between">
+112:             <div className="flex items-center gap-3">
+113:               <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
+114:                 <Armchair className="w-5 h-5 text-primary" />
+115:               </div>
+116:               <div>
+117:                 <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
+118:                 <p className="text-xs text-muted-foreground">{admin.nombre} · {admin.email}</p>
+119:               </div>
+120:             </div>
+121:             <div className="flex items-center gap-2">
+122:               <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
+123:                 <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+124:               </Button>
+125:               <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8">
+126:                 <LogOut className="w-4 h-4" />
+127:               </Button>
+128:               {isAdmin && (
+129:                 <div className="flex items-center gap-1.5 border rounded-lg px-2 py-1">
+130:                   <Switch
+131:                     id="admin-mode"
+132:                     checked={isAdminMode}
+133:                     onCheckedChange={setIsAdminMode}
+134:                     className="scale-90"
+135:                   />
+136:                   <Label htmlFor="admin-mode" className="text-xs cursor-pointer">Admin</Label>
+137:                 </div>
+138:               )}
+139:             </div>
+140:           </div>
+141: 
+142:           {/* Mobile */}
+143:           <div className="md:hidden flex items-center justify-between">
+144:             <div className="flex items-center gap-2">
+145:               <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center">
+146:                 <Armchair className="w-4 h-4 text-primary" />
+147:               </div>
+148:               <div>
+149:                 <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
+150:                 <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
+151:               </div>
+152:             </div>
+153:             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+154:               <SheetTrigger asChild>
+155:                 <Button variant="ghost" size="icon">
+156:                   <Menu className="w-5 h-5" />
+157:                 </Button>
+158:               </SheetTrigger>
+159:               <SheetContent side="right" className="w-72">
+160:                 <div className="space-y-3 pt-4">
+161:                   <div className="pb-3 border-b">
+162:                     <p className="font-semibold">{admin.nombre}</p>
+163:                     <p className="text-xs text-muted-foreground">{admin.email}</p>
+164:                   </div>
+165:                   <Button
+166:                     variant="outline"
+167:                     className="w-full justify-start gap-2"
+168:                     onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}
+169:                   >
+170:                     <RefreshCw className="w-4 h-4" /> Actualizar
+171:                   </Button>
+172:                   {isAdmin && (
+173:                     <div className="flex items-center gap-2 py-1">
+174:                       <Switch
+175:                         id="admin-mode-mobile"
+176:                         checked={isAdminMode}
+177:                         onCheckedChange={setIsAdminMode}
+178:                       />
+179:                       <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
+180:                     </div>
+181:                   )}
+182:                   <Button
+183:                     variant="outline"
+184:                     className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+185:                     onClick={logout}
+186:                   >
+187:                     <LogOut className="w-4 h-4" /> Cerrar sesión
+188:                   </Button>
+189:                 </div>
+190:               </SheetContent>
+191:             </Sheet>
+192:           </div>
+193: 
+194:         </div>
+195:       </div>
+196: 
+197:       {/* ══ Contenido ══════════════════════════════════════════════ */}
+198:       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
+199: 
+200:         {/* Stats */}
+201:         <div className="grid grid-cols-3 gap-3">
+202:           <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
+203:             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
+204:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
+205:           </div>
+206:           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
+207:             <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
+208:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
+209:           </div>
+210:           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
+211:             <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
+212:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
+213:           </div>
+214:         </div>
+215: 
+216:         {/* Admin panel */}
+217:         {isAdminMode && isAdmin && (
+218:           <AdminPanel
+219:             isBlocked={isBlocked}
+220:             eventName={eventName}
+221:             onToggleBlock={handleToggleBlock}
+222:           />
+223:         )}
+224: 
+225:         {/* ══ Card principal con tabs ═══════════════════════════ */}
+226:         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
+227: 
+228:           {/* Barra de vistas */}
+229:           <div className="border-b border-border px-4 pt-4 pb-0">
+230:             <div className="flex gap-1 overflow-x-auto scrollbar-none">
+231:               {VISTAS.map(({ id, label, icon: Icon }) => {
+232:                 const isModal  = id === "mapa" || id === "agendar"
+233:                 const isActive = !isModal && vista === id
+234:                 return (
+235:                   <button
+236:                     key={id}
+237:                     onClick={() => handleVista(id)}
+238:                     className={cn(
+239:                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
+240:                       isActive
+241:                         ? "border-primary text-primary bg-primary/5"
+242:                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+243:                       id === "agendar" && !isActive ? "hover:text-primary" : "",
+244:                     )}
+245:                   >
+246:                     <Icon className="w-4 h-4" />
+247:                     <span>{label}</span>
+248:                   </button>
+249:                 )
+250:               })}
+251:             </div>
+252:           </div>
+253: 
+254:           {/* Contenido activo */}
+255:           <div className="p-4 md:p-6">
+256: 
+257:             {vista === "disponibilidad" && (
+258:               <DisponibilidadInline onSuccess={fetchSeats} />
+259:             )}
+260: 
+261:             {vista === "asientos" && (
+262:               <div className="space-y-4">
+263:                 <div className="flex items-center justify-between">
+264:                   <SeatLegend />
+265:                   {isBlocked && (
+266:                     <span className="text-xs text-destructive font-medium">
+267:                       Bloqueado · {eventName}
+268:                     </span>
+269:                   )}
+270:                 </div>
+271:                 <div className="overflow-x-auto">
+272:                   <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
+273:                 </div>
+274:               </div>
+275:             )}
+276: 
+277:             {vista === "calendario" && (
+278:               <CalendarioCoworking />
+279:             )}
+280: 
+281:           </div>
+282:         </div>
+283: 
+284:       </div>
+285: 
+286:       {/* ══ Modales ════════════════════════════════════════════════ */}
+287:       <MapaModal open={mapaOpen} onOpenChange={setMapaOpen} />
+288:       <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
+289: 
+290:     </div>
+291:   )
+292: }
+```
+
 ## File: x.sh
 ```bash
   1: #!/usr/bin/env bash
   2: # =============================================================================
-  3: # front-layout-v2.sh  —  v1.0.0  —  PRODUCCIÓN
+  3: # v5-front-ocupacion-fechas.sh — v1.0.0 — PRODUCCIÓN (coworking-front)
   4: #
-  5: # Cambios vs versión anterior:
-  6: #  · Header limpio: solo logo + datos admin + refresh + logout + switch admin
-  7: #  · Dentro del card del mapa: 4 botones contextuales (Disponibilidad / Asientos / Mapa / Agendar)
-  8: #  · "Disponibilidad" es un switch: activa una tabla inline dentro del mismo card
-  9: #  · "Asientos" muestra el SeatGrid (default)
- 10: #  · "Mapa" abre MapaModal (sin cambios)
- 11: #  · "Agendar" abre AgendarModal (sin cambios)
- 12: # =============================================================================
- 13: set -euo pipefail
- 14: 
- 15: echo ""
- 16: echo "╔══════════════════════════════════════════════════════════╗"
- 17: echo "║  front-layout-v2.sh — v1.0.0                            ║"
- 18: echo "╚══════════════════════════════════════════════════════════╝"
- 19: echo ""
- 20: 
- 21: # ════════════════════════════════════════════════════════════════
- 22: # 1. components/disponibilidad-inline.tsx
- 23: #    Tabla inline — no modal — usada dentro del card principal
- 24: # ════════════════════════════════════════════════════════════════
- 25: cat > components/disponibilidad-inline.tsx << 'EOF'
- 26: "use client"
- 27: 
- 28: import { useState, useEffect, useCallback } from "react"
- 29: import { ocupacionesApi } from "@/lib/ocupacion-api"
- 30: import type { Ocupacion } from "@/types/ocupacion"
- 31: import { useToast } from "@/hooks/use-toast"
- 32: import { Button } from "@/components/ui/button"
- 33: import { Badge } from "@/components/ui/badge"
- 34: import {
- 35:   Table,
- 36:   TableBody,
- 37:   TableCell,
- 38:   TableHead,
- 39:   TableHeader,
- 40:   TableRow,
- 41: } from "@/components/ui/table"
- 42: import {
- 43:   Loader2,
- 44:   MapPin,
- 45:   Clock,
- 46:   Users,
- 47:   Unlock,
- 48:   RefreshCw,
- 49:   Inbox,
- 50:   Link2,
- 51:   ChevronDown,
- 52:   ChevronUp,
- 53: } from "lucide-react"
- 54: 
- 55: interface DisponibilidadInlineProps {
- 56:   onSuccess?: () => void
- 57: }
- 58: 
- 59: export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
- 60:   const { toast } = useToast()
- 61:   const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
- 62:   const [loading,     setLoading]     = useState(true)
- 63:   const [liberando,   setLiberando]   = useState<number | null>(null)
- 64:   const [expandedId,  setExpandedId]  = useState<number | null>(null)
- 65: 
- 66:   // ── Carga ────────────────────────────────────────────────────
- 67:   const cargar = useCallback(async (silencioso = false) => {
- 68:     if (!silencioso) setLoading(true)
- 69:     try {
- 70:       const data = await ocupacionesApi.getAll()
- 71:       setOcupaciones(data.filter((o) => !o.liberadaAt))
- 72:     } catch {
- 73:       if (!silencioso)
- 74:         toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
- 75:     } finally {
- 76:       if (!silencioso) setLoading(false)
- 77:     }
- 78:   }, [toast])
- 79: 
- 80:   useEffect(() => { cargar() }, [cargar])
- 81: 
- 82:   // ── Liberar ──────────────────────────────────────────────────
- 83:   const liberar = async (oc: Ocupacion) => {
- 84:     setLiberando(oc.id)
- 85:     try {
- 86:       await ocupacionesApi.liberar(oc.id)
- 87:       toast({
- 88:         title:       "✅ Zonas liberadas",
- 89:         description: `"${oc.titulo}" finalizada — áreas marcadas como LIBRE`,
- 90:       })
- 91:       await cargar(true)
- 92:       onSuccess?.()
- 93:     } catch (err) {
- 94:       toast({
- 95:         variant:     "destructive",
- 96:         title:       "Error al liberar",
- 97:         description: err instanceof Error ? err.message : "Error desconocido",
- 98:       })
- 99:     } finally {
-100:       setLiberando(null)
-101:     }
-102:   }
-103: 
-104:   const toggleExpand = (id: number) =>
-105:     setExpandedId(expandedId === id ? null : id)
-106: 
-107:   const formatFecha = (dia: string, hora: string) => {
-108:     try {
-109:       const [y, m, d] = dia.split("-")
-110:       return `${d}/${m}/${y} ${hora}`
-111:     } catch {
-112:       return `${dia} ${hora}`
-113:     }
-114:   }
-115: 
-116:   // ── Loading ──────────────────────────────────────────────────
-117:   if (loading) {
-118:     return (
-119:       <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-120:         <Loader2 className="w-5 h-5 animate-spin" />
-121:         <span className="text-sm">Cargando ocupaciones...</span>
-122:       </div>
-123:     )
-124:   }
-125: 
-126:   // ── Vacío ────────────────────────────────────────────────────
-127:   if (ocupaciones.length === 0) {
-128:     return (
-129:       <div className="flex flex-col items-center justify-center py-14 gap-3 text-muted-foreground">
-130:         <Inbox className="w-10 h-10 opacity-25" />
-131:         <p className="text-sm font-medium">No hay zonas ocupadas</p>
-132:         <p className="text-xs opacity-60">Todas las áreas están disponibles</p>
-133:         <Button
-134:           variant="ghost"
-135:           size="sm"
-136:           className="gap-1.5 mt-1"
-137:           onClick={() => cargar()}
-138:         >
-139:           <RefreshCw className="w-3.5 h-3.5" />
-140:           Actualizar
-141:         </Button>
-142:       </div>
-143:     )
-144:   }
-145: 
-146:   // ── Tabla ────────────────────────────────────────────────────
-147:   return (
-148:     <div className="space-y-3">
-149:       {/* Encabezado de sección */}
-150:       <div className="flex items-center justify-between">
-151:         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-152:           <MapPin className="w-4 h-4 text-primary" />
-153:           <span>
-154:             <span className="font-semibold text-foreground">{ocupaciones.length}</span>{" "}
-155:             ocupación{ocupaciones.length !== 1 ? "es" : ""} activa{ocupaciones.length !== 1 ? "s" : ""}
-156:             {" · "}
-157:             <span className="font-semibold text-foreground">
-158:               {ocupaciones.reduce((a, o) => a + o.areas.length, 0)}
-159:             </span>{" "}
-160:             zona{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""} ocupada{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""}
-161:           </span>
-162:         </div>
-163:         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cargar()}>
-164:           <RefreshCw className="w-3.5 h-3.5" />
-165:         </Button>
-166:       </div>
-167: 
-168:       {/* ── Desktop: tabla ──────────────────────────────────── */}
-169:       <div className="hidden md:block rounded-lg border overflow-hidden">
-170:         <Table>
-171:           <TableHeader>
-172:             <TableRow className="bg-muted/40">
-173:               <TableHead className="text-xs">Título</TableHead>
-174:               <TableHead className="text-xs">Organizador</TableHead>
-175:               <TableHead className="text-xs">
-176:                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Fecha / Hora</span>
-177:               </TableHead>
-178:               <TableHead className="text-xs">
-179:                 <span className="flex items-center gap-1"><Users className="w-3 h-3" /> Personas</span>
-180:               </TableHead>
-181:               <TableHead className="text-xs">
-182:                 <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> Zonas</span>
-183:               </TableHead>
-184:               <TableHead className="text-right text-xs">Acción</TableHead>
-185:             </TableRow>
-186:           </TableHeader>
-187:           <TableBody>
-188:             {ocupaciones.map((oc) => (
-189:               <>
-190:                 <TableRow
-191:                   key={oc.id}
-192:                   className="cursor-pointer hover:bg-muted/20"
-193:                   onClick={() => toggleExpand(oc.id)}
-194:                 >
-195:                   <TableCell className="font-medium text-sm">
-196:                     <span className="flex items-center gap-1.5">
-197:                       {expandedId === oc.id
-198:                         ? <ChevronUp   className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-199:                         : <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />}
-200:                       {oc.titulo}
-201:                     </span>
-202:                   </TableCell>
-203:                   <TableCell className="text-sm text-muted-foreground">{oc.organizador}</TableCell>
-204:                   <TableCell className="text-sm">{formatFecha(oc.dia, oc.hora)}</TableCell>
-205:                   <TableCell className="text-sm">{oc.cantidadPersonas}</TableCell>
-206:                   <TableCell>
-207:                     <div className="flex flex-wrap gap-1">
-208:                       {oc.areas.length > 0
-209:                         ? oc.areas.map((r) => (
-210:                             <Badge key={r.areaId} variant="secondary" className="text-xs">
-211:                               {r.area.nombre}
-212:                             </Badge>
-213:                           ))
-214:                         : <span className="text-xs text-muted-foreground">—</span>}
-215:                     </div>
-216:                   </TableCell>
-217:                   <TableCell className="text-right">
-218:                     <Button
-219:                       size="sm"
-220:                       variant="outline"
-221:                       className="gap-1.5 text-xs h-7 border-green-300 text-green-700 hover:bg-green-50"
-222:                       disabled={liberando === oc.id}
-223:                       onClick={(e) => { e.stopPropagation(); liberar(oc) }}
-224:                     >
-225:                       {liberando === oc.id
-226:                         ? <Loader2 className="w-3 h-3 animate-spin" />
-227:                         : <Unlock  className="w-3 h-3" />}
-228:                       Liberar
-229:                     </Button>
-230:                   </TableCell>
-231:                 </TableRow>
-232: 
-233:                 {/* Fila expandida */}
-234:                 {expandedId === oc.id && (
-235:                   <TableRow key={`exp-${oc.id}`} className="bg-muted/10">
-236:                     <TableCell colSpan={6} className="py-3">
-237:                       <div className="space-y-1.5 text-sm pl-5">
-238:                         <p>
-239:                           <span className="font-medium">Requerimiento: </span>
-240:                           <span className="text-muted-foreground">{oc.requerimiento}</span>
-241:                         </p>
-242:                         {(oc.edadMin != null || oc.edadMax != null) && (
-243:                           <p>
-244:                             <span className="font-medium">Rango de edad: </span>
-245:                             <span className="text-muted-foreground">
-246:                               {oc.edadMin ?? "?"} — {oc.edadMax ?? "?"} años
-247:                             </span>
-248:                           </p>
-249:                         )}
-250:                         {oc.anexos.length > 0 && (
-251:                           <div className="flex flex-wrap gap-2 items-center">
-252:                             <span className="font-medium">Anexos:</span>
-253:                             {oc.anexos.map((url, i) => (
-254:                               <a
-255:                                 key={i}
-256:                                 href={url}
-257:                                 target="_blank"
-258:                                 rel="noopener noreferrer"
-259:                                 className="flex items-center gap-1 text-primary hover:underline text-xs"
-260:                                 onClick={(e) => e.stopPropagation()}
-261:                               >
-262:                                 <Link2 className="w-3 h-3" />
-263:                                 Anexo {i + 1}
-264:                               </a>
-265:                             ))}
-266:                           </div>
-267:                         )}
-268:                       </div>
-269:                     </TableCell>
-270:                   </TableRow>
-271:                 )}
-272:               </>
-273:             ))}
-274:           </TableBody>
-275:         </Table>
-276:       </div>
-277: 
-278:       {/* ── Mobile: cards ───────────────────────────────────── */}
-279:       <div className="md:hidden space-y-2">
-280:         {ocupaciones.map((oc) => (
-281:           <div key={oc.id} className="border rounded-xl p-3 bg-card space-y-2">
-282:             <div className="flex items-start justify-between gap-2">
-283:               <div className="min-w-0">
-284:                 <p className="font-semibold text-sm truncate">{oc.titulo}</p>
-285:                 <p className="text-xs text-muted-foreground">{oc.organizador}</p>
-286:               </div>
-287:               <Button
-288:                 size="sm"
-289:                 variant="outline"
-290:                 className="gap-1 text-xs flex-shrink-0 h-7 border-green-300 text-green-700 hover:bg-green-50"
-291:                 disabled={liberando === oc.id}
-292:                 onClick={() => liberar(oc)}
-293:               >
-294:                 {liberando === oc.id
-295:                   ? <Loader2 className="w-3 h-3 animate-spin" />
-296:                   : <Unlock  className="w-3 h-3" />}
-297:                 Liberar
-298:               </Button>
-299:             </div>
-300: 
-301:             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-302:               <span className="flex items-center gap-1">
-303:                 <Clock className="w-3 h-3" />{formatFecha(oc.dia, oc.hora)}
-304:               </span>
-305:               <span className="flex items-center gap-1">
-306:                 <Users className="w-3 h-3" />{oc.cantidadPersonas} personas
-307:               </span>
-308:             </div>
-309: 
-310:             <div className="flex flex-wrap gap-1">
-311:               {oc.areas.length > 0
-312:                 ? oc.areas.map((r) => (
-313:                     <Badge key={r.areaId} variant="secondary" className="text-xs">
-314:                       {r.area.nombre}
-315:                     </Badge>
-316:                   ))
-317:                 : <span className="text-xs text-muted-foreground">Sin zonas</span>}
-318:             </div>
-319: 
-320:             {oc.requerimiento && (
-321:               <p className="text-xs text-muted-foreground border-t pt-2 line-clamp-2">
-322:                 {oc.requerimiento}
-323:               </p>
-324:             )}
-325:           </div>
-326:         ))}
-327:       </div>
-328:     </div>
-329:   )
-330: }
-331: EOF
-332: echo "✅  components/disponibilidad-inline.tsx"
-333: 
-334: # ════════════════════════════════════════════════════════════════
-335: # 2. app/page.tsx — reescritura completa
-336: # ════════════════════════════════════════════════════════════════
-337: cat > app/page.tsx << 'EOF'
-338: "use client"
-339: 
-340: import { useState, useEffect } from "react"
-341: import { useRouter } from "next/navigation"
-342: import { useAuth } from "@/contexts/auth-context"
-343: import { useSeats } from "@/hooks/use-seats"
-344: import { SeatGrid } from "@/components/seat-grid"
-345: import { SeatLegend } from "@/components/seat-legend"
-346: import { AdminPanel } from "@/components/admin-panel"
-347: import { AgendarModal } from "@/components/agendar-modal"
-348: import { MapaModal } from "@/components/mapa-modal"
-349: import { DisponibilidadInline } from "@/components/disponibilidad-inline"
-350: import { Button } from "@/components/ui/button"
-351: import { Switch } from "@/components/ui/switch"
-352: import { Label } from "@/components/ui/label"
-353: import { cn } from "@/lib/utils"
-354: import {
-355:   Loader2,
-356:   RefreshCw,
-357:   LogOut,
-358:   Menu,
-359:   Armchair,
-360:   CalendarPlus,
-361:   MapPin,
-362:   Map,
-363:   LayoutGrid,
-364: } from "lucide-react"
-365: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-366: import { useToast } from "@/hooks/use-toast"
-367: 
-368: // ── Vistas disponibles dentro del card principal ──────────────
-369: type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
-370: 
-371: const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-372:   { id: "disponibilidad", label: "Disponibilidad", icon: MapPin      },
-373:   { id: "asientos",       label: "Asientos",       icon: LayoutGrid  },
-374:   { id: "mapa",           label: "Mapa",           icon: Map         },
-375:   { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
-376: ]
-377: 
-378: export default function CoworkingSeatsPage() {
-379:   const router = useRouter()
-380:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
-381:   const { seats, loading, fetchSeats, toggleBlockAll } = useSeats()
-382:   const { toast } = useToast()
-383: 
-384:   const [isAdminMode,    setIsAdminMode]    = useState(false)
-385:   const [isBlocked,      setIsBlocked]      = useState(false)
-386:   const [eventName,      setEventName]      = useState<string>()
-387:   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-388: 
-389:   // Vista activa dentro del card
-390:   const [vista,          setVista]          = useState<Vista>("asientos")
-391: 
-392:   // Modales (Mapa y Agendar abren modal)
-393:   const [mapaOpen,       setMapaOpen]       = useState(false)
-394:   const [agendarOpen,    setAgendarOpen]    = useState(false)
+  5: # Cambios:
+  6: #  · types/ocupacion.ts     → reemplaza dia/hora por fechaDesde/fechaHasta/horaDesde/horaHasta
+  7: #  · lib/ocupacion-api.ts   → agrega getActivas()
+  8: #  · components/agendar-modal.tsx → inputs fecha/hora nuevos + validación conflicto via API
+  9: #  · components/disponibilidad-inline.tsx → usa /activas, muestra rango de fechas y horario
+ 10: # =============================================================================
+ 11: set -euo pipefail
+ 12: 
+ 13: echo ""
+ 14: echo "╔══════════════════════════════════════════════════════════════╗"
+ 15: echo "║  v5-front-ocupacion-fechas.sh — v1.0.0                      ║"
+ 16: echo "╚══════════════════════════════════════════════════════════════╝"
+ 17: echo ""
+ 18: 
+ 19: if [ ! -f "package.json" ] || [ ! -d "app" ]; then
+ 20:   echo "❌  Corré desde la raíz del proyecto Next.js"
+ 21:   exit 1
+ 22: fi
+ 23: 
+ 24: # ════════════════════════════════════════════════════════════════════════════
+ 25: # 1. types/ocupacion.ts
+ 26: # ════════════════════════════════════════════════════════════════════════════
+ 27: echo "📄  types/ocupacion.ts..."
+ 28: cat > types/ocupacion.ts << 'EOF'
+ 29: import type { BackendArea } from "@/types/seat"
+ 30: 
+ 31: export interface OcupacionArea {
+ 32:   ocupacionId: number
+ 33:   areaId:      number
+ 34:   area:        BackendArea
+ 35: }
+ 36: 
+ 37: export interface Ocupacion {
+ 38:   id:               number
+ 39:   titulo:           string
+ 40:   requerimiento:    string
+ 41:   cantidadPersonas: number
+ 42:   organizador:      string
+ 43:   // Nuevos campos — reemplaza dia + hora
+ 44:   fechaDesde:       string   // ISO: "2026-08-25T00:00:00.000Z"
+ 45:   fechaHasta:       string   // ISO: "2026-08-25T23:59:59.000Z"
+ 46:   horaDesde:        string   // "HH:mm"
+ 47:   horaHasta:        string   // "HH:mm"
+ 48:   edadMin?:         number | null
+ 49:   edadMax?:         number | null
+ 50:   anexos:           string[]
+ 51:   liberadaAt?:      string | null
+ 52:   areas:            OcupacionArea[]
+ 53:   createdAt:        string
+ 54:   updatedAt:        string
+ 55: }
+ 56: 
+ 57: export interface CreateOcupacionPayload {
+ 58:   titulo:           string
+ 59:   requerimiento:    string
+ 60:   cantidadPersonas: number
+ 61:   organizador:      string
+ 62:   fechaDesde:       string   // "YYYY-MM-DD"
+ 63:   fechaHasta:       string   // "YYYY-MM-DD"
+ 64:   horaDesde:        string   // "HH:mm"
+ 65:   horaHasta:        string   // "HH:mm"
+ 66:   edadMin?:         number
+ 67:   edadMax?:         number
+ 68:   anexos?:          string[]
+ 69:   areaIds:          number[]
+ 70: }
+ 71: EOF
+ 72: echo "✅  types/ocupacion.ts"
+ 73: 
+ 74: # ════════════════════════════════════════════════════════════════════════════
+ 75: # 2. lib/ocupacion-api.ts — agrega getActivas
+ 76: # ════════════════════════════════════════════════════════════════════════════
+ 77: echo "📄  lib/ocupacion-api.ts..."
+ 78: cat > lib/ocupacion-api.ts << 'EOF'
+ 79: import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
+ 80: 
+ 81: const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+ 82: 
+ 83: export const ocupacionesApi = {
+ 84:   getAll: async (): Promise<Ocupacion[]> => {
+ 85:     const res = await fetch(`${BASE}/ocupaciones`, {
+ 86:       headers: { "Content-Type": "application/json" },
+ 87:       cache: "no-store",
+ 88:     })
+ 89:     if (!res.ok) throw new Error(`Error al obtener ocupaciones: ${res.status}`)
+ 90:     return res.json()
+ 91:   },
+ 92: 
+ 93:   // Solo activas desde hoy (usa el nuevo endpoint del backend)
+ 94:   getActivas: async (): Promise<Ocupacion[]> => {
+ 95:     const res = await fetch(`${BASE}/ocupaciones/activas`, {
+ 96:       headers: { "Content-Type": "application/json" },
+ 97:       cache: "no-store",
+ 98:     })
+ 99:     if (!res.ok) throw new Error(`Error al obtener ocupaciones activas: ${res.status}`)
+100:     return res.json()
+101:   },
+102: 
+103:   getById: async (id: number): Promise<Ocupacion> => {
+104:     const res = await fetch(`${BASE}/ocupaciones/${id}`, {
+105:       headers: { "Content-Type": "application/json" },
+106:     })
+107:     if (!res.ok) throw new Error(`Error al obtener ocupación ${id}`)
+108:     return res.json()
+109:   },
+110: 
+111:   create: async (data: CreateOcupacionPayload): Promise<Ocupacion> => {
+112:     const res = await fetch(`${BASE}/ocupaciones`, {
+113:       method:  "POST",
+114:       headers: { "Content-Type": "application/json" },
+115:       body:    JSON.stringify(data),
+116:     })
+117:     if (!res.ok) {
+118:       const body = await res.text()
+119:       throw new Error(`Error al crear ocupación: ${body}`)
+120:     }
+121:     return res.json()
+122:   },
+123: 
+124:   liberar: async (id: number): Promise<Ocupacion> => {
+125:     const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, { method: "PATCH" })
+126:     if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
+127:     return res.json()
+128:   },
+129: 
+130:   delete: async (id: number): Promise<void> => {
+131:     const res = await fetch(`${BASE}/ocupaciones/${id}`, { method: "DELETE" })
+132:     if (!res.ok) throw new Error(`Error al eliminar ocupación ${id}`)
+133:   },
+134: }
+135: EOF
+136: echo "✅  lib/ocupacion-api.ts"
+137: 
+138: # ════════════════════════════════════════════════════════════════════════════
+139: # 3. components/agendar-modal.tsx — inputs fecha/hora nuevos
+140: # ════════════════════════════════════════════════════════════════════════════
+141: echo "📄  components/agendar-modal.tsx..."
+142: cat > components/agendar-modal.tsx << 'EOF'
+143: "use client"
+144: 
+145: import { useState, useCallback, useEffect } from "react"
+146: import { ocupacionesApi } from "@/lib/ocupacion-api"
+147: import { areasApi } from "@/lib/api"
+148: import type { CreateOcupacionPayload } from "@/types/ocupacion"
+149: import type { BackendArea } from "@/types/seat"
+150: import { useToast } from "@/hooks/use-toast"
+151: 
+152: import { Button }   from "@/components/ui/button"
+153: import { Input }    from "@/components/ui/input"
+154: import { Label }    from "@/components/ui/label"
+155: import { Textarea } from "@/components/ui/textarea"
+156: import { Badge }    from "@/components/ui/badge"
+157: import {
+158:   Dialog,
+159:   DialogContent,
+160:   DialogHeader,
+161:   DialogTitle,
+162:   DialogFooter,
+163:   DialogDescription,
+164: } from "@/components/ui/dialog"
+165: import {
+166:   CalendarDays,
+167:   Clock,
+168:   Users,
+169:   User,
+170:   FileText,
+171:   Link2,
+172:   Plus,
+173:   Trash2,
+174:   Loader2,
+175:   ChevronDown,
+176:   ChevronUp,
+177:   MapPin,
+178:   X,
+179:   CheckSquare,
+180: } from "lucide-react"
+181: 
+182: interface AgendarModalProps {
+183:   open:         boolean
+184:   onOpenChange: (open: boolean) => void
+185:   onSuccess?:   () => void
+186: }
+187: 
+188: const hoy = () => new Date().toISOString().split("T")[0]
+189: 
+190: const EMPTY_FORM: CreateOcupacionPayload = {
+191:   titulo:           "",
+192:   requerimiento:    "",
+193:   cantidadPersonas: 1,
+194:   organizador:      "",
+195:   fechaDesde:       hoy(),
+196:   fechaHasta:       hoy(),
+197:   horaDesde:        "09:00",
+198:   horaHasta:        "12:00",
+199:   edadMin:          undefined,
+200:   edadMax:          undefined,
+201:   anexos:           [],
+202:   areaIds:          [],
+203: }
+204: 
+205: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
+206:   const { toast } = useToast()
+207: 
+208:   const [form,       setForm]       = useState<CreateOcupacionPayload>(EMPTY_FORM)
+209:   const [nuevoAnexo, setNuevoAnexo] = useState("")
+210:   const [loading,    setLoading]    = useState(false)
+211:   const [showEdad,   setShowEdad]   = useState(false)
+212: 
+213:   const [areas,        setAreas]        = useState<BackendArea[]>([])
+214:   const [loadingAreas, setLoadingAreas] = useState(false)
+215: 
+216:   useEffect(() => {
+217:     if (!open) return
+218:     setLoadingAreas(true)
+219:     areasApi
+220:       .getAll()
+221:       .then((data) => setAreas(data))
+222:       .catch(() => toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }))
+223:       .finally(() => setLoadingAreas(false))
+224:   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+225: 
+226:   const set = useCallback(
+227:     <K extends keyof CreateOcupacionPayload>(key: K, val: CreateOcupacionPayload[K]) =>
+228:       setForm((p) => ({ ...p, [key]: val })),
+229:     [],
+230:   )
+231: 
+232:   const toggleArea = (id: number) => {
+233:     const ids = form.areaIds
+234:     set("areaIds", ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
+235:   }
+236: 
+237:   const agregarAnexo = () => {
+238:     const url = nuevoAnexo.trim()
+239:     if (!url) return
+240:     try { new URL(url) } catch {
+241:       toast({ variant: "destructive", title: "URL inválida", description: "Ingresá una URL con http/https" })
+242:       return
+243:     }
+244:     if ((form.anexos ?? []).includes(url)) {
+245:       toast({ variant: "destructive", title: "Duplicado", description: "Esa URL ya fue agregada" })
+246:       return
+247:     }
+248:     set("anexos", [...(form.anexos ?? []), url])
+249:     setNuevoAnexo("")
+250:   }
+251: 
+252:   const quitarAnexo = (i: number) =>
+253:     set("anexos", (form.anexos ?? []).filter((_, idx) => idx !== i))
+254: 
+255:   const resetForm = () => {
+256:     setForm({ ...EMPTY_FORM, fechaDesde: hoy(), fechaHasta: hoy() })
+257:     setNuevoAnexo("")
+258:     setShowEdad(false)
+259:   }
+260: 
+261:   const handleSubmit = async () => {
+262:     // Validaciones
+263:     if (!form.titulo.trim())        return toast({ variant: "destructive", title: "Requerido", description: "Ingresá un título" })
+264:     if (!form.requerimiento.trim()) return toast({ variant: "destructive", title: "Requerido", description: "Ingresá el requerimiento" })
+265:     if (!form.organizador.trim())   return toast({ variant: "destructive", title: "Requerido", description: "Ingresá el organizador" })
+266:     if (!form.fechaDesde)           return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná la fecha de inicio" })
+267:     if (!form.fechaHasta)           return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná la fecha de fin" })
+268:     if (!form.horaDesde)            return toast({ variant: "destructive", title: "Requerido", description: "Ingresá la hora de inicio" })
+269:     if (!form.horaHasta)            return toast({ variant: "destructive", title: "Requerido", description: "Ingresá la hora de fin" })
+270:     if (form.cantidadPersonas < 1)  return toast({ variant: "destructive", title: "Inválido",  description: "Mínimo 1 persona" })
+271:     if (form.areaIds.length === 0)  return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná al menos un área" })
+272: 
+273:     if (form.fechaDesde > form.fechaHasta) {
+274:       return toast({ variant: "destructive", title: "Fecha inválida", description: "La fecha de inicio no puede ser posterior a la de fin" })
+275:     }
+276:     if (form.fechaDesde === form.fechaHasta && form.horaDesde >= form.horaHasta) {
+277:       return toast({ variant: "destructive", title: "Hora inválida", description: "La hora de inicio debe ser anterior a la de fin" })
+278:     }
+279:     if (form.edadMin !== undefined && form.edadMax !== undefined && form.edadMin > form.edadMax) {
+280:       return toast({ variant: "destructive", title: "Rango inválido", description: "La edad mínima no puede superar la máxima" })
+281:     }
+282: 
+283:     try {
+284:       setLoading(true)
+285:       const payload: CreateOcupacionPayload = {
+286:         titulo:           form.titulo.trim(),
+287:         requerimiento:    form.requerimiento.trim(),
+288:         cantidadPersonas: Number(form.cantidadPersonas),
+289:         organizador:      form.organizador.trim(),
+290:         fechaDesde:       form.fechaDesde,
+291:         fechaHasta:       form.fechaHasta,
+292:         horaDesde:        form.horaDesde,
+293:         horaHasta:        form.horaHasta,
+294:         areaIds:          form.areaIds,
+295:         anexos:           form.anexos ?? [],
+296:         ...(form.edadMin !== undefined && { edadMin: Number(form.edadMin) }),
+297:         ...(form.edadMax !== undefined && { edadMax: Number(form.edadMax) }),
+298:       }
+299: 
+300:       await ocupacionesApi.create(payload)
+301: 
+302:       toast({
+303:         title:       "✅ Ocupación agendada",
+304:         description: `"${payload.titulo}" registrada — áreas marcadas como ocupadas`,
+305:       })
+306: 
+307:       resetForm()
+308:       onOpenChange(false)
+309:       onSuccess?.()
+310:     } catch (err) {
+311:       const raw = err instanceof Error ? err.message : "Error desconocido"
+312:       // El backend devuelve el mensaje de conflicto en el body
+313:       const msg = raw.includes("Conflicto")
+314:         ? raw.replace("Error al crear ocupación: ", "").replace(/^\{"message":"/, "").replace(/".*$/, "")
+315:         : raw
+316:       toast({ variant: "destructive", title: "Error al agendar", description: msg })
+317:     } finally {
+318:       setLoading(false)
+319:     }
+320:   }
+321: 
+322:   const handleClose = () => {
+323:     if (loading) return
+324:     resetForm()
+325:     onOpenChange(false)
+326:   }
+327: 
+328:   return (
+329:     <Dialog open={open} onOpenChange={handleClose}>
+330:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+331:         <DialogHeader>
+332:           <DialogTitle className="text-xl flex items-center gap-2">
+333:             <CalendarDays className="w-5 h-5 text-primary" />
+334:             Agendar Ocupación
+335:           </DialogTitle>
+336:           <DialogDescription>
+337:             Completá los datos y seleccioná las áreas a ocupar.
+338:           </DialogDescription>
+339:         </DialogHeader>
+340: 
+341:         <div className="space-y-5 py-2">
+342: 
+343:           {/* Título */}
+344:           <div className="space-y-1.5">
+345:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+346:               <FileText className="w-3.5 h-3.5" /> Título
+347:             </Label>
+348:             <Input
+349:               placeholder="Ej: Reunión de equipo"
+350:               value={form.titulo}
+351:               onChange={(e) => set("titulo", e.target.value)}
+352:             />
+353:           </div>
+354: 
+355:           {/* Organizador */}
+356:           <div className="space-y-1.5">
+357:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+358:               <User className="w-3.5 h-3.5" /> Organizador
+359:             </Label>
+360:             <Input
+361:               placeholder="Nombre del responsable"
+362:               value={form.organizador}
+363:               onChange={(e) => set("organizador", e.target.value)}
+364:             />
+365:           </div>
+366: 
+367:           {/* Fechas */}
+368:           <div className="grid grid-cols-2 gap-3">
+369:             <div className="space-y-1.5">
+370:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+371:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha inicio
+372:               </Label>
+373:               <Input
+374:                 type="date"
+375:                 min={hoy()}
+376:                 value={form.fechaDesde}
+377:                 onChange={(e) => {
+378:                   set("fechaDesde", e.target.value)
+379:                   if (e.target.value > form.fechaHasta) set("fechaHasta", e.target.value)
+380:                 }}
+381:               />
+382:             </div>
+383:             <div className="space-y-1.5">
+384:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+385:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha fin
+386:               </Label>
+387:               <Input
+388:                 type="date"
+389:                 min={form.fechaDesde || hoy()}
+390:                 value={form.fechaHasta}
+391:                 onChange={(e) => set("fechaHasta", e.target.value)}
+392:               />
+393:             </div>
+394:           </div>
 395: 
-396:   useEffect(() => {
-397:     if (!authLoading && !admin) router.push("/login")
-398:   }, [admin, authLoading, router])
-399: 
-400:   const handleToggleBlock = async (block: boolean, newEventName?: string) => {
-401:     setIsBlocked(block)
-402:     setEventName(newEventName)
-403:     await toggleBlockAll(block)
-404:   }
-405: 
-406:   const handleRefresh = async () => {
-407:     await fetchSeats()
-408:     toast({ title: "Datos actualizados", description: "Se recargaron los datos desde el backend" })
-409:   }
-410: 
-411:   // Al hacer clic en un botón de vista
-412:   const handleVista = (v: Vista) => {
-413:     if (v === "mapa")    { setMapaOpen(true);    return }
-414:     if (v === "agendar") { setAgendarOpen(true);  return }
-415:     setVista(v)
-416:   }
-417: 
-418:   const occupiedCount  = seats.filter((s) => s.status === "occupied").length
-419:   const availableCount = seats.filter((s) => s.status === "available").length
-420: 
-421:   // ── Loading ──────────────────────────────────────────────────
-422:   if (authLoading) {
-423:     return (
-424:       <div className="min-h-screen flex items-center justify-center">
-425:         <Loader2 className="w-8 h-8 animate-spin text-primary" />
-426:       </div>
-427:     )
-428:   }
-429:   if (!admin) return null
-430: 
-431:   if (loading && seats.length === 0) {
-432:     return (
-433:       <div className="min-h-screen flex items-center justify-center px-4">
-434:         <div className="text-center space-y-3">
-435:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-436:           <p className="text-muted-foreground text-sm">Cargando áreas...</p>
-437:         </div>
-438:       </div>
-439:     )
-440:   }
-441: 
-442:   // ── Render ───────────────────────────────────────────────────
-443:   return (
-444:     <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
+396:           {/* Horarios */}
+397:           <div className="grid grid-cols-2 gap-3">
+398:             <div className="space-y-1.5">
+399:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+400:                 <Clock className="w-3.5 h-3.5" /> Hora inicio
+401:               </Label>
+402:               <Input
+403:                 type="time"
+404:                 value={form.horaDesde}
+405:                 onChange={(e) => set("horaDesde", e.target.value)}
+406:               />
+407:             </div>
+408:             <div className="space-y-1.5">
+409:               <Label className="flex items-center gap-1.5 text-sm font-medium">
+410:                 <Clock className="w-3.5 h-3.5" /> Hora fin
+411:               </Label>
+412:               <Input
+413:                 type="time"
+414:                 value={form.horaHasta}
+415:                 onChange={(e) => set("horaHasta", e.target.value)}
+416:               />
+417:             </div>
+418:           </div>
+419: 
+420:           {/* Personas */}
+421:           <div className="space-y-1.5">
+422:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+423:               <Users className="w-3.5 h-3.5" /> Cantidad de personas
+424:             </Label>
+425:             <Input
+426:               type="number"
+427:               min={1}
+428:               value={form.cantidadPersonas}
+429:               onChange={(e) => set("cantidadPersonas", Number(e.target.value))}
+430:             />
+431:           </div>
+432: 
+433:           {/* Requerimiento */}
+434:           <div className="space-y-1.5">
+435:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+436:               <FileText className="w-3.5 h-3.5" /> Requerimientos
+437:             </Label>
+438:             <Textarea
+439:               placeholder="Descripción o necesidades especiales"
+440:               rows={3}
+441:               value={form.requerimiento}
+442:               onChange={(e) => set("requerimiento", e.target.value)}
+443:             />
+444:           </div>
 445: 
-446:       {/* ══ Header — solo identidad + acciones globales ════════ */}
-447:       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-primary/10">
-448:         <div className="px-4 md:px-6 py-3 max-w-7xl mx-auto">
-449: 
-450:           {/* Desktop */}
-451:           <div className="hidden md:flex items-center justify-between">
-452:             {/* Logo + título */}
-453:             <div className="flex items-center gap-3">
-454:               <div className="w-9 h-9 bg-blue-50 rounded-full flex items-center justify-center">
-455:                 <Armchair className="w-4 h-4 text-primary" />
-456:               </div>
-457:               <div>
-458:                 <h1 className="text-lg font-bold leading-tight">Gestión de Espacios</h1>
-459:                 <p className="text-[11px] text-muted-foreground leading-none">NODO Tecnológico</p>
-460:               </div>
-461:             </div>
-462: 
-463:             {/* Acciones globales */}
-464:             <div className="flex items-center gap-2">
-465:               <div className="text-right text-sm mr-1">
-466:                 <p className="font-medium leading-tight">{admin.nombre}</p>
-467:                 <p className="text-xs text-muted-foreground leading-none">{admin.email}</p>
-468:               </div>
-469: 
-470:               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleRefresh} title="Actualizar">
-471:                 <RefreshCw className="w-4 h-4" />
-472:               </Button>
-473:               <Button
-474:                 variant="ghost"
-475:                 size="icon"
-476:                 className="h-8 w-8 text-destructive hover:text-destructive"
-477:                 onClick={logout}
-478:                 title="Cerrar sesión"
-479:               >
-480:                 <LogOut className="w-4 h-4" />
-481:               </Button>
-482: 
-483:               {isAdmin && (
-484:                 <div className="flex items-center gap-1.5 pl-2 border-l border-border">
-485:                   <Switch
-486:                     id="admin-mode"
-487:                     checked={isAdminMode}
-488:                     onCheckedChange={setIsAdminMode}
-489:                     className="scale-90"
-490:                   />
-491:                   <Label htmlFor="admin-mode" className="text-xs cursor-pointer">Admin</Label>
-492:                 </div>
-493:               )}
-494:             </div>
-495:           </div>
-496: 
-497:           {/* Mobile */}
-498:           <div className="md:hidden flex items-center justify-between">
-499:             <div className="flex items-center gap-2">
-500:               <div className="w-8 h-8 bg-blue-50 rounded-full flex items-center justify-center">
-501:                 <Armchair className="w-4 h-4 text-primary" />
-502:               </div>
-503:               <div>
-504:                 <h1 className="text-base font-bold leading-tight">Gestión de Espacios</h1>
-505:                 <p className="text-[10px] text-muted-foreground">{admin.nombre}</p>
-506:               </div>
-507:             </div>
-508: 
-509:             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-510:               <SheetTrigger asChild>
-511:                 <Button variant="ghost" size="icon">
-512:                   <Menu className="w-5 h-5" />
-513:                 </Button>
-514:               </SheetTrigger>
-515:               <SheetContent side="right" className="w-72">
-516:                 <div className="space-y-3 pt-4">
-517:                   <div className="pb-3 border-b">
-518:                     <p className="font-semibold">{admin.nombre}</p>
-519:                     <p className="text-xs text-muted-foreground">{admin.email}</p>
-520:                   </div>
-521:                   <Button
-522:                     variant="outline"
-523:                     className="w-full justify-start gap-2"
-524:                     onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}
-525:                   >
-526:                     <RefreshCw className="w-4 h-4" /> Actualizar
-527:                   </Button>
-528:                   {isAdmin && (
-529:                     <div className="flex items-center justify-between py-2 border-t">
-530:                       <Label className="text-sm cursor-pointer">Modo admin</Label>
-531:                       <Switch checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-532:                     </div>
-533:                   )}
-534:                   <Button
-535:                     variant="ghost"
-536:                     className="w-full justify-start gap-2 text-destructive"
-537:                     onClick={logout}
-538:                   >
-539:                     <LogOut className="w-4 h-4" /> Cerrar sesión
-540:                   </Button>
-541:                 </div>
-542:               </SheetContent>
-543:             </Sheet>
-544:           </div>
-545: 
-546:         </div>
-547:       </div>
-548: 
-549:       {/* ══ Contenido principal ════════════════════════════════ */}
-550:       <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-28 space-y-5">
-551: 
-552:         {/* Stats */}
-553:         <div className="grid grid-cols-3 gap-3">
-554:           <div className="bg-white rounded-xl border border-primary/10 p-3 md:p-4 text-center shadow-sm">
-555:             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
-556:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
-557:           </div>
-558:           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
-559:             <p className="text-xl md:text-2xl font-bold text-green-600">{availableCount}</p>
-560:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
-561:           </div>
-562:           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
-563:             <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
-564:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
-565:           </div>
-566:         </div>
-567: 
-568:         {/* Admin panel */}
-569:         {isAdminMode && isAdmin && (
-570:           <AdminPanel
-571:             isBlocked={isBlocked}
-572:             eventName={eventName}
-573:             onToggleBlock={handleToggleBlock}
-574:           />
-575:         )}
-576: 
-577:         {/* ══ Card principal con tabs ═══════════════════════ */}
-578:         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
-579: 
-580:           {/* ── Barra de navegación de vistas ──────────────── */}
-581:           <div className="border-b border-border px-4 pt-4 pb-0">
-582:             <div className="flex gap-1 overflow-x-auto scrollbar-none">
-583:               {VISTAS.map(({ id, label, icon: Icon }) => {
-584:                 // Mapa y Agendar no tienen estado "activo" (abren modal)
-585:                 const isModal   = id === "mapa" || id === "agendar"
-586:                 const isActive  = !isModal && vista === id
-587: 
-588:                 return (
-589:                   <button
-590:                     key={id}
-591:                     onClick={() => handleVista(id)}
-592:                     className={cn(
-593:                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
-594:                       isActive
-595:                         ? "border-primary text-primary bg-primary/5"
-596:                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-597:                       // Agendar tiene color especial
-598:                       id === "agendar" && !isActive
-599:                         ? "hover:text-primary"
-600:                         : "",
-601:                     )}
-602:                   >
-603:                     <Icon className="w-4 h-4" />
-604:                     <span>{label}</span>
-605:                   </button>
-606:                 )
-607:               })}
-608:             </div>
-609:           </div>
-610: 
-611:           {/* ── Contenido de la vista activa ───────────────── */}
-612:           <div className="p-4 md:p-6">
-613: 
-614:             {/* Disponibilidad */}
-615:             {vista === "disponibilidad" && (
-616:               <DisponibilidadInline onSuccess={fetchSeats} />
-617:             )}
-618: 
-619:             {/* Asientos */}
-620:             {vista === "asientos" && (
-621:               <div className="space-y-4">
-622:                 <div className="flex items-center justify-between">
-623:                   <SeatLegend />
-624:                   {isBlocked && (
-625:                     <span className="text-xs text-destructive font-medium">
-626:                       Bloqueado · {eventName}
-627:                     </span>
-628:                   )}
-629:                 </div>
-630:                 <div className="overflow-x-auto">
-631:                   <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
-632:                 </div>
-633:               </div>
-634:             )}
-635: 
-636:           </div>
-637:         </div>
+446:           {/* Áreas */}
+447:           <div className="space-y-2">
+448:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+449:               <MapPin className="w-3.5 h-3.5" /> Áreas a ocupar
+450:             </Label>
+451:             {loadingAreas ? (
+452:               <div className="flex items-center gap-2 py-3 text-muted-foreground">
+453:                 <Loader2 className="w-4 h-4 animate-spin" />
+454:                 <span className="text-sm">Cargando áreas...</span>
+455:               </div>
+456:             ) : (
+457:               <div className="flex flex-wrap gap-2">
+458:                 {areas.map((area) => {
+459:                   const sel = form.areaIds.includes(area.id)
+460:                   return (
+461:                     <button
+462:                       key={area.id}
+463:                       type="button"
+464:                       onClick={() => toggleArea(area.id)}
+465:                       className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+466:                         sel
+467:                           ? "bg-primary text-primary-foreground border-primary"
+468:                           : area.estado === "OCUPADO"
+469:                             ? "bg-red-50 text-red-500 border-red-200 opacity-60 cursor-not-allowed"
+470:                             : "bg-muted/40 hover:bg-muted border-border"
+471:                       }`}
+472:                       disabled={area.estado === "OCUPADO" && !sel}
+473:                     >
+474:                       {sel && <CheckSquare className="w-3.5 h-3.5" />}
+475:                       <span>{area.nombre}</span>
+476:                       {area.estado === "OCUPADO" && !sel && (
+477:                         <Badge variant="destructive" className="text-[10px] px-1 py-0 ml-1">Ocupada</Badge>
+478:                       )}
+479:                     </button>
+480:                   )
+481:                 })}
+482:               </div>
+483:             )}
+484:           </div>
+485: 
+486:           {/* Edad opcional */}
+487:           <div className="border rounded-lg overflow-hidden">
+488:             <button
+489:               type="button"
+490:               onClick={() => setShowEdad(!showEdad)}
+491:               className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-muted/40 transition-colors"
+492:             >
+493:               <span>Rango de edad (opcional)</span>
+494:               {showEdad ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+495:             </button>
+496:             {showEdad && (
+497:               <div className="grid grid-cols-2 gap-3 px-4 pb-4 pt-2 border-t">
+498:                 <div className="space-y-1.5">
+499:                   <Label className="text-xs">Edad mínima</Label>
+500:                   <Input
+501:                     type="number"
+502:                     min={0}
+503:                     max={120}
+504:                     placeholder="0"
+505:                     value={form.edadMin ?? ""}
+506:                     onChange={(e) => set("edadMin", e.target.value ? Number(e.target.value) : undefined)}
+507:                   />
+508:                 </div>
+509:                 <div className="space-y-1.5">
+510:                   <Label className="text-xs">Edad máxima</Label>
+511:                   <Input
+512:                     type="number"
+513:                     min={0}
+514:                     max={120}
+515:                     placeholder="120"
+516:                     value={form.edadMax ?? ""}
+517:                     onChange={(e) => set("edadMax", e.target.value ? Number(e.target.value) : undefined)}
+518:                   />
+519:                 </div>
+520:               </div>
+521:             )}
+522:           </div>
+523: 
+524:           {/* Anexos */}
+525:           <div className="space-y-2">
+526:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+527:               <Link2 className="w-3.5 h-3.5" /> Anexos (URLs, opcional)
+528:             </Label>
+529:             <div className="flex gap-2">
+530:               <Input
+531:                 placeholder="https://..."
+532:                 value={nuevoAnexo}
+533:                 onChange={(e) => setNuevoAnexo(e.target.value)}
+534:                 onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarAnexo())}
+535:               />
+536:               <Button type="button" variant="outline" size="icon" onClick={agregarAnexo}>
+537:                 <Plus className="w-4 h-4" />
+538:               </Button>
+539:             </div>
+540:             {(form.anexos ?? []).length > 0 && (
+541:               <div className="space-y-1.5">
+542:                 {(form.anexos ?? []).map((url, i) => (
+543:                   <div key={i} className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+544:                     <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+545:                     <span className="text-xs truncate flex-1">{url}</span>
+546:                     <button type="button" onClick={() => quitarAnexo(i)}>
+547:                       <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+548:                     </button>
+549:                   </div>
+550:                 ))}
+551:               </div>
+552:             )}
+553:           </div>
+554:         </div>
+555: 
+556:         <DialogFooter className="gap-2 pt-2">
+557:           <Button variant="outline" onClick={handleClose} disabled={loading}>
+558:             Cancelar
+559:           </Button>
+560:           <Button onClick={handleSubmit} disabled={loading}>
+561:             {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Agendando...</> : "Agendar"}
+562:           </Button>
+563:         </DialogFooter>
+564:       </DialogContent>
+565:     </Dialog>
+566:   )
+567: }
+568: EOF
+569: echo "✅  components/agendar-modal.tsx"
+570: 
+571: # ════════════════════════════════════════════════════════════════════════════
+572: # 4. components/disponibilidad-inline.tsx — usa getActivas, muestra rango
+573: # ════════════════════════════════════════════════════════════════════════════
+574: echo "📄  components/disponibilidad-inline.tsx..."
+575: cat > components/disponibilidad-inline.tsx << 'EOF'
+576: "use client"
+577: 
+578: import { useState, useEffect, useCallback } from "react"
+579: import { ocupacionesApi } from "@/lib/ocupacion-api"
+580: import type { Ocupacion } from "@/types/ocupacion"
+581: import { useToast } from "@/hooks/use-toast"
+582: import { Button } from "@/components/ui/button"
+583: import { Badge }  from "@/components/ui/badge"
+584: import {
+585:   Loader2,
+586:   MapPin,
+587:   Clock,
+588:   Users,
+589:   Unlock,
+590:   RefreshCw,
+591:   Inbox,
+592:   Link2,
+593:   ChevronDown,
+594:   ChevronUp,
+595:   CalendarDays,
+596: } from "lucide-react"
+597: import { cn } from "@/lib/utils"
+598: 
+599: interface DisponibilidadInlineProps {
+600:   onSuccess?: () => void
+601: }
+602: 
+603: function formatFecha(iso: string): string {
+604:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+605:   return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
+606:     weekday: "short", day: "numeric", month: "short",
+607:   })
+608: }
+609: 
+610: function esHoy(iso: string): boolean {
+611:   const hoy = new Date()
+612:   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
+613:   const f = new Date(y, m - 1, d)
+614:   return f.getDate() === hoy.getDate() && f.getMonth() === hoy.getMonth() && f.getFullYear() === hoy.getFullYear()
+615: }
+616: 
+617: export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
+618:   const { toast } = useToast()
+619:   const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
+620:   const [loading,     setLoading]     = useState(false)
+621:   const [liberando,   setLiberando]   = useState<number | null>(null)
+622:   const [expandedId,  setExpandedId]  = useState<number | null>(null)
+623: 
+624:   const cargar = useCallback(async (silencioso = false) => {
+625:     if (!silencioso) setLoading(true)
+626:     try {
+627:       // Usa el endpoint /activas — solo las vigentes desde hoy
+628:       const data = await ocupacionesApi.getActivas()
+629:       setOcupaciones(data)
+630:     } catch {
+631:       if (!silencioso) toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
+632:     } finally {
+633:       if (!silencioso) setLoading(false)
+634:     }
+635:   }, [toast])
+636: 
+637:   useEffect(() => { cargar() }, [cargar])
 638: 
-639:       </div>
-640: 
-641:       {/* ══ Modales ════════════════════════════════════════════ */}
-642:       <MapaModal
-643:         open={mapaOpen}
-644:         onOpenChange={setMapaOpen}
-645:       />
-646:       <AgendarModal
-647:         open={agendarOpen}
-648:         onOpenChange={setAgendarOpen}
-649:         onSuccess={fetchSeats}
-650:       />
-651: 
-652:     </div>
-653:   )
-654: }
-655: EOF
-656: echo "✅  app/page.tsx — reescrito con tabs contextuales"
-657: 
-658: # ════════════════════════════════════════════════════════════════
-659: # 3. Verificar shadcn table (puede no estar instalado)
-660: # ════════════════════════════════════════════════════════════════
-661: if [ ! -f "components/ui/table.tsx" ]; then
-662:   echo "📦  Instalando shadcn table..."
-663:   pnpm dlx shadcn@latest add table --yes
-664: fi
-665: 
-666: # ════════════════════════════════════════════════════════════════
-667: # 4. Build
-668: # ════════════════════════════════════════════════════════════════
-669: echo ""
-670: echo "🔨  Compilando..."
-671: pnpm build
-672: 
-673: echo ""
-674: echo "╔══════════════════════════════════════════════════════════════════╗"
-675: echo "║  ✅  front-layout-v2.sh completado                              ║"
-676: echo "╚══════════════════════════════════════════════════════════════════╝"
-677: echo ""
-678: echo "  Estructura de la pantalla:"
-679: echo ""
-680: echo "  ┌─ Header ────────────────────────────────────────────────┐"
-681: echo "  │  [Logo + Título]          [Refresh] [Logout] [Admin sw] │"
-682: echo "  └──────────────────────────────────────────────────────────┘"
-683: echo ""
-684: echo "  ┌─ Stats ──────────────────────────────────────────────────┐"
-685: echo "  │   Total · Libres · Ocupados                              │"
-686: echo "  └──────────────────────────────────────────────────────────┘"
-687: echo ""
-688: echo "  ┌─ Card principal ─────────────────────────────────────────┐"
-689: echo "  │  [Disponibilidad] [Asientos] [Mapa↗] [Agendar↗]         │"
-690: echo "  │  ─────────────────────────────────────────────────────── │"
-691: echo "  │  Disponibilidad → tabla inline + botones Liberar         │"
-692: echo "  │  Asientos       → SeatGrid (vista por defecto)           │"
-693: echo "  │  Mapa    ↗      → abre MapaModal                         │"
-694: echo "  │  Agendar ↗      → abre AgendarModal                      │"
-695: echo "  └──────────────────────────────────────────────────────────┘"
-696: echo ""
+639:   const liberar = async (oc: Ocupacion) => {
+640:     setLiberando(oc.id)
+641:     try {
+642:       await ocupacionesApi.liberar(oc.id)
+643:       toast({ title: "✅ Zonas liberadas", description: `"${oc.titulo}" finalizada` })
+644:       await cargar(true)
+645:       onSuccess?.()
+646:     } catch (err) {
+647:       toast({ variant: "destructive", title: "Error", description: err instanceof Error ? err.message : "Error" })
+648:     } finally {
+649:       setLiberando(null)
+650:     }
+651:   }
+652: 
+653:   const toggleExpand = (id: number) => setExpandedId(expandedId === id ? null : id)
+654: 
+655:   if (loading) {
+656:     return (
+657:       <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+658:         <Loader2 className="w-5 h-5 animate-spin" />
+659:         <span className="text-sm">Cargando ocupaciones...</span>
+660:       </div>
+661:     )
+662:   }
+663: 
+664:   if (ocupaciones.length === 0) {
+665:     return (
+666:       <div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+667:         <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center">
+668:           <Inbox className="w-7 h-7 opacity-50" />
+669:         </div>
+670:         <div className="text-center">
+671:           <p className="text-sm font-medium">Sin ocupaciones activas</p>
+672:           <p className="text-xs opacity-60 mt-0.5">Todas las áreas están disponibles</p>
+673:         </div>
+674:         <Button variant="ghost" size="sm" onClick={() => cargar()} className="gap-1.5 text-xs">
+675:           <RefreshCw className="w-3.5 h-3.5" /> Actualizar
+676:         </Button>
+677:       </div>
+678:     )
+679:   }
+680: 
+681:   return (
+682:     <div className="space-y-4">
+683:       {/* Cabecera */}
+684:       <div className="flex items-center justify-between">
+685:         <div>
+686:           <span className="text-sm font-semibold text-foreground">
+687:             {ocupaciones.length} ocupación{ocupaciones.length !== 1 ? "es" : ""} activa{ocupaciones.length !== 1 ? "s" : ""}
+688:           </span>
+689:           <span className="text-xs text-muted-foreground ml-2">
+690:             · {ocupaciones.reduce((a, o) => a + o.areas.length, 0)} zona{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""} ocupada{ocupaciones.reduce((a, o) => a + o.areas.length, 0) !== 1 ? "s" : ""}
+691:           </span>
+692:         </div>
+693:         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cargar()}>
+694:           <RefreshCw className="w-3.5 h-3.5" />
+695:         </Button>
+696:       </div>
+697: 
+698:       {/* Cards */}
+699:       <div className="space-y-3">
+700:         {ocupaciones.map((oc) => {
+701:           const hoy      = esHoy(oc.fechaDesde)
+702:           const multidia = oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0]
+703:           const expanded = expandedId === oc.id
+704: 
+705:           return (
+706:             <div
+707:               key={oc.id}
+708:               className={cn(
+709:                 "rounded-xl border border-l-4 border-l-primary bg-white shadow-sm overflow-hidden",
+710:                 hoy && "ring-1 ring-primary/20",
+711:               )}
+712:             >
+713:               {/* Header clickeable */}
+714:               <button
+715:                 type="button"
+716:                 onClick={() => toggleExpand(oc.id)}
+717:                 className="w-full flex items-start justify-between gap-3 px-4 py-3 hover:bg-muted/20 transition-colors text-left"
+718:               >
+719:                 <div className="min-w-0 space-y-1">
+720:                   <div className="flex items-center gap-2 flex-wrap">
+721:                     <p className="text-sm font-semibold text-foreground">{oc.titulo}</p>
+722:                     {hoy && (
+723:                       <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+724:                         Hoy
+725:                       </span>
+726:                     )}
+727:                   </div>
+728:                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+729:                     <span className="flex items-center gap-1">
+730:                       <CalendarDays className="w-3 h-3" />
+731:                       {formatFecha(oc.fechaDesde)}
+732:                       {multidia && <> → {formatFecha(oc.fechaHasta)}</>}
+733:                     </span>
+734:                     <span className="flex items-center gap-1 tabular-nums">
+735:                       <Clock className="w-3 h-3" />
+736:                       {oc.horaDesde} – {oc.horaHasta}
+737:                     </span>
+738:                     <span className="flex items-center gap-1">
+739:                       <Users className="w-3 h-3" />
+740:                       {oc.cantidadPersonas} personas
+741:                     </span>
+742:                   </div>
+743:                 </div>
+744:                 {expanded ? <ChevronUp className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 flex-shrink-0 mt-0.5 text-muted-foreground" />}
+745:               </button>
+746: 
+747:               {/* Detalle expandible */}
+748:               {expanded && (
+749:                 <div className="border-t px-4 py-3 space-y-3 bg-muted/10">
+750:                   {/* Organizador */}
+751:                   <div className="flex items-center gap-2 text-xs">
+752:                     <Users className="w-3.5 h-3.5 text-muted-foreground" />
+753:                     <span className="text-muted-foreground">Organizador:</span>
+754:                     <span className="font-medium text-foreground">{oc.organizador}</span>
+755:                   </div>
+756: 
+757:                   {/* Áreas */}
+758:                   <div className="space-y-1">
+759:                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+760:                       <MapPin className="w-3.5 h-3.5" /> Áreas ocupadas:
+761:                     </div>
+762:                     <div className="flex flex-wrap gap-1.5">
+763:                       {oc.areas.length > 0
+764:                         ? oc.areas.map((r) => (
+765:                             <Badge key={r.areaId} variant="secondary" className="text-xs">
+766:                               {r.area.nombre}
+767:                             </Badge>
+768:                           ))
+769:                         : <span className="text-xs text-muted-foreground">Sin zonas</span>
+770:                       }
+771:                     </div>
+772:                   </div>
+773: 
+774:                   {/* Requerimiento */}
+775:                   {oc.requerimiento && (
+776:                     <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
+777:                   )}
+778: 
+779:                   {/* Anexos */}
+780:                   {oc.anexos?.length > 0 && (
+781:                     <div className="space-y-1">
+782:                       <p className="text-xs text-muted-foreground flex items-center gap-1">
+783:                         <Link2 className="w-3 h-3" /> Anexos:
+784:                       </p>
+785:                       {oc.anexos.map((url, i) => (
+786:                         <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+787:                           className="text-xs text-primary underline truncate block">
+788:                           {url}
+789:                         </a>
+790:                       ))}
+791:                     </div>
+792:                   )}
+793: 
+794:                   {/* Acción liberar */}
+795:                   <div className="pt-1">
+796:                     <Button
+797:                       size="sm"
+798:                       variant="outline"
+799:                       className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
+800:                       onClick={() => liberar(oc)}
+801:                       disabled={liberando === oc.id}
+802:                     >
+803:                       {liberando === oc.id
+804:                         ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
+805:                         : <><Unlock className="w-3 h-3" /> Liberar áreas</>
+806:                       }
+807:                     </Button>
+808:                   </div>
+809:                 </div>
+810:               )}
+811:             </div>
+812:           )
+813:         })}
+814:       </div>
+815:     </div>
+816:   )
+817: }
+818: EOF
+819: echo "✅  components/disponibilidad-inline.tsx"
+820: 
+821: # ════════════════════════════════════════════════════════════════════════════
+822: # 5. Build
+823: # ════════════════════════════════════════════════════════════════════════════
+824: echo ""
+825: echo "🔨  Compilando..."
+826: pnpm build
+827: 
+828: echo ""
+829: echo "╔══════════════════════════════════════════════════════════════════╗"
+830: echo "║  ✅  v5-front-ocupacion-fechas.sh — v1.0.0 completado           ║"
+831: echo "╚══════════════════════════════════════════════════════════════════╝"
+832: echo ""
+833: echo "  Cambios aplicados:"
+834: echo "  · types/ocupacion.ts     → fechaDesde/fechaHasta/horaDesde/horaHasta"
+835: echo "  · lib/ocupacion-api.ts   → getActivas() usa /ocupaciones/activas"
+836: echo "  · agendar-modal.tsx      → 2 date pickers + 2 time pickers"
+837: echo "  · disponibilidad-inline  → cards con rango fecha/hora expandibles"
+838: echo ""
 ```

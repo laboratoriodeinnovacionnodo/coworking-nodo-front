@@ -43,366 +43,334 @@ interface AgendarModalProps {
   onSuccess?:   () => void
 }
 
-const hoy = () => new Date().toISOString().split("T")[0]
-
-const EMPTY_FORM: CreateOcupacionPayload = {
+const EMPTY_FORM = {
   titulo:           "",
   requerimiento:    "",
   cantidadPersonas: 1,
   organizador:      "",
-  fechaDesde:       hoy(),
-  fechaHasta:       hoy(),
-  horaDesde:        "09:00",
-  horaHasta:        "12:00",
-  edadMin:          undefined,
-  edadMax:          undefined,
-  anexos:           [],
-  areaIds:          [],
+  fechaDesde:       "",
+  fechaHasta:       "",
+  horaDesde:        "",
+  horaHasta:        "",
+  edadMin:          "",
+  edadMax:          "",
 }
 
 export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
   const { toast } = useToast()
 
-  const [form,       setForm]       = useState<CreateOcupacionPayload>(EMPTY_FORM)
-  const [nuevoAnexo, setNuevoAnexo] = useState("")
+  const [form,       setForm]       = useState(EMPTY_FORM)
+  const [anexos,     setAnexos]     = useState<string[]>([])
+  const [newAnexo,   setNewAnexo]   = useState("")
+  const [areas,      setAreas]      = useState<BackendArea[]>([])
+  const [areaIds,    setAreaIds]    = useState<number[]>([])
   const [loading,    setLoading]    = useState(false)
+  const [loadAreas,  setLoadAreas]  = useState(false)
   const [showEdad,   setShowEdad]   = useState(false)
+  const [showAnexos, setShowAnexos] = useState(false)
 
-  const [areas,        setAreas]        = useState<BackendArea[]>([])
-  const [loadingAreas, setLoadingAreas] = useState(false)
-
+  // Cargar áreas disponibles al abrir
   useEffect(() => {
     if (!open) return
-    setLoadingAreas(true)
-    areasApi
-      .getAll()
-      .then((data) => setAreas(data))
+    setLoadAreas(true)
+    areasApi.getAll()
+      .then(setAreas)
       .catch(() => toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }))
-      .finally(() => setLoadingAreas(false))
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+      .finally(() => setLoadAreas(false))
+  }, [open, toast])
 
-  const set = useCallback(
-    <K extends keyof CreateOcupacionPayload>(key: K, val: CreateOcupacionPayload[K]) =>
-      setForm((p) => ({ ...p, [key]: val })),
-    [],
-  )
-
-  const toggleArea = (id: number) => {
-    const ids = form.areaIds
-    set("areaIds", ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id])
-  }
-
-  const agregarAnexo = () => {
-    const url = nuevoAnexo.trim()
-    if (!url) return
-    try { new URL(url) } catch {
-      toast({ variant: "destructive", title: "URL inválida", description: "Ingresá una URL con http/https" })
-      return
-    }
-    if ((form.anexos ?? []).includes(url)) {
-      toast({ variant: "destructive", title: "Duplicado", description: "Esa URL ya fue agregada" })
-      return
-    }
-    set("anexos", [...(form.anexos ?? []), url])
-    setNuevoAnexo("")
-  }
-
-  const quitarAnexo = (i: number) =>
-    set("anexos", (form.anexos ?? []).filter((_, idx) => idx !== i))
-
-  const resetForm = () => {
-    setForm({ ...EMPTY_FORM, fechaDesde: hoy(), fechaHasta: hoy() })
-    setNuevoAnexo("")
+  const resetForm = useCallback(() => {
+    setForm(EMPTY_FORM)
+    setAnexos([])
+    setNewAnexo("")
+    setAreaIds([])
     setShowEdad(false)
+    setShowAnexos(false)
+  }, [])
+
+  const handleClose = useCallback(() => {
+    onOpenChange(false)
+    resetForm()
+  }, [onOpenChange, resetForm])
+
+  const toggleArea = (id: number) =>
+    setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+
+  const addAnexo = () => {
+    const url = newAnexo.trim()
+    if (!url) return
+    setAnexos((prev) => [...prev, url])
+    setNewAnexo("")
   }
 
   const handleSubmit = async () => {
-    // Validaciones
-    if (!form.titulo.trim())        return toast({ variant: "destructive", title: "Requerido", description: "Ingresá un título" })
-    if (!form.requerimiento.trim()) return toast({ variant: "destructive", title: "Requerido", description: "Ingresá el requerimiento" })
-    if (!form.organizador.trim())   return toast({ variant: "destructive", title: "Requerido", description: "Ingresá el organizador" })
-    if (!form.fechaDesde)           return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná la fecha de inicio" })
-    if (!form.fechaHasta)           return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná la fecha de fin" })
-    if (!form.horaDesde)            return toast({ variant: "destructive", title: "Requerido", description: "Ingresá la hora de inicio" })
-    if (!form.horaHasta)            return toast({ variant: "destructive", title: "Requerido", description: "Ingresá la hora de fin" })
-    if (form.cantidadPersonas < 1)  return toast({ variant: "destructive", title: "Inválido",  description: "Mínimo 1 persona" })
-    if (form.areaIds.length === 0)  return toast({ variant: "destructive", title: "Requerido", description: "Seleccioná al menos un área" })
+    // Validaciones básicas del formulario
+    if (!form.titulo.trim())       { toast({ variant: "destructive", title: "Falta título" });        return }
+    if (!form.organizador.trim())  { toast({ variant: "destructive", title: "Falta organizador" });   return }
+    if (!form.requerimiento.trim()){ toast({ variant: "destructive", title: "Falta requerimiento" }); return }
+    if (!form.fechaDesde)          { toast({ variant: "destructive", title: "Falta fecha desde" });   return }
+    if (!form.fechaHasta)          { toast({ variant: "destructive", title: "Falta fecha hasta" });   return }
+    if (!form.horaDesde)           { toast({ variant: "destructive", title: "Falta hora desde" });    return }
+    if (!form.horaHasta)           { toast({ variant: "destructive", title: "Falta hora hasta" });    return }
+    if (areaIds.length === 0)      { toast({ variant: "destructive", title: "Seleccioná al menos un área" }); return }
 
-    if (form.fechaDesde > form.fechaHasta) {
-      return toast({ variant: "destructive", title: "Fecha inválida", description: "La fecha de inicio no puede ser posterior a la de fin" })
-    }
-    if (form.fechaDesde === form.fechaHasta && form.horaDesde >= form.horaHasta) {
-      return toast({ variant: "destructive", title: "Hora inválida", description: "La hora de inicio debe ser anterior a la de fin" })
-    }
-    if (form.edadMin !== undefined && form.edadMax !== undefined && form.edadMin > form.edadMax) {
-      return toast({ variant: "destructive", title: "Rango inválido", description: "La edad mínima no puede superar la máxima" })
+    const payload: CreateOcupacionPayload = {
+      titulo:           form.titulo.trim(),
+      requerimiento:    form.requerimiento.trim(),
+      cantidadPersonas: Number(form.cantidadPersonas),
+      organizador:      form.organizador.trim(),
+      fechaDesde:       form.fechaDesde,
+      fechaHasta:       form.fechaHasta,
+      horaDesde:        form.horaDesde,
+      horaHasta:        form.horaHasta,
+      anexos,
+      areaIds,
+      ...(form.edadMin && { edadMin: Number(form.edadMin) }),
+      ...(form.edadMax && { edadMax: Number(form.edadMax) }),
     }
 
+    setLoading(true)
     try {
-      setLoading(true)
-      const payload: CreateOcupacionPayload = {
-        titulo:           form.titulo.trim(),
-        requerimiento:    form.requerimiento.trim(),
-        cantidadPersonas: Number(form.cantidadPersonas),
-        organizador:      form.organizador.trim(),
-        fechaDesde:       form.fechaDesde,
-        fechaHasta:       form.fechaHasta,
-        horaDesde:        form.horaDesde,
-        horaHasta:        form.horaHasta,
-        areaIds:          form.areaIds,
-        anexos:           form.anexos ?? [],
-        ...(form.edadMin !== undefined && { edadMin: Number(form.edadMin) }),
-        ...(form.edadMax !== undefined && { edadMax: Number(form.edadMax) }),
-      }
-
       await ocupacionesApi.create(payload)
-
-      toast({
-        title:       "✅ Ocupación agendada",
-        description: `"${payload.titulo}" registrada — áreas marcadas como ocupadas`,
-      })
-
-      resetForm()
-      onOpenChange(false)
+      toast({ title: "✅ Ocupación agendada", description: `"${payload.titulo}" creada correctamente` })
+      handleClose()
+      // ✅ FIX: notifica al padre para que recargue la lista
       onSuccess?.()
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "Error desconocido"
-      // El backend devuelve el mensaje de conflicto en el body
-      const msg = raw.includes("Conflicto")
-        ? raw.replace("Error al crear ocupación: ", "").replace(/^\{"message":"/, "").replace(/".*$/, "")
-        : raw
+      const msg = err instanceof Error ? err.message : "Error desconocido"
       toast({ variant: "destructive", title: "Error al agendar", description: msg })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleClose = () => {
-    if (loading) return
-    resetForm()
-    onOpenChange(false)
-  }
-
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-xl flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 text-xl">
             <CalendarDays className="w-5 h-5 text-primary" />
             Agendar Ocupación
           </DialogTitle>
           <DialogDescription>
-            Completá los datos y seleccioná las áreas a ocupar.
+            Reservá uno o más espacios para un evento o actividad
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
-
+        <div className="space-y-4 py-2">
           {/* Título */}
           <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <FileText className="w-3.5 h-3.5" /> Título
+            <Label htmlFor="titulo" className="flex items-center gap-1.5 text-sm font-medium">
+              <FileText className="w-3.5 h-3.5" /> Título *
             </Label>
             <Input
-              placeholder="Ej: Reunión de equipo"
+              id="titulo"
+              placeholder="Ej: Taller de fotografía"
               value={form.titulo}
-              onChange={(e) => set("titulo", e.target.value)}
+              onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
             />
           </div>
 
           {/* Organizador */}
           <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <User className="w-3.5 h-3.5" /> Organizador
+            <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
+              <User className="w-3.5 h-3.5" /> Organizador *
             </Label>
             <Input
+              id="organizador"
               placeholder="Nombre del responsable"
               value={form.organizador}
-              onChange={(e) => set("organizador", e.target.value)}
+              onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
+            />
+          </div>
+
+          {/* Requerimiento */}
+          <div className="space-y-1.5">
+            <Label htmlFor="requerimiento" className="flex items-center gap-1.5 text-sm font-medium">
+              <FileText className="w-3.5 h-3.5" /> Requerimiento *
+            </Label>
+            <Textarea
+              id="requerimiento"
+              placeholder="Describe los requerimientos del espacio..."
+              rows={2}
+              value={form.requerimiento}
+              onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
+            />
+          </div>
+
+          {/* Cantidad de personas */}
+          <div className="space-y-1.5">
+            <Label htmlFor="cantPersonas" className="flex items-center gap-1.5 text-sm font-medium">
+              <Users className="w-3.5 h-3.5" /> Cantidad de personas *
+            </Label>
+            <Input
+              id="cantPersonas"
+              type="number"
+              min={1}
+              value={form.cantidadPersonas}
+              onChange={(e) => setForm((f) => ({ ...f, cantidadPersonas: Number(e.target.value) }))}
             />
           </div>
 
           {/* Fechas */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-sm font-medium">
-                <CalendarDays className="w-3.5 h-3.5" /> Fecha inicio
+              <Label htmlFor="fechaDesde" className="flex items-center gap-1.5 text-sm font-medium">
+                <CalendarDays className="w-3.5 h-3.5" /> Fecha desde *
               </Label>
               <Input
+                id="fechaDesde"
                 type="date"
-                min={hoy()}
                 value={form.fechaDesde}
-                onChange={(e) => {
-                  set("fechaDesde", e.target.value)
-                  if (e.target.value > form.fechaHasta) set("fechaHasta", e.target.value)
-                }}
+                onChange={(e) => setForm((f) => ({ ...f, fechaDesde: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-sm font-medium">
-                <CalendarDays className="w-3.5 h-3.5" /> Fecha fin
+              <Label htmlFor="fechaHasta" className="flex items-center gap-1.5 text-sm font-medium">
+                <CalendarDays className="w-3.5 h-3.5" /> Fecha hasta *
               </Label>
               <Input
+                id="fechaHasta"
                 type="date"
-                min={form.fechaDesde || hoy()}
                 value={form.fechaHasta}
-                onChange={(e) => set("fechaHasta", e.target.value)}
+                onChange={(e) => setForm((f) => ({ ...f, fechaHasta: e.target.value }))}
               />
             </div>
           </div>
 
-          {/* Horarios */}
+          {/* Horas */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-sm font-medium">
-                <Clock className="w-3.5 h-3.5" /> Hora inicio
+              <Label htmlFor="horaDesde" className="flex items-center gap-1.5 text-sm font-medium">
+                <Clock className="w-3.5 h-3.5" /> Hora desde *
               </Label>
               <Input
+                id="horaDesde"
                 type="time"
                 value={form.horaDesde}
-                onChange={(e) => set("horaDesde", e.target.value)}
+                onChange={(e) => setForm((f) => ({ ...f, horaDesde: e.target.value }))}
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5 text-sm font-medium">
-                <Clock className="w-3.5 h-3.5" /> Hora fin
+              <Label htmlFor="horaHasta" className="flex items-center gap-1.5 text-sm font-medium">
+                <Clock className="w-3.5 h-3.5" /> Hora hasta *
               </Label>
               <Input
+                id="horaHasta"
                 type="time"
                 value={form.horaHasta}
-                onChange={(e) => set("horaHasta", e.target.value)}
+                onChange={(e) => setForm((f) => ({ ...f, horaHasta: e.target.value }))}
               />
             </div>
-          </div>
-
-          {/* Personas */}
-          <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <Users className="w-3.5 h-3.5" /> Cantidad de personas
-            </Label>
-            <Input
-              type="number"
-              min={1}
-              value={form.cantidadPersonas}
-              onChange={(e) => set("cantidadPersonas", Number(e.target.value))}
-            />
-          </div>
-
-          {/* Requerimiento */}
-          <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <FileText className="w-3.5 h-3.5" /> Requerimientos
-            </Label>
-            <Textarea
-              placeholder="Descripción o necesidades especiales"
-              rows={3}
-              value={form.requerimiento}
-              onChange={(e) => set("requerimiento", e.target.value)}
-            />
           </div>
 
           {/* Áreas */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <MapPin className="w-3.5 h-3.5" /> Áreas a ocupar
+              <MapPin className="w-3.5 h-3.5" /> Áreas a reservar *
             </Label>
-            {loadingAreas ? (
-              <div className="flex items-center gap-2 py-3 text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">Cargando áreas...</span>
+            {loadAreas ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {areas.map((area) => {
-                  const sel = form.areaIds.includes(area.id)
+                  const sel = areaIds.includes(area.id)
                   return (
                     <button
                       key={area.id}
                       type="button"
                       onClick={() => toggleArea(area.id)}
-                      className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
                         sel
                           ? "bg-primary text-primary-foreground border-primary"
-                          : area.estado === "OCUPADO"
-                            ? "bg-red-50 text-red-500 border-red-200 opacity-60 cursor-not-allowed"
-                            : "bg-muted/40 hover:bg-muted border-border"
+                          : "bg-background border-border text-foreground hover:bg-muted"
                       }`}
-                      disabled={area.estado === "OCUPADO" && !sel}
                     >
                       {sel && <CheckSquare className="w-3.5 h-3.5" />}
-                      <span>{area.nombre}</span>
-                      {area.estado === "OCUPADO" && !sel && (
-                        <Badge variant="destructive" className="text-[10px] px-1 py-0 ml-1">Ocupada</Badge>
-                      )}
+                      {area.nombre}
                     </button>
                   )
                 })}
               </div>
             )}
+            {areaIds.length > 0 && (
+              <p className="text-xs text-muted-foreground">{areaIds.length} área(s) seleccionada(s)</p>
+            )}
           </div>
 
-          {/* Edad opcional */}
-          <div className="border rounded-lg overflow-hidden">
+          {/* Edad (colapsable) */}
+          <div>
             <button
               type="button"
-              onClick={() => setShowEdad(!showEdad)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium hover:bg-muted/40 transition-colors"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowEdad((v) => !v)}
             >
-              <span>Rango de edad (opcional)</span>
               {showEdad ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              Restricción de edad (opcional)
             </button>
             {showEdad && (
-              <div className="grid grid-cols-2 gap-3 px-4 pb-4 pt-2 border-t">
+              <div className="grid grid-cols-2 gap-3 mt-2">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Edad mínima</Label>
+                  <Label htmlFor="edadMin" className="text-sm font-medium">Edad mínima</Label>
                   <Input
+                    id="edadMin"
                     type="number"
                     min={0}
-                    max={120}
                     placeholder="0"
-                    value={form.edadMin ?? ""}
-                    onChange={(e) => set("edadMin", e.target.value ? Number(e.target.value) : undefined)}
+                    value={form.edadMin}
+                    onChange={(e) => setForm((f) => ({ ...f, edadMin: e.target.value }))}
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Edad máxima</Label>
+                  <Label htmlFor="edadMax" className="text-sm font-medium">Edad máxima</Label>
                   <Input
+                    id="edadMax"
                     type="number"
                     min={0}
-                    max={120}
-                    placeholder="120"
-                    value={form.edadMax ?? ""}
-                    onChange={(e) => set("edadMax", e.target.value ? Number(e.target.value) : undefined)}
+                    placeholder="99"
+                    value={form.edadMax}
+                    onChange={(e) => setForm((f) => ({ ...f, edadMax: e.target.value }))}
                   />
                 </div>
               </div>
             )}
           </div>
 
-          {/* Anexos */}
-          <div className="space-y-2">
-            <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <Link2 className="w-3.5 h-3.5" /> Anexos (URLs, opcional)
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://..."
-                value={nuevoAnexo}
-                onChange={(e) => setNuevoAnexo(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarAnexo())}
-              />
-              <Button type="button" variant="outline" size="icon" onClick={agregarAnexo}>
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-            {(form.anexos ?? []).length > 0 && (
-              <div className="space-y-1.5">
-                {(form.anexos ?? []).map((url, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2">
+          {/* Anexos (colapsable) */}
+          <div>
+            <button
+              type="button"
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setShowAnexos((v) => !v)}
+            >
+              {showAnexos ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              Anexos / enlaces (opcional)
+            </button>
+            {showAnexos && (
+              <div className="space-y-2 mt-2">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="https://..."
+                    value={newAnexo}
+                    onChange={(e) => setNewAnexo(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAnexo() } }}
+                  />
+                  <Button type="button" variant="outline" size="icon" onClick={addAnexo}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {anexos.map((url, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm">
                     <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                    <span className="text-xs truncate flex-1">{url}</span>
-                    <button type="button" onClick={() => quitarAnexo(i)}>
-                      <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                    <span className="truncate flex-1 text-primary">{url}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAnexos((prev) => prev.filter((_, j) => j !== i))}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 ))}
@@ -415,8 +383,11 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
           <Button variant="outline" onClick={handleClose} disabled={loading}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={loading}>
-            {loading ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Agendando...</> : "Agendar"}
+          <Button onClick={handleSubmit} disabled={loading} className="gap-2">
+            {loading
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Agendando...</>
+              : "Agendar"
+            }
           </Button>
         </DialogFooter>
       </DialogContent>
