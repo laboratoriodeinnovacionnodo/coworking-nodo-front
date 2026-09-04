@@ -1,7 +1,7 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
-import { Analytics } from "@vercel/analytics/next"
+
 import { AuthProvider } from "@/contexts/auth-context"
 import { BottomNavbar } from "@/components/bottom-navbar"
 import { Toaster } from "@/components/ui/toaster"
@@ -65,7 +65,7 @@ export default function RootLayout({
           <Toaster />
           <BottomNavbar />
         </AuthProvider>
-        <Analytics />
+
         <script
           dangerouslySetInnerHTML={{
             __html: `
