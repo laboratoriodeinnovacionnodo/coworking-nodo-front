@@ -121,8 +121,8 @@ export default function CoworkingSeatsPage() {
 
       {/* ══ Header ══════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        {/* ✅ max-w-4xl para header también */}
-        <div className="max-w-4xl mx-auto px-4 py-3">
+        {/* ✅ max-w-6xl para header también */}
+        <div className="max-w-6xl mx-auto px-4 py-3">
 
           {/* Desktop */}
           <div className="hidden md:flex items-center justify-between">
@@ -199,8 +199,8 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido — ✅ max-w-4xl ════════════════════════════════ */}
-      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4 pb-24">
+      {/* ══ Contenido — ✅ max-w-6xl ════════════════════════════════ */}
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
 
@@ -263,25 +263,15 @@ export default function CoworkingSeatsPage() {
           {/* Contenido */}
           <div className="p-4 md:p-6">
 
-            {/* ✅ Disponibilidad + Calendario lado a lado */}
+            {/* Disponibilidad + Calendario lado a lado */}
             {vista === "disponibilidad" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
                 {/* Columna izquierda: zonas ocupadas */}
                 <div className="min-w-0">
                   <DisponibilidadInline onSuccess={fetchSeats} />
                 </div>
-
-                {/* Separador vertical solo en desktop */}
-                <div className="hidden lg:block w-px bg-border self-stretch" />
-
                 {/* Columna derecha: calendario de eventos */}
-                <div className="min-w-0">
-                  {/* Label para diferenciar la sección en mobile */}
-                  <div className="lg:hidden mb-3 pt-3 border-t border-border">
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                      <span>📅</span> Calendario
-                    </h3>
-                  </div>
+                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
                   <CalendarioCoworking />
                 </div>
               </div>
