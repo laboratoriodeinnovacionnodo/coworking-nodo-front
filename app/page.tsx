@@ -20,21 +20,20 @@ import { cn }                   from "@/lib/utils"
 import { useToast }             from "@/hooks/use-toast"
 import {
   Loader2, RefreshCw, LogOut, Menu,
-  Armchair, CalendarPlus, CalendarRange, MapPin, Map, LayoutGrid,
+  Armchair, CalendarPlus, MapPin, Map, LayoutGrid,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
+// ── Vistas — "calendario" integrado en "disponibilidad" ──────────────────────
+type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
 
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
-  { id: "mapa",           label: "Mapa",           icon: Map           },
-  { id: "agendar",        label: "Agendar",        icon: CalendarPlus  },
-  { id: "calendario",     label: "Calendario",     icon: CalendarRange },
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin     },
+  { id: "asientos",       label: "Asientos",       icon: LayoutGrid },
+  { id: "mapa",           label: "Mapa",           icon: Map        },
+  { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
 ]
 
-// Polling cada 30s — evita saturar la DB
 const POLLING_MS = 30_000
 
 export default function CoworkingSeatsPage() {
@@ -46,34 +45,29 @@ export default function CoworkingSeatsPage() {
 
   const [isAdminMode,    setIsAdminMode]    = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [vista,          setVista]          = useState<Vista>("asientos")
+  // ✅ Default: "disponibilidad"
+  const [vista,          setVista]          = useState<Vista>("disponibilidad")
   const [mapaOpen,       setMapaOpen]       = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
   const bloqueadoPorEventoRef = useRef<string | null>(null)
 
-  // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !admin) router.push("/login")
   }, [admin, authLoading, router])
 
-  // ── Carga inicial UNA sola vez ────────────────────────────────────────────
   useEffect(() => {
     fetchSeats()
-    // fetchSeats es estable (useCallback con []) → este effect solo corre al montar
   }, [fetchSeats])
 
-  // ── Polling cada 30s — controlado ────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(fetchSeats, POLLING_MS)
     return () => clearInterval(id)
-  }, [fetchSeats]) // fetchSeats es estable → el interval se crea una sola vez
+  }, [fetchSeats])
 
-  // ── Auto-bloqueo por evento del calendario ────────────────────────────────
   useEffect(() => {
     const eventoId = eventoActivo?.id ?? null
     if (eventoId === bloqueadoPorEventoRef.current) return
-
     if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
       bloqueadoPorEventoRef.current = eventoId
       toggleBlockAll(true).catch(() => {})
@@ -85,7 +79,6 @@ export default function CoworkingSeatsPage() {
     }
   }, [eventoActivo, toggleBlockAll])
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
     await fetchSeats()
     toast({ title: "Datos actualizados" })
@@ -128,8 +121,10 @@ export default function CoworkingSeatsPage() {
 
       {/* ══ Header ══════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-3">
+        {/* ✅ max-w-4xl para header también */}
+        <div className="max-w-4xl mx-auto px-4 py-3">
 
+          {/* Desktop */}
           <div className="hidden md:flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
@@ -156,6 +151,7 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
+          {/* Mobile */}
           <div className="flex md:hidden items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
@@ -203,11 +199,12 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido ════════════════════════════════════════════════ */}
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
+      {/* ══ Contenido — ✅ max-w-4xl ════════════════════════════════ */}
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
 
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
@@ -223,10 +220,10 @@ export default function CoworkingSeatsPage() {
           </div>
         </div>
 
+        {/* Admin panel */}
         {isAdminMode && isAdmin && !bloqueadoPorEvento && (
           <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
         )}
-
         {isAdminMode && isAdmin && bloqueadoPorEvento && (
           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
             El panel de administración está deshabilitado mientras haya un evento activo.
@@ -234,21 +231,27 @@ export default function CoworkingSeatsPage() {
           </div>
         )}
 
+        {/* ══ Card principal ═══════════════════════════════════════ */}
         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
+
+          {/* Barra de tabs */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {VISTAS.map(({ id, label, icon: Icon }) => {
                 const isModal  = id === "mapa" || id === "agendar"
                 const isActive = !isModal && vista === id
                 return (
-                  <button key={id} onClick={() => handleVista(id)}
+                  <button
+                    key={id}
+                    onClick={() => handleVista(id)}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
                       id === "agendar" && !isActive ? "hover:text-primary" : "",
-                    )}>
+                    )}
+                  >
                     <Icon className="w-4 h-4" />
                     <span>{label}</span>
                   </button>
@@ -257,8 +260,34 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
+          {/* Contenido */}
           <div className="p-4 md:p-6">
-            {vista === "disponibilidad" && <DisponibilidadInline onSuccess={fetchSeats} />}
+
+            {/* ✅ Disponibilidad + Calendario lado a lado */}
+            {vista === "disponibilidad" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Columna izquierda: zonas ocupadas */}
+                <div className="min-w-0">
+                  <DisponibilidadInline onSuccess={fetchSeats} />
+                </div>
+
+                {/* Separador vertical solo en desktop */}
+                <div className="hidden lg:block w-px bg-border self-stretch" />
+
+                {/* Columna derecha: calendario de eventos */}
+                <div className="min-w-0">
+                  {/* Label para diferenciar la sección en mobile */}
+                  <div className="lg:hidden mb-3 pt-3 border-t border-border">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <span>📅</span> Calendario
+                    </h3>
+                  </div>
+                  <CalendarioCoworking />
+                </div>
+              </div>
+            )}
+
+            {/* Asientos */}
             {vista === "asientos" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -274,7 +303,7 @@ export default function CoworkingSeatsPage() {
                 </div>
               </div>
             )}
-            {vista === "calendario" && <CalendarioCoworking />}
+
           </div>
         </div>
 
