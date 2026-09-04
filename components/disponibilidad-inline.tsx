@@ -7,23 +7,17 @@ import { useToast } from "@/hooks/use-toast"
 import { Button } from "@/components/ui/button"
 import { Badge }  from "@/components/ui/badge"
 import {
-  Loader2,
-  MapPin,
-  Clock,
-  Users,
-  Unlock,
-  RefreshCw,
-  Inbox,
-  Link2,
-  ChevronDown,
-  ChevronUp,
-  CalendarDays,
+  Loader2, MapPin, Clock, Users, Unlock,
+  RefreshCw, Inbox, Link2, ChevronDown, ChevronUp, CalendarDays,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface DisponibilidadInlineProps {
   onSuccess?: () => void
 }
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatFecha(iso: string): string {
   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
@@ -32,21 +26,72 @@ function formatFecha(iso: string): string {
   })
 }
 
-function esHoy(iso: string): boolean {
-  const hoy = new Date()
+/** Compara solo la parte de fecha (ignora hora) */
+function compareFecha(iso: string, hoy: Date): "pasada" | "hoy" | "futura" {
   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
   const f = new Date(y, m - 1, d)
-  return (
-    f.getDate()     === hoy.getDate()  &&
-    f.getMonth()    === hoy.getMonth() &&
-    f.getFullYear() === hoy.getFullYear()
-  )
+  const h = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate())
+  if (f < h) return "pasada"
+  if (f.getTime() === h.getTime()) return "hoy"
+  return "futura"
 }
+
+function timeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number)
+  return h * 60 + m
+}
+
+/**
+ * Determina el estado visual de una ocupación:
+ *  - "vencida"  → la hora de fin ya pasó hoy (o la fecha entera pasó)
+ *  - "en-curso" → está activa ahora mismo
+ *  - "proxima"  → fecha/hora futura
+ */
+function estadoOcupacion(oc: Ocupacion): "vencida" | "en-curso" | "proxima" {
+  const hoy    = new Date()
+  // minutos actuales en Argentina (UTC-3)
+  const ar     = new Date(hoy.getTime() - 3 * 60 * 60 * 1000)
+  const minNow = ar.getUTCHours() * 60 + ar.getUTCMinutes()
+  const fechaHoy = `${ar.getUTCFullYear()}-${String(ar.getUTCMonth() + 1).padStart(2, "0")}-${String(ar.getUTCDate()).padStart(2, "0")}`
+
+  const ocDesde  = oc.fechaDesde.split("T")[0]
+  const ocHasta  = oc.fechaHasta.split("T")[0]
+
+  if (ocHasta < fechaHoy) return "vencida"
+
+  if (ocDesde > fechaHoy) return "proxima"
+
+  // ocDesde <= hoy <= ocHasta
+  if (ocDesde < fechaHoy && ocHasta > fechaHoy) return "en-curso"  // multi-día, día intermedio
+
+  if (ocDesde === fechaHoy && ocHasta === fechaHoy) {
+    const ini = timeToMinutes(oc.horaDesde)
+    const fin = timeToMinutes(oc.horaHasta)
+    if (minNow >= fin)  return "vencida"
+    if (minNow >= ini)  return "en-curso"
+    return "proxima"
+  }
+
+  if (ocDesde === fechaHoy) {
+    // empieza hoy, termina otro día
+    return minNow >= timeToMinutes(oc.horaDesde) ? "en-curso" : "proxima"
+  }
+
+  // termina hoy
+  return minNow < timeToMinutes(oc.horaHasta) ? "en-curso" : "vencida"
+}
+
+const ESTADO_BADGE: Record<string, { label: string; className: string }> = {
+  "en-curso": { label: "En curso",  className: "bg-blue-100 text-blue-700 border-blue-200" },
+  "proxima":  { label: "Próxima",   className: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  "vencida":  { label: "Vencida",   className: "bg-red-100 text-red-700 border-red-200" },
+}
+
+// ── Componente ────────────────────────────────────────────────────────────────
 
 export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const { toast } = useToast()
-  // ✅ FIX: toast en ref → no entra en el dep array de useCallback → sin loops
-  const toastRef = useRef(toast)
+  const toastRef  = useRef(toast)
   useEffect(() => { toastRef.current = toast }, [toast])
 
   const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
@@ -54,24 +99,30 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const [liberando,   setLiberando]   = useState<number | null>(null)
   const [expandedId,  setExpandedId]  = useState<number | null>(null)
 
-  // ✅ FIX: dep array estable → useEffect se dispara solo al montar
+  // Carga TODAS sin liberadaAt — el filtro de "solo activas" era lo que ocultaba registros
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true)
     try {
-      const data = await ocupacionesApi.getActivas()
-      setOcupaciones(data)
+      const todas = await ocupacionesApi.getAll()
+      // Filtrar solo las que NO fueron liberadas manualmente
+      const pendientes = todas.filter((o) => !o.liberadaAt)
+      // Ordenar: en-curso primero, luego proximas, luego vencidas; dentro de cada grupo por fechaDesde
+      pendientes.sort((a, b) => {
+        const orden = { "en-curso": 0, "proxima": 1, "vencida": 2 }
+        const ea = estadoOcupacion(a)
+        const eb = estadoOcupacion(b)
+        if (ea !== eb) return orden[ea] - orden[eb]
+        return a.fechaDesde.localeCompare(b.fechaDesde)
+      })
+      setOcupaciones(pendientes)
     } catch {
       if (!silencioso) {
-        toastRef.current({
-          variant: "destructive",
-          title: "Error",
-          description: "No se pudieron cargar las ocupaciones",
-        })
+        toastRef.current({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
       }
     } finally {
       if (!silencioso) setLoading(false)
     }
-  }, []) // ← sin dependencias externas inestables
+  }, [])
 
   useEffect(() => { cargar() }, [cargar])
 
@@ -96,7 +147,8 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const toggleExpand = (id: number) =>
     setExpandedId((prev) => (prev === id ? null : id))
 
-  // ── UI ───────────────────────────────────────────────────────────────────
+  const hoy = new Date()
+
   return (
     <div className="space-y-3">
       {/* Header */}
@@ -132,13 +184,17 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
       ) : (
         <div className="space-y-2">
           {ocupaciones.map((oc) => {
+            const estado   = estadoOcupacion(oc)
+            const badge    = ESTADO_BADGE[estado]
             const expanded = expandedId === oc.id
-            const hoy      = esHoy(oc.fechaDesde)
 
             return (
               <div
                 key={oc.id}
-                className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden"
+                className={cn(
+                  "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
+                  estado === "vencida" && "opacity-70",
+                )}
               >
                 {/* Fila principal */}
                 <button
@@ -149,17 +205,23 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-sm truncate">{oc.titulo}</span>
-                      {hoy && (
-                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                          Hoy
-                        </Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn("text-[10px] px-1.5 py-0 border", badge.className)}
+                      >
+                        {badge.label}
+                      </Badge>
+                      {estado === "vencida" && (
+                        <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
                       )}
                     </div>
                     <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <CalendarDays className="w-3 h-3" />
                         {formatFecha(oc.fechaDesde)}
-                        {oc.fechaDesde !== oc.fechaHasta && ` → ${formatFecha(oc.fechaHasta)}`}
+                        {oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0] &&
+                          ` → ${formatFecha(oc.fechaHasta)}`
+                        }
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
@@ -172,7 +234,7 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                     </div>
                   </div>
                   {expanded
-                    ? <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                    ? <ChevronUp   className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                     : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
                   }
                 </button>
@@ -180,6 +242,15 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                 {/* Detalle expandido */}
                 {expanded && (
                   <div className="px-4 pb-4 pt-0 space-y-3 border-t bg-muted/10">
+
+                    {/* Aviso si está vencida y no liberada */}
+                    {estado === "vencida" && (
+                      <div className="flex items-center gap-2 pt-3 text-xs text-red-600">
+                        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                        El horario de esta ocupación ya pasó. Liberá las zonas para que queden disponibles.
+                      </div>
+                    )}
+
                     {/* Áreas */}
                     <div className="space-y-1 pt-3">
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -211,13 +282,8 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                           <Link2 className="w-3 h-3" /> Anexos:
                         </p>
                         {oc.anexos.map((url, i) => (
-                          <a
-                            key={i}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary underline truncate block"
-                          >
+                          <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                            className="text-xs text-primary underline truncate block">
                             {url}
                           </a>
                         ))}
