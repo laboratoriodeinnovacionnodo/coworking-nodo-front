@@ -22,7 +22,6 @@ import {
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// ── Solo un tab de contenido; el resto son botones que abren modales ──────────
 type Accion = "disponibilidad" | "asientos" | "agendar"
 
 const ACCIONES: { id: Accion; label: string; icon: React.ElementType; esModal: boolean }[] = [
@@ -47,21 +46,17 @@ export default function CoworkingSeatsPage() {
 
   const bloqueadoPorEventoRef = useRef<string | null>(null)
 
-  // ── Auth guard ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !admin) router.push("/login")
   }, [admin, authLoading, router])
 
-  // ── Carga inicial ───────────────────────────────────────────────────────
   useEffect(() => { fetchSeats() }, [fetchSeats])
 
-  // ── Polling 30s ─────────────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(fetchSeats, POLLING_MS)
     return () => clearInterval(id)
   }, [fetchSeats])
 
-  // ── Auto-bloqueo por evento ─────────────────────────────────────────────
   useEffect(() => {
     const eventoId = eventoActivo?.id ?? null
     if (eventoId === bloqueadoPorEventoRef.current) return
@@ -76,7 +71,6 @@ export default function CoworkingSeatsPage() {
     }
   }, [eventoActivo, toggleBlockAll])
 
-  // ── Handlers ────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
     await fetchSeats()
     toast({ title: "Datos actualizados" })
@@ -85,7 +79,6 @@ export default function CoworkingSeatsPage() {
   const handleAccion = (a: Accion) => {
     if (a === "asientos") { setAsientosOpen(true); return }
     if (a === "agendar")  { setAgendarOpen(true);  return }
-    // "disponibilidad" no hace nada — siempre está visible
   }
 
   const bloqueadoPorEvento = eventoActivo !== null
@@ -115,90 +108,101 @@ export default function CoworkingSeatsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-secondary">
+    <div className="min-h-screen bg-background pb-28">
+      <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
 
-      {/* ══ Header ══════════════════════════════════════════════════ */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        <div className="max-w-screen-2xl mx-auto px-4 py-3">
+        {/* ══ Header — mismo estilo que /calendario ═══════════════════ */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
 
-          {/* Desktop */}
-          <div className="hidden md:flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
-                <Armchair className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-base font-bold leading-tight">Coworking</h1>
-                <p className="text-xs text-muted-foreground">{admin.email}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-              </Button>
-              {isAdmin && (
-                <div className="flex items-center gap-2">
-                  <Switch id="admin-mode" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-                  <Label htmlFor="admin-mode" className="text-sm cursor-pointer">Admin</Label>
-                </div>
-              )}
-              <Button variant="ghost" size="icon" onClick={logout} className="h-8 w-8 text-muted-foreground">
-                <LogOut className="w-4 h-4" />
-              </Button>
-            </div>
+          {/* Título */}
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">
+              Coworking <span className="text-primary">NODO</span>
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Gestión de asientos en tiempo real
+            </p>
           </div>
 
-          {/* Mobile */}
-          <div className="flex md:hidden items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-                <Armchair className="w-4 h-4 text-primary" />
+          {/* Controles desktop */}
+          <div className="hidden sm:flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-white"
+              onClick={handleRefresh}
+              disabled={loading}
+              title="Actualizar"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+
+            {isAdmin && (
+              <div className="flex items-center gap-2 bg-white border border-border rounded-md px-3 h-9">
+                <Switch
+                  id="admin-mode"
+                  checked={isAdminMode}
+                  onCheckedChange={setIsAdminMode}
+                  className="scale-90"
+                />
+                <Label htmlFor="admin-mode" className="text-sm cursor-pointer whitespace-nowrap">
+                  Modo Admin
+                </Label>
               </div>
-              <span className="font-bold text-sm">Coworking</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={loading} className="h-8 w-8">
-                <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-              </Button>
-              <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
-                    <Menu className="w-4 h-4" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-72">
-                  <div className="space-y-3 pt-4">
-                    <div className="pb-3 border-b">
-                      <p className="font-semibold">{admin.nombre}</p>
-                      <p className="text-xs text-muted-foreground">{admin.email}</p>
-                    </div>
-                    <Button variant="outline" className="w-full justify-start gap-2"
-                      onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
-                      <RefreshCw className="w-4 h-4" /> Actualizar
-                    </Button>
-                    {isAdmin && (
-                      <div className="flex items-center gap-2 py-1">
-                        <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-                        <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
-                      </div>
-                    )}
-                    <Button variant="outline"
-                      className="w-full justify-start gap-2 text-destructive hover:text-destructive"
-                      onClick={logout}>
-                      <LogOut className="w-4 h-4" /> Cerrar sesión
-                    </Button>
+            )}
+
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-white text-muted-foreground hover:text-destructive"
+              onClick={logout}
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+
+          {/* Controles mobile */}
+          <div className="flex sm:hidden items-center gap-2 self-end">
+            <Button variant="outline" size="icon" className="bg-white h-9 w-9"
+              onClick={handleRefresh} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="bg-white h-9 w-9">
+                  <Menu className="w-4 h-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-72">
+                <div className="space-y-3 pt-4">
+                  <div className="pb-3 border-b">
+                    <p className="font-semibold">{admin.nombre}</p>
+                    <p className="text-xs text-muted-foreground">{admin.email}</p>
                   </div>
-                </SheetContent>
-              </Sheet>
-            </div>
+                  <Button variant="outline" className="w-full justify-start gap-2"
+                    onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
+                    <RefreshCw className="w-4 h-4" /> Actualizar
+                  </Button>
+                  {isAdmin && (
+                    <div className="flex items-center gap-2 py-1">
+                      <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+                      <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
+                    </div>
+                  )}
+                  <Button variant="outline"
+                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+                    onClick={logout}>
+                    <LogOut className="w-4 h-4" /> Cerrar sesión
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
 
         </div>
-      </div>
 
-      {/* ══ Contenido ════════════════════════════════════════════════ */}
-      <div className="max-w-screen-2xl mx-auto px-4 py-6 space-y-4 pb-24">
-
+        {/* Banner evento activo */}
         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
 
         {/* Stats */}
@@ -229,13 +233,12 @@ export default function CoworkingSeatsPage() {
         )}
 
         {/* ══ Card principal ═══════════════════════════════════════ */}
-        <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
 
           {/* Barra de acciones */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
-                // "disponibilidad" es el único tab real — siempre activo
                 const isActive = !esModal && id === "disponibilidad"
                 return (
                   <button
@@ -257,7 +260,7 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
-          {/* Contenido: siempre Disponibilidad + Calendario */}
+          {/* Contenido fijo: Disponibilidad + Calendario */}
           <div className="p-4 md:p-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
               <div className="min-w-0">
@@ -273,7 +276,7 @@ export default function CoworkingSeatsPage() {
 
       </div>
 
-      {/* ══ Modales ══════════════════════════════════════════════════ */}
+      {/* Modales */}
       <AsientosMapaModal
         open={asientosOpen}
         onOpenChange={setAsientosOpen}
