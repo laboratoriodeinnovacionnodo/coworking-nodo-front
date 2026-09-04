@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v20-ui-asientos-mapa-sidesides.sh  — coworking-front
+#  v21-ui-asientos-modal.sh  — coworking-front
 #
-#  Mejora UI: "Asientos" y "Mapa" en un solo tab, lado a lado,
-#  igual que Disponibilidad + Calendario.
+#  Cambio: "Asientos / Mapa" pasa a ser un modal grande (como era Mapa).
+#  "Disponibilidad" queda como único tab de contenido, siempre visible.
 #
-#  Cambios:
-#    · app/page.tsx → tab "asientos" muestra SeatGrid (izq) + mapa (der)
-#                     tab "mapa" eliminado de la barra
-#                     mapaOpen/MapaModal modal ya no se usan desde la barra
-#    · La vista "asientos" es ahora un grid 2 cols en desktop
+#  Tabs finales:
+#    · Disponibilidad  → contenido inline (default, fijo)
+#    · Asientos / Mapa → abre modal con SeatGrid + Plano side by side
+#    · Agendar         → abre modal de agendado (sin cambios)
 #
 #  Sin cambios de lógica ni de backend.
 #
 #  Uso:
 #    cd coworking-front
-#    chmod +x v20-ui-asientos-mapa-sidesides.sh
-#    ./v20-ui-asientos-mapa-sidesides.sh
+#    chmod +x v21-ui-asientos-modal.sh
+#    ./v21-ui-asientos-modal.sh
 # ============================================================================
 set -euo pipefail
 
@@ -27,43 +26,138 @@ fi
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  🎨  v20 — Asientos + Mapa lado a lado en un solo tab           ║"
+echo "║  🎨  v21 — Asientos/Mapa como modal, Disponibilidad fijo        ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 
+# ════════════════════════════════════════════════════════════════════════════
+# 1. components/asientos-mapa-modal.tsx — nuevo modal
+# ════════════════════════════════════════════════════════════════════════════
+echo "📄  components/asientos-mapa-modal.tsx..."
+cat > components/asientos-mapa-modal.tsx << 'EOF'
+"use client"
+
+import type { Seat } from "@/types/seat"
+import { SeatGrid }   from "@/components/seat-grid"
+import { SeatLegend } from "@/components/seat-legend"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { LayoutGrid } from "lucide-react"
+
+interface AsientosMapaModalProps {
+  open:          boolean
+  onOpenChange:  (open: boolean) => void
+  seats:         Seat[]
+  isBlocked?:    boolean
+  eventoTitulo?: string
+}
+
+export function AsientosMapaModal({
+  open,
+  onOpenChange,
+  seats,
+  isBlocked = false,
+  eventoTitulo,
+}: AsientosMapaModalProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader className="flex-shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <LayoutGrid className="w-5 h-5 text-primary" />
+            Asientos / Mapa
+          </DialogTitle>
+          <DialogDescription>
+            Estado actual de los asientos y plano del espacio
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Contenido: side by side en desktop, stacked en mobile */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start p-1">
+
+            {/* Columna izquierda: grilla de asientos */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <SeatLegend />
+                {isBlocked && (
+                  <span className="text-xs text-destructive font-medium">
+                    {eventoTitulo ? `Evento: ${eventoTitulo}` : "Bloqueado"}
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <SeatGrid seats={seats} isBlocked={isBlocked} />
+              </div>
+            </div>
+
+            {/* Columna derecha: plano */}
+            <div className="border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8 space-y-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  Plano del espacio
+                </h3>
+                <span className="text-[10px] text-muted-foreground/60">Planta 1</span>
+              </div>
+              <div className="flex items-center justify-center bg-muted/20 rounded-xl p-4 min-h-[240px]">
+                <img
+                  src="/NODO-PLANO-P1.svg"
+                  alt="Plano planta 1 del coworking"
+                  className="max-w-full max-h-[400px] object-contain"
+                  style={{ transform: "rotate(90deg)" }}
+                />
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+EOF
+echo "✅  components/asientos-mapa-modal.tsx"
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2. app/page.tsx — solo Disponibilidad como tab fijo, resto modales
+# ════════════════════════════════════════════════════════════════════════════
 echo "📄  app/page.tsx..."
 cat > app/page.tsx << 'EOF'
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { useRouter }            from "next/navigation"
-import { useAuth }              from "@/contexts/auth-context"
-import { useSeats }             from "@/hooks/use-seats"
-import { useEventoActivo }      from "@/hooks/use-evento-activo"
-import { SeatGrid }             from "@/components/seat-grid"
-import { SeatLegend }           from "@/components/seat-legend"
-import { AdminPanel }           from "@/components/admin-panel"
-import { AgendarModal }         from "@/components/agendar-modal"
-import { DisponibilidadInline } from "@/components/disponibilidad-inline"
-import { CalendarioCoworking }  from "@/components/calendario-coworking"
-import { EventoActivoBanner }   from "@/components/evento-activo-banner"
-import { Button }               from "@/components/ui/button"
-import { Switch }               from "@/components/ui/switch"
-import { Label }                from "@/components/ui/label"
-import { cn }                   from "@/lib/utils"
-import { useToast }             from "@/hooks/use-toast"
+import { useRouter }             from "next/navigation"
+import { useAuth }               from "@/contexts/auth-context"
+import { useSeats }              from "@/hooks/use-seats"
+import { useEventoActivo }       from "@/hooks/use-evento-activo"
+import { AdminPanel }            from "@/components/admin-panel"
+import { AgendarModal }          from "@/components/agendar-modal"
+import { AsientosMapaModal }     from "@/components/asientos-mapa-modal"
+import { DisponibilidadInline }  from "@/components/disponibilidad-inline"
+import { CalendarioCoworking }   from "@/components/calendario-coworking"
+import { EventoActivoBanner }    from "@/components/evento-activo-banner"
+import { Button }                from "@/components/ui/button"
+import { Switch }                from "@/components/ui/switch"
+import { Label }                 from "@/components/ui/label"
+import { cn }                    from "@/lib/utils"
+import { useToast }              from "@/hooks/use-toast"
 import {
   Loader2, RefreshCw, LogOut, Menu,
   Armchair, CalendarPlus, MapPin, LayoutGrid,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-// ── Vistas: Mapa integrado en Asientos, Mapa ya no es tab separado ───────────
-type Vista = "disponibilidad" | "asientos" | "agendar"
+// ── Solo un tab de contenido; el resto son botones que abren modales ──────────
+type Accion = "disponibilidad" | "asientos" | "agendar"
 
-const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin       },
-  { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid  },
-  { id: "agendar",        label: "Agendar",         icon: CalendarPlus },
+const ACCIONES: { id: Accion; label: string; icon: React.ElementType; esModal: boolean }[] = [
+  { id: "disponibilidad", label: "Disponibilidad",  icon: MapPin,       esModal: false },
+  { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid,   esModal: true  },
+  { id: "agendar",        label: "Agendar",         icon: CalendarPlus, esModal: true  },
 ]
 
 const POLLING_MS = 30_000
@@ -72,29 +166,31 @@ export default function CoworkingSeatsPage() {
   const router  = useRouter()
   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
   const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
-  const { eventoActivo }      = useEventoActivo()
-  const { toast }             = useToast()
+  const { eventoActivo }       = useEventoActivo()
+  const { toast }              = useToast()
 
   const [isAdminMode,    setIsAdminMode]    = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [vista,          setVista]          = useState<Vista>("disponibilidad")
+  const [asientosOpen,   setAsientosOpen]   = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
   const bloqueadoPorEventoRef = useRef<string | null>(null)
 
+  // ── Auth guard ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !admin) router.push("/login")
   }, [admin, authLoading, router])
 
-  useEffect(() => {
-    fetchSeats()
-  }, [fetchSeats])
+  // ── Carga inicial ───────────────────────────────────────────────────────
+  useEffect(() => { fetchSeats() }, [fetchSeats])
 
+  // ── Polling 30s ─────────────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(fetchSeats, POLLING_MS)
     return () => clearInterval(id)
   }, [fetchSeats])
 
+  // ── Auto-bloqueo por evento ─────────────────────────────────────────────
   useEffect(() => {
     const eventoId = eventoActivo?.id ?? null
     if (eventoId === bloqueadoPorEventoRef.current) return
@@ -109,14 +205,16 @@ export default function CoworkingSeatsPage() {
     }
   }, [eventoActivo, toggleBlockAll])
 
+  // ── Handlers ────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
     await fetchSeats()
     toast({ title: "Datos actualizados" })
   }
 
-  const handleVista = (v: Vista) => {
-    if (v === "agendar") { setAgendarOpen(true); return }
-    setVista(v)
+  const handleAccion = (a: Accion) => {
+    if (a === "asientos") { setAsientosOpen(true); return }
+    if (a === "agendar")  { setAgendarOpen(true);  return }
+    // "disponibilidad" no hace nada — siempre está visible
   }
 
   const bloqueadoPorEvento = eventoActivo !== null
@@ -262,22 +360,22 @@ export default function CoworkingSeatsPage() {
         {/* ══ Card principal ═══════════════════════════════════════ */}
         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
 
-          {/* Tabs */}
+          {/* Barra de acciones */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
-              {VISTAS.map(({ id, label, icon: Icon }) => {
-                const isModal  = id === "agendar"
-                const isActive = !isModal && vista === id
+              {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
+                // "disponibilidad" es el único tab real — siempre activo
+                const isActive = !esModal && id === "disponibilidad"
                 return (
                   <button
                     key={id}
-                    onClick={() => handleVista(id)}
+                    onClick={() => handleAccion(id)}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                      id === "agendar" && !isActive ? "hover:text-primary" : "",
+                      esModal ? "hover:text-primary" : "",
                     )}
                   >
                     <Icon className="w-4 h-4" />
@@ -288,69 +386,35 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
-          {/* Contenido */}
+          {/* Contenido: siempre Disponibilidad + Calendario */}
           <div className="p-4 md:p-6">
-
-            {/* ── Disponibilidad + Calendario ── */}
-            {vista === "disponibilidad" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-                <div className="min-w-0">
-                  <DisponibilidadInline onSuccess={fetchSeats} />
-                </div>
-                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
-                  <CalendarioCoworking />
-                </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+              <div className="min-w-0">
+                <DisponibilidadInline onSuccess={fetchSeats} />
               </div>
-            )}
-
-            {/* ── Asientos + Mapa ── */}
-            {vista === "asientos" && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-
-                {/* Columna izquierda: grilla de asientos */}
-                <div className="min-w-0 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <SeatLegend />
-                    {isBlocked && (
-                      <span className="text-xs text-destructive font-medium">
-                        {bloqueadoPorEvento ? `Evento: ${eventoActivo?.titulo}` : "Bloqueado"}
-                      </span>
-                    )}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <SeatGrid seats={seats} isBlocked={isBlocked && !isAdminMode} />
-                  </div>
-                </div>
-
-                {/* Columna derecha: mapa / plano */}
-                <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
-                  {/* Header de la sección mapa */}
-                  <div className="flex items-center gap-2 mb-3">
-                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                      Plano del espacio
-                    </h3>
-                    <span className="text-[10px] text-muted-foreground/60">Planta 1</span>
-                  </div>
-                  <div className="flex items-center justify-center bg-muted/20 rounded-xl p-3 min-h-[260px]">
-                    <img
-                      src="/NODO-PLANO-P1.svg"
-                      alt="Plano planta 1 del coworking"
-                      className="max-w-full max-h-[420px] object-contain"
-                      style={{ transform: "rotate(90deg)" }}
-                    />
-                  </div>
-                </div>
-
+              <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+                <CalendarioCoworking />
               </div>
-            )}
-
+            </div>
           </div>
+
         </div>
 
       </div>
 
-      {/* Solo Agendar como modal — Mapa ya no lo es */}
-      <AgendarModal open={agendarOpen} onOpenChange={setAgendarOpen} onSuccess={fetchSeats} />
+      {/* ══ Modales ══════════════════════════════════════════════════ */}
+      <AsientosMapaModal
+        open={asientosOpen}
+        onOpenChange={setAsientosOpen}
+        seats={seats}
+        isBlocked={isBlocked && !isAdminMode}
+        eventoTitulo={eventoActivo?.titulo}
+      />
+      <AgendarModal
+        open={agendarOpen}
+        onOpenChange={setAgendarOpen}
+        onSuccess={fetchSeats}
+      />
 
     </div>
   )
@@ -367,16 +431,15 @@ pnpm build
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  ✅  v20-ui-asientos-mapa-sidesides.sh completado               ║"
+echo "║  ✅  v21-ui-asientos-modal.sh completado                        ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "  Cambios:"
-echo "    · Tab 'Asientos / Mapa' → grid 2 cols igual que Disponibilidad"
-echo "      col-izq: SeatGrid + SeatLegend"
-echo "      col-der: plano SVG del coworking"
-echo "    · Tab 'Mapa' eliminado de la barra (integrado en Asientos)"
-echo "    · MapaModal ya no se usa (el mapa está inline)"
-echo "    · Tabs finales: Disponibilidad | Asientos / Mapa | Agendar"
+echo "  Barra de acciones:"
+echo "    · Disponibilidad  → tab fijo, siempre visible (subrayado activo)"
+echo "    · Asientos / Mapa → abre modal max-w-5xl con grid 2 cols"
+echo "    · Agendar         → abre modal de agendado (sin cambios)"
+echo ""
+echo "  Contenido fijo: Disponibilidad + Calendario side by side"
 echo ""
 echo "  Sin cambios de lógica ni de backend."
 echo ""
