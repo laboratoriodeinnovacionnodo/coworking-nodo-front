@@ -1,386 +1,47 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v7-fix-ocupaciones-lista.sh
-#  Fixes:
-#    1. [BACK]  hoyArgentina() usa setHours() mutable → fecha incorrecta en
-#               findActivas(). Reemplazado por Intl.DateTimeFormat (inmutable).
-#    2. [FRONT] agendar-modal no llama onSuccess() → lista no se recarga.
-#    3. [FRONT] disponibilidad-inline: toast en dep array de useCallback
-#               causa loop/no-recarga. Movido a ref estable con useRef.
+#  v8-fix-conflicto-zonas.sh  — coworking-front
 #
-#  Sin cambios de schema — no requiere prisma migrate.
+#  Problema: el backend YA rechaza crear una ocupación si las áreas están
+#  ocupadas en ese rango fecha/hora (verificarConflicto). Pero el front
+#  mostraba el error crudo y no deshabilitaba visualmente las áreas.
+#
+#  Fixes:
+#    1. agendar-modal.tsx → parsea el error del backend y lo muestra claro
+#    2. agendar-modal.tsx → llama a /ocupaciones/activas al abrir y marca
+#       las áreas con conflicto como deshabilitadas en el selector
+#    3. agendar-modal.tsx → al cambiar fecha/hora re-evalúa qué áreas
+#       están disponibles en ese rango (sin submit)
+#
+#  Sin cambios de schema. Sin cambios en el backend.
 #
 #  Uso:
-#    # Backend:
-#    cd coworking-back && chmod +x v7-fix-ocupaciones-lista.sh && ./v7-fix-ocupaciones-lista.sh
-#    # Frontend:
-#    cd coworking-front && chmod +x v7-fix-ocupaciones-lista.sh && ./v7-fix-ocupaciones-lista.sh
-#
-#  El script detecta automáticamente en qué repo está y aplica solo
-#  los cambios que corresponden.
+#    cd coworking-front
+#    chmod +x v8-fix-conflicto-zonas.sh && ./v8-fix-conflicto-zonas.sh
 # ============================================================================
 set -euo pipefail
 
-# ── Detección de proyecto ────────────────────────────────────────────────────
-IS_BACK=false
-IS_FRONT=false
-
-if [ -f "package.json" ] && [ -d "src" ] && grep -q "nestjs" package.json 2>/dev/null; then
-  IS_BACK=true
-fi
-if [ -f "package.json" ] && [ -d "app" ] && grep -q "next" package.json 2>/dev/null; then
-  IS_FRONT=true
-fi
-
-if [ "$IS_BACK" = false ] && [ "$IS_FRONT" = false ]; then
-  echo "❌  No se reconoce el proyecto. Corré desde coworking-back o coworking-front."
+if [ ! -f "package.json" ] || [ ! -d "app" ]; then
+  echo "❌  Corré desde la raíz de coworking-front"
   exit 1
 fi
 
-# ════════════════════════════════════════════════════════════════════════════
-# BACKEND — Fix hoyArgentina() en ocupacion.service.ts
-# ════════════════════════════════════════════════════════════════════════════
-if [ "$IS_BACK" = true ]; then
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  🔧  BACKEND — Fix hoyArgentina() en OcupacionService           ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-
-  cat > src/ocupacion/ocupacion.service.ts << 'EOF'
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
-import { PrismaService } from 'prisma/prisma.service';
-import { CreateOcupacionDto } from './dto/create-ocupacion.dto';
-import { UpdateOcupacionDto } from './dto/update-ocupacion.dto';
-import { AreaStatus } from '@prisma/client';
-
-// ── Helpers de tiempo ─────────────────────────────────────────────────────────
-
-function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-}
-
-/**
- * Fecha local Argentina como YYYY-MM-DD (UTC-3).
- * Usa Intl.DateTimeFormat (inmutable) en lugar de setHours() mutable,
- * que era la causa del bug en findActivas().
- */
-function hoyArgentina(): string {
-  return new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    year:     'numeric',
-    month:    '2-digit',
-    day:      '2-digit',
-  })
-    .format(new Date())
-    .split('/')               // dd/mm/yyyy
-    .reverse()                // yyyy, mm, dd
-    .join('-');               // yyyy-mm-dd
-}
-
-@Injectable()
-export class OcupacionService {
-  private readonly logger = new Logger(OcupacionService.name);
-
-  constructor(private readonly prisma: PrismaService) {}
-
-  // ── Verifica conflicto de horario para un área ────────────────────────────
-  private async verificarConflicto(
-    areaIds: number[],
-    fechaDesde: string,
-    fechaHasta: string,
-    horaDesde: string,
-    horaHasta: string,
-    excludeId?: number,
-  ): Promise<void> {
-    const ocupacionesActivas = await this.prisma.ocupacion.findMany({
-      where: {
-        liberadaAt: null,
-        ...(excludeId ? { id: { not: excludeId } } : {}),
-        areas: { some: { areaId: { in: areaIds } } },
-        AND: [
-          { fechaDesde: { lte: new Date(`${fechaHasta}T23:59:59.000Z`) } },
-          { fechaHasta: { gte: new Date(`${fechaDesde}T00:00:00.000Z`) } },
-        ],
-      },
-      include: { areas: { include: { area: true } } },
-    });
-
-    const nuevaInicio = timeToMinutes(horaDesde);
-    const nuevaFin    = timeToMinutes(horaHasta);
-
-    for (const oc of ocupacionesActivas) {
-      const existInicio = timeToMinutes(oc.horaDesde);
-      const existFin    = timeToMinutes(oc.horaHasta);
-      const solapan     = nuevaInicio < existFin && nuevaFin > existInicio;
-      if (!solapan) continue;
-
-      const areasConflicto = oc.areas
-        .filter((r) => areaIds.includes(r.areaId))
-        .map((r) => r.area.nombre)
-        .join(', ');
-
-      throw new BadRequestException(
-        `Conflicto de horario: las áreas [${areasConflicto}] ya están ocupadas ` +
-        `el ${oc.fechaDesde.toISOString().split('T')[0]} de ${oc.horaDesde} a ${oc.horaHasta} ` +
-        `(ocupación "${oc.titulo}")`,
-      );
-    }
-  }
-
-  // ── CREATE ────────────────────────────────────────────────────────────────
-  async create(dto: CreateOcupacionDto) {
-    if (dto.edadMin !== undefined && dto.edadMax !== undefined && dto.edadMin > dto.edadMax) {
-      throw new BadRequestException('edadMin no puede ser mayor que edadMax');
-    }
-    if (dto.fechaDesde > dto.fechaHasta) {
-      throw new BadRequestException('fechaDesde no puede ser posterior a fechaHasta');
-    }
-    if (dto.fechaDesde === dto.fechaHasta && dto.horaDesde >= dto.horaHasta) {
-      throw new BadRequestException('horaDesde debe ser anterior a horaHasta');
-    }
-
-    const areas = await this.prisma.area.findMany({ where: { id: { in: dto.areaIds } } });
-    if (areas.length !== dto.areaIds.length) {
-      const missing = dto.areaIds.filter((id) => !areas.map((a) => a.id).includes(id));
-      throw new NotFoundException(`Área(s) no encontrada(s): ${missing.join(', ')}`);
-    }
-
-    await this.verificarConflicto(dto.areaIds, dto.fechaDesde, dto.fechaHasta, dto.horaDesde, dto.horaHasta);
-
-    const ocupacion = await this.prisma.$transaction(async (tx) => {
-      const nueva = await tx.ocupacion.create({
-        data: {
-          titulo:           dto.titulo,
-          requerimiento:    dto.requerimiento,
-          cantidadPersonas: dto.cantidadPersonas,
-          organizador:      dto.organizador,
-          fechaDesde:       new Date(`${dto.fechaDesde}T00:00:00.000Z`),
-          fechaHasta:       new Date(`${dto.fechaHasta}T23:59:59.000Z`),
-          horaDesde:        dto.horaDesde,
-          horaHasta:        dto.horaHasta,
-          edadMin:          dto.edadMin,
-          edadMax:          dto.edadMax,
-          anexos:           dto.anexos ?? [],
-          areas: { create: dto.areaIds.map((areaId) => ({ areaId })) },
-        },
-        include: { areas: { include: { area: true } } },
-      });
-
-      await tx.area.updateMany({
-        where: { id: { in: dto.areaIds } },
-        data:  { estado: AreaStatus.OCUPADO },
-      });
-
-      return nueva;
-    });
-
-    return ocupacion;
-  }
-
-  // ── FIND ALL ──────────────────────────────────────────────────────────────
-  findAll() {
-    return this.prisma.ocupacion.findMany({
-      orderBy: { fechaDesde: 'asc' },
-      include: { areas: { include: { area: true } } },
-    });
-  }
-
-  // ── FIND ACTIVAS (sin liberadaAt, fechaHasta >= hoy Argentina) ────────────
-  findActivas() {
-    // hoyArgentina() ahora usa Intl.DateTimeFormat — no más bug de setHours()
-    const hoy = hoyArgentina();
-    return this.prisma.ocupacion.findMany({
-      where: {
-        liberadaAt: null,
-        fechaHasta: { gte: new Date(`${hoy}T00:00:00.000Z`) },
-      },
-      orderBy: { fechaDesde: 'asc' },
-      include: { areas: { include: { area: true } } },
-    });
-  }
-
-  // ── FIND ONE ──────────────────────────────────────────────────────────────
-  async findOne(id: number) {
-    const ocupacion = await this.prisma.ocupacion.findUnique({
-      where: { id },
-      include: { areas: { include: { area: true } } },
-    });
-    if (!ocupacion) throw new NotFoundException(`Ocupación ${id} no encontrada`);
-    return ocupacion;
-  }
-
-  // ── UPDATE ────────────────────────────────────────────────────────────────
-  async update(id: number, dto: UpdateOcupacionDto) {
-    const actual = await this.findOne(id);
-
-    if (dto.edadMin !== undefined && dto.edadMax !== undefined && dto.edadMin > dto.edadMax) {
-      throw new BadRequestException('edadMin no puede ser mayor que edadMax');
-    }
-
-    const fechaDesde = dto.fechaDesde ?? actual.fechaDesde.toISOString().split('T')[0];
-    const fechaHasta = dto.fechaHasta ?? actual.fechaHasta.toISOString().split('T')[0];
-    const horaDesde  = dto.horaDesde  ?? actual.horaDesde;
-    const horaHasta  = dto.horaHasta  ?? actual.horaHasta;
-    const areaIds    = dto.areaIds    ?? actual.areas.map((r: { areaId: number }) => r.areaId);
-
-    await this.verificarConflicto(areaIds, fechaDesde, fechaHasta, horaDesde, horaHasta, id);
-
-    return this.prisma.ocupacion.update({
-      where: { id },
-      data: {
-        ...(dto.titulo           !== undefined && { titulo:           dto.titulo }),
-        ...(dto.requerimiento    !== undefined && { requerimiento:    dto.requerimiento }),
-        ...(dto.cantidadPersonas !== undefined && { cantidadPersonas: dto.cantidadPersonas }),
-        ...(dto.organizador      !== undefined && { organizador:      dto.organizador }),
-        ...(dto.fechaDesde       !== undefined && { fechaDesde:       new Date(`${dto.fechaDesde}T00:00:00.000Z`) }),
-        ...(dto.fechaHasta       !== undefined && { fechaHasta:       new Date(`${dto.fechaHasta}T23:59:59.000Z`) }),
-        ...(dto.horaDesde        !== undefined && { horaDesde:        dto.horaDesde }),
-        ...(dto.horaHasta        !== undefined && { horaHasta:        dto.horaHasta }),
-        ...(dto.edadMin          !== undefined && { edadMin:          dto.edadMin }),
-        ...(dto.edadMax          !== undefined && { edadMax:          dto.edadMax }),
-        ...(dto.anexos           !== undefined && { anexos:           dto.anexos }),
-      },
-      include: { areas: { include: { area: true } } },
-    });
-  }
-
-  // ── LIBERAR ───────────────────────────────────────────────────────────────
-  async liberar(id: number) {
-    const ocupacion = await this.findOne(id);
-    const areaIds   = ocupacion.areas.map((r: { areaId: number }) => r.areaId);
-
-    return this.prisma.$transaction(async (tx) => {
-      if (areaIds.length > 0) {
-        await tx.area.updateMany({
-          where: { id: { in: areaIds } },
-          data:  { estado: AreaStatus.LIBRE },
-        });
-      }
-      return tx.ocupacion.update({
-        where: { id },
-        data:  { liberadaAt: new Date() },
-        include: { areas: { include: { area: true } } },
-      });
-    });
-  }
-
-  // ── DELETE ────────────────────────────────────────────────────────────────
-  async remove(id: number) {
-    const ocupacion = await this.findOne(id);
-    const areaIds   = ocupacion.areas.map((r: { areaId: number }) => r.areaId);
-
-    await this.prisma.$transaction(async (tx) => {
-      if (areaIds.length > 0) {
-        await tx.area.updateMany({
-          where: { id: { in: areaIds } },
-          data:  { estado: AreaStatus.LIBRE },
-        });
-      }
-      await tx.ocupacion.delete({ where: { id } });
-    });
-  }
-
-  // ── AUTO-LIBERAR (cron cada minuto) ───────────────────────────────────────
-  @Cron('* * * * *')
-  async autoLiberarVencidas() {
-    const ahora      = new Date();
-    // UTC-3 inmutable
-    const ahoraUTC3  = new Date(ahora.getTime() - 3 * 60 * 60 * 1000);
-    const fechaHoy   = ahoraUTC3.toISOString().split('T')[0];
-    const minutosNow = ahoraUTC3.getUTCHours() * 60 + ahoraUTC3.getUTCMinutes();
-
-    try {
-      const candidatas = await this.prisma.ocupacion.findMany({
-        where: {
-          liberadaAt: null,
-          fechaHasta: { lte: new Date(`${fechaHoy}T23:59:59.000Z`) },
-        },
-        include: { areas: { include: { area: true } } },
-      });
-
-      for (const oc of candidatas) {
-        const fechaFin = oc.fechaHasta.toISOString().split('T')[0];
-
-        if (fechaFin < fechaHoy) {
-          await this.liberarInterno(oc);
-          continue;
-        }
-
-        if (fechaFin === fechaHoy) {
-          const minutosFin = timeToMinutes(oc.horaHasta);
-          if (minutosNow >= minutosFin) {
-            await this.liberarInterno(oc);
-          }
-        }
-      }
-    } catch (err) {
-      this.logger.error('Error en autoLiberarVencidas:', (err as Error).message);
-    }
-  }
-
-  private async liberarInterno(oc: { id: number; areas: { areaId: number }[] }) {
-    const areaIds = oc.areas.map((r) => r.areaId);
-    await this.prisma.$transaction(async (tx) => {
-      if (areaIds.length > 0) {
-        await tx.area.updateMany({
-          where: { id: { in: areaIds } },
-          data:  { estado: AreaStatus.LIBRE },
-        });
-      }
-      await tx.ocupacion.update({
-        where: { id: oc.id },
-        data:  { liberadaAt: new Date() },
-      });
-    });
-    this.logger.log(`⏰ Auto-liberada ocupación ${oc.id}`);
-  }
-}
-EOF
-  echo "✅  src/ocupacion/ocupacion.service.ts"
-
-  echo ""
-  echo "🔨  Compilando backend..."
-  pnpm build
-
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  ✅  BACKEND completado                                          ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "  Fix aplicado:"
-  echo "    · hoyArgentina() → Intl.DateTimeFormat('America/Argentina/Buenos_Aires')"
-  echo "    · findActivas() filtra correctamente con la fecha de hoy en AR"
-  echo "    · autoLiberarVencidas() ya usaba UTC-3 inmutable → sin cambios"
-  echo ""
-  echo "  ⚠️  No requiere prisma migrate (sin cambios de schema)"
-  echo ""
-fi
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║  🔧  v8 — Validación visual de conflicto de zonas               ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
 
 # ════════════════════════════════════════════════════════════════════════════
-# FRONTEND — Fix agendar-modal + disponibilidad-inline
+# 1. components/agendar-modal.tsx
 # ════════════════════════════════════════════════════════════════════════════
-if [ "$IS_FRONT" = true ]; then
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  🔧  FRONTEND — Fix modal + disponibilidad                      ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-
-  # ── Fix 1: agendar-modal.tsx — llamar onSuccess tras crear ──────────────
-  echo "📄  components/agendar-modal.tsx..."
-  cat > components/agendar-modal.tsx << 'EOF'
+echo "📄  components/agendar-modal.tsx..."
+cat > components/agendar-modal.tsx << 'EOF'
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useMemo } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
 import { areasApi } from "@/lib/api"
-import type { CreateOcupacionPayload } from "@/types/ocupacion"
+import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
 import type { BackendArea } from "@/types/seat"
 import { useToast } from "@/hooks/use-toast"
 
@@ -405,13 +66,13 @@ import {
   FileText,
   Link2,
   Plus,
-  Trash2,
   Loader2,
   ChevronDown,
   ChevronUp,
   MapPin,
   X,
   CheckSquare,
+  AlertTriangle,
 } from "lucide-react"
 
 interface AgendarModalProps {
@@ -433,28 +94,102 @@ const EMPTY_FORM = {
   edadMax:          "",
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function timeToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number)
+  return h * 60 + m
+}
+
+/**
+ * Dado el form y las ocupaciones activas, retorna el set de areaIds
+ * que tienen conflicto de fecha+hora con lo que el usuario está por agendar.
+ */
+function calcularAreasConConflicto(
+  ocupaciones: Ocupacion[],
+  fechaDesde: string,
+  fechaHasta: string,
+  horaDesde:  string,
+  horaHasta:  string,
+): Set<number> {
+  const conflicto = new Set<number>()
+
+  // Si faltan datos todavía, no bloquear nada
+  if (!fechaDesde || !fechaHasta || !horaDesde || !horaHasta) return conflicto
+
+  const nuevaInicio = timeToMinutes(horaDesde)
+  const nuevaFin    = timeToMinutes(horaHasta)
+  if (nuevaInicio >= nuevaFin) return conflicto
+
+  for (const oc of ocupaciones) {
+    // Solapamiento de fechas
+    const ocDesde = oc.fechaDesde.split("T")[0]
+    const ocHasta = oc.fechaHasta.split("T")[0]
+    const solapanFechas = ocDesde <= fechaHasta && ocHasta >= fechaDesde
+    if (!solapanFechas) continue
+
+    // Solapamiento de horario
+    const ocInicio = timeToMinutes(oc.horaDesde)
+    const ocFin    = timeToMinutes(oc.horaHasta)
+    const solapanHoras = nuevaInicio < ocFin && nuevaFin > ocInicio
+    if (!solapanHoras) continue
+
+    // Esta ocupación conflicta → marcar sus áreas
+    oc.areas.forEach((r) => conflicto.add(r.areaId))
+  }
+
+  return conflicto
+}
+
+// ── Componente ─────────────────────────────────────────────────────────────
+
 export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
   const { toast } = useToast()
 
-  const [form,       setForm]       = useState(EMPTY_FORM)
-  const [anexos,     setAnexos]     = useState<string[]>([])
-  const [newAnexo,   setNewAnexo]   = useState("")
-  const [areas,      setAreas]      = useState<BackendArea[]>([])
-  const [areaIds,    setAreaIds]    = useState<number[]>([])
-  const [loading,    setLoading]    = useState(false)
-  const [loadAreas,  setLoadAreas]  = useState(false)
-  const [showEdad,   setShowEdad]   = useState(false)
-  const [showAnexos, setShowAnexos] = useState(false)
+  const [form,        setForm]        = useState(EMPTY_FORM)
+  const [anexos,      setAnexos]      = useState<string[]>([])
+  const [newAnexo,    setNewAnexo]    = useState("")
+  const [areas,       setAreas]       = useState<BackendArea[]>([])
+  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
+  const [areaIds,     setAreaIds]     = useState<number[]>([])
+  const [loading,     setLoading]     = useState(false)
+  const [loadAreas,   setLoadAreas]   = useState(false)
+  const [showEdad,    setShowEdad]    = useState(false)
+  const [showAnexos,  setShowAnexos]  = useState(false)
 
-  // Cargar áreas disponibles al abrir
+  // Cargar áreas + ocupaciones activas al abrir
   useEffect(() => {
     if (!open) return
     setLoadAreas(true)
-    areasApi.getAll()
-      .then(setAreas)
-      .catch(() => toast({ variant: "destructive", title: "Error", description: "No se pudieron cargar las áreas" }))
+    Promise.all([
+      areasApi.getAll(),
+      ocupacionesApi.getActivas(),
+    ])
+      .then(([a, o]) => {
+        setAreas(a)
+        setOcupaciones(o)
+      })
+      .catch(() => toast({ variant: "destructive", title: "Error al cargar datos" }))
       .finally(() => setLoadAreas(false))
   }, [open, toast])
+
+  // Áreas con conflicto calculadas en tiempo real al cambiar fecha/hora
+  const areasConConflicto = useMemo(
+    () => calcularAreasConConflicto(
+      ocupaciones,
+      form.fechaDesde,
+      form.fechaHasta,
+      form.horaDesde,
+      form.horaHasta,
+    ),
+    [ocupaciones, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta],
+  )
+
+  // Si un área seleccionada queda bloqueada por cambio de fecha/hora → deseleccionar
+  useEffect(() => {
+    if (areasConConflicto.size === 0) return
+    setAreaIds((prev) => prev.filter((id) => !areasConConflicto.has(id)))
+  }, [areasConConflicto])
 
   const resetForm = useCallback(() => {
     setForm(EMPTY_FORM)
@@ -470,8 +205,10 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     resetForm()
   }, [onOpenChange, resetForm])
 
-  const toggleArea = (id: number) =>
+  const toggleArea = (id: number) => {
+    if (areasConConflicto.has(id)) return // nunca seleccionar un área bloqueada
     setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  }
 
   const addAnexo = () => {
     const url = newAnexo.trim()
@@ -480,16 +217,38 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     setNewAnexo("")
   }
 
+  // Extrae el mensaje amigable del error del backend
+  function parsearErrorBackend(err: unknown): string {
+    if (!(err instanceof Error)) return "Error desconocido"
+    // El backend devuelve JSON con { message: string } o string plano
+    try {
+      const body = JSON.parse(err.message)
+      if (typeof body?.message === "string") return body.message
+      if (Array.isArray(body?.message))      return body.message.join(", ")
+    } catch {
+      // mensaje plano
+    }
+    // Simplificar el mensaje de conflicto del backend para mostrarlo al usuario
+    const msg = err.message
+    if (msg.includes("Conflicto de horario")) {
+      // "Conflicto de horario: las áreas [A1, A2] ya están ocupadas el 2026-09-10 de 09:00 a 12:00 (ocupación "Taller")"
+      const match = msg.match(/las áreas \[([^\]]+)\].+\(ocupación "([^"]+)"\)/)
+      if (match) {
+        return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
+      }
+    }
+    return msg
+  }
+
   const handleSubmit = async () => {
-    // Validaciones básicas del formulario
-    if (!form.titulo.trim())       { toast({ variant: "destructive", title: "Falta título" });        return }
-    if (!form.organizador.trim())  { toast({ variant: "destructive", title: "Falta organizador" });   return }
-    if (!form.requerimiento.trim()){ toast({ variant: "destructive", title: "Falta requerimiento" }); return }
-    if (!form.fechaDesde)          { toast({ variant: "destructive", title: "Falta fecha desde" });   return }
-    if (!form.fechaHasta)          { toast({ variant: "destructive", title: "Falta fecha hasta" });   return }
-    if (!form.horaDesde)           { toast({ variant: "destructive", title: "Falta hora desde" });    return }
-    if (!form.horaHasta)           { toast({ variant: "destructive", title: "Falta hora hasta" });    return }
-    if (areaIds.length === 0)      { toast({ variant: "destructive", title: "Seleccioná al menos un área" }); return }
+    if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Falta el título" });        return }
+    if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Falta el organizador" });   return }
+    if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Falta el requerimiento" }); return }
+    if (!form.fechaDesde)           { toast({ variant: "destructive", title: "Falta la fecha desde" });   return }
+    if (!form.fechaHasta)           { toast({ variant: "destructive", title: "Falta la fecha hasta" });   return }
+    if (!form.horaDesde)            { toast({ variant: "destructive", title: "Falta la hora desde" });    return }
+    if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" });    return }
+    if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área disponible" }); return }
 
     const payload: CreateOcupacionPayload = {
       titulo:           form.titulo.trim(),
@@ -511,15 +270,20 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
       await ocupacionesApi.create(payload)
       toast({ title: "✅ Ocupación agendada", description: `"${payload.titulo}" creada correctamente` })
       handleClose()
-      // ✅ FIX: notifica al padre para que recargue la lista
       onSuccess?.()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error desconocido"
-      toast({ variant: "destructive", title: "Error al agendar", description: msg })
+      toast({
+        variant:     "destructive",
+        title:       "No se pudo agendar",
+        description: parsearErrorBackend(err),
+      })
     } finally {
       setLoading(false)
     }
   }
+
+  const hayConflictoVisible = areasConConflicto.size > 0 &&
+    form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -535,6 +299,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+
           {/* Título */}
           <div className="space-y-1.5">
             <Label htmlFor="titulo" className="flex items-center gap-1.5 text-sm font-medium">
@@ -646,34 +411,62 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             <Label className="flex items-center gap-1.5 text-sm font-medium">
               <MapPin className="w-3.5 h-3.5" /> Áreas a reservar *
             </Label>
+
             {loadAreas ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
               </div>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {areas.map((area) => {
-                  const sel = areaIds.includes(area.id)
-                  return (
-                    <button
-                      key={area.id}
-                      type="button"
-                      onClick={() => toggleArea(area.id)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
-                        sel
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background border-border text-foreground hover:bg-muted"
-                      }`}
-                    >
-                      {sel && <CheckSquare className="w-3.5 h-3.5" />}
-                      {area.nombre}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-            {areaIds.length > 0 && (
-              <p className="text-xs text-muted-foreground">{areaIds.length} área(s) seleccionada(s)</p>
+              <>
+                {/* Aviso de conflicto */}
+                {hayConflictoVisible && (
+                  <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/8 border border-destructive/20 text-destructive text-xs">
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Algunas zonas ya están ocupadas en ese horario y no están disponibles.
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  {areas.map((area) => {
+                    const bloqueada  = areasConConflicto.has(area.id)
+                    const sel        = areaIds.includes(area.id)
+
+                    return (
+                      <button
+                        key={area.id}
+                        type="button"
+                        disabled={bloqueada}
+                        onClick={() => toggleArea(area.id)}
+                        title={bloqueada ? "Zona ocupada en ese horario" : undefined}
+                        className={[
+                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+                          bloqueada
+                            ? "bg-muted text-muted-foreground border-muted-foreground/20 cursor-not-allowed line-through opacity-50"
+                            : sel
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-background border-border text-foreground hover:bg-muted cursor-pointer",
+                        ].join(" ")}
+                      >
+                        {sel && !bloqueada && <CheckSquare className="w-3.5 h-3.5" />}
+                        {area.nombre}
+                        {bloqueada && (
+                          <Badge variant="destructive" className="text-[9px] px-1 py-0 ml-0.5">
+                            Ocupada
+                          </Badge>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {areaIds.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {areaIds.length} área(s) seleccionada(s)
+                  </p>
+                )}
+              </>
             )}
           </div>
 
@@ -772,279 +565,29 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
   )
 }
 EOF
-  echo "✅  components/agendar-modal.tsx"
+echo "✅  components/agendar-modal.tsx"
 
-  # ── Fix 2: disponibilidad-inline.tsx — toast fuera del dep array ─────────
-  echo "📄  components/disponibilidad-inline.tsx..."
-  cat > components/disponibilidad-inline.tsx << 'EOF'
-"use client"
+# ════════════════════════════════════════════════════════════════════════════
+# 2. Build
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "🔨  Compilando..."
+pnpm build
 
-import { useState, useEffect, useCallback, useRef } from "react"
-import { ocupacionesApi } from "@/lib/ocupacion-api"
-import type { Ocupacion } from "@/types/ocupacion"
-import { useToast } from "@/hooks/use-toast"
-import { Button } from "@/components/ui/button"
-import { Badge }  from "@/components/ui/badge"
-import {
-  Loader2,
-  MapPin,
-  Clock,
-  Users,
-  Unlock,
-  RefreshCw,
-  Inbox,
-  Link2,
-  ChevronDown,
-  ChevronUp,
-  CalendarDays,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
-
-interface DisponibilidadInlineProps {
-  onSuccess?: () => void
-}
-
-function formatFecha(iso: string): string {
-  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
-    weekday: "short", day: "numeric", month: "short",
-  })
-}
-
-function esHoy(iso: string): boolean {
-  const hoy = new Date()
-  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
-  const f = new Date(y, m - 1, d)
-  return (
-    f.getDate()     === hoy.getDate()  &&
-    f.getMonth()    === hoy.getMonth() &&
-    f.getFullYear() === hoy.getFullYear()
-  )
-}
-
-export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
-  const { toast } = useToast()
-  // ✅ FIX: toast en ref → no entra en el dep array de useCallback → sin loops
-  const toastRef = useRef(toast)
-  useEffect(() => { toastRef.current = toast }, [toast])
-
-  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
-  const [loading,     setLoading]     = useState(false)
-  const [liberando,   setLiberando]   = useState<number | null>(null)
-  const [expandedId,  setExpandedId]  = useState<number | null>(null)
-
-  // ✅ FIX: dep array estable → useEffect se dispara solo al montar
-  const cargar = useCallback(async (silencioso = false) => {
-    if (!silencioso) setLoading(true)
-    try {
-      const data = await ocupacionesApi.getActivas()
-      setOcupaciones(data)
-    } catch {
-      if (!silencioso) {
-        toastRef.current({
-          variant: "destructive",
-          title: "Error",
-          description: "No se pudieron cargar las ocupaciones",
-        })
-      }
-    } finally {
-      if (!silencioso) setLoading(false)
-    }
-  }, []) // ← sin dependencias externas inestables
-
-  useEffect(() => { cargar() }, [cargar])
-
-  const liberar = async (oc: Ocupacion) => {
-    setLiberando(oc.id)
-    try {
-      await ocupacionesApi.liberar(oc.id)
-      toastRef.current({ title: "✅ Zonas liberadas", description: `"${oc.titulo}" finalizada` })
-      await cargar(true)
-      onSuccess?.()
-    } catch (err) {
-      toastRef.current({
-        variant: "destructive",
-        title: "Error al liberar",
-        description: err instanceof Error ? err.message : "Error desconocido",
-      })
-    } finally {
-      setLiberando(null)
-    }
-  }
-
-  const toggleExpand = (id: number) =>
-    setExpandedId((prev) => (prev === id ? null : id))
-
-  // ── UI ───────────────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
-          <MapPin className="w-3.5 h-3.5" />
-          Zonas ocupadas
-        </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 text-xs"
-          onClick={() => cargar()}
-          disabled={loading}
-        >
-          <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
-          Actualizar
-        </Button>
-      </div>
-
-      {/* Contenido */}
-      {loading ? (
-        <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Cargando...</span>
-        </div>
-      ) : ocupaciones.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-          <Inbox className="w-8 h-8 opacity-30" />
-          <p className="text-sm font-medium">Sin zonas ocupadas</p>
-          <p className="text-xs opacity-60">Todos los espacios están disponibles</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {ocupaciones.map((oc) => {
-            const expanded = expandedId === oc.id
-            const hoy      = esHoy(oc.fechaDesde)
-
-            return (
-              <div
-                key={oc.id}
-                className="rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden"
-              >
-                {/* Fila principal */}
-                <button
-                  type="button"
-                  className="w-full text-left px-4 py-3 flex items-start justify-between gap-2 hover:bg-muted/30 transition-colors"
-                  onClick={() => toggleExpand(oc.id)}
-                >
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm truncate">{oc.titulo}</span>
-                      {hoy && (
-                        <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
-                          Hoy
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <CalendarDays className="w-3 h-3" />
-                        {formatFecha(oc.fechaDesde)}
-                        {oc.fechaDesde !== oc.fechaHasta && ` → ${formatFecha(oc.fechaHasta)}`}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {oc.horaDesde} – {oc.horaHasta}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Users className="w-3 h-3" />
-                        {oc.cantidadPersonas}
-                      </span>
-                    </div>
-                  </div>
-                  {expanded
-                    ? <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                  }
-                </button>
-
-                {/* Detalle expandido */}
-                {expanded && (
-                  <div className="px-4 pb-4 pt-0 space-y-3 border-t bg-muted/10">
-                    {/* Áreas */}
-                    <div className="space-y-1 pt-3">
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <MapPin className="w-3 h-3" /> Zonas:
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {oc.areas?.length > 0
-                          ? oc.areas.map((r) => (
-                              <Badge key={r.areaId} variant="secondary" className="text-xs">
-                                {r.area?.nombre ?? `Área ${r.areaId}`}
-                              </Badge>
-                            ))
-                          : <span className="text-xs text-muted-foreground">Sin zonas</span>
-                        }
-                      </div>
-                    </div>
-
-                    {/* Requerimiento */}
-                    {oc.requerimiento && (
-                      <p className="text-xs text-muted-foreground border-t pt-2">
-                        {oc.requerimiento}
-                      </p>
-                    )}
-
-                    {/* Anexos */}
-                    {oc.anexos?.length > 0 && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Link2 className="w-3 h-3" /> Anexos:
-                        </p>
-                        {oc.anexos.map((url, i) => (
-                          <a
-                            key={i}
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary underline truncate block"
-                          >
-                            {url}
-                          </a>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Acción liberar */}
-                    <div className="pt-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
-                        onClick={() => liberar(oc)}
-                        disabled={liberando === oc.id}
-                      >
-                        {liberando === oc.id
-                          ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
-                          : <><Unlock className="w-3 h-3" /> Liberar áreas</>
-                        }
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-EOF
-  echo "✅  components/disponibilidad-inline.tsx"
-
-  echo ""
-  echo "🔨  Compilando frontend..."
-  pnpm build
-
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  ✅  FRONTEND completado                                         ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "  Fixes aplicados:"
-  echo "    · agendar-modal.tsx    → onSuccess() se llama tras crear"
-  echo "    · disponibilidad-inline → toast en useRef (dep array estable)"
-  echo "    · disponibilidad-inline → cargar() sin deps externas inestables"
-  echo ""
-  echo "  ⚠️  No requiere prisma migrate (sin cambios de schema)"
-  echo ""
-fi
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║  ✅  v8-fix-conflicto-zonas.sh completado                       ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "  Cambios en agendar-modal.tsx:"
+echo "    · Carga /ocupaciones/activas al abrir el modal"
+echo "    · calcularAreasConConflicto() en useMemo → reactivo a fecha/hora"
+echo "    · Áreas ocupadas en ese rango → deshabilitadas + badge 'Ocupada'"
+echo "    · Si cambiás fecha/hora y un área seleccionada queda bloqueada"
+echo "      → se deselecciona automáticamente"
+echo "    · parsearErrorBackend() → mensaje amigable si el back rechaza"
+echo "    · onSuccess() se llama tras crear (ya estaba en v7)"
+echo ""
+echo "  Backend: sin cambios (verificarConflicto ya era correcto)"
+echo "  Schema:  sin cambios"
+echo ""
