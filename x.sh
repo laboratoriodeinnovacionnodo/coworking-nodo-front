@@ -1,265 +1,39 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v17-fix-too-many-connections.sh
+#  v18-ui-disponibilidad-calendario.sh  — coworking-front
 #
-#  Problema: P2037 "Too many connections" en PostgreSQL.
-#  Causas combinadas:
-#    BACK: pg.Pool sin max configurado → abre hasta el límite de PG (100)
-#          El cron cada minuto + requests concurrentes saturan la DB.
-#    FRONT: fetchSeats disparado en loop por useCallback sin deps estables
-#           → polling descontrolado con decenas de requests/segundo.
+#  Mejoras de UI (solo visual, sin cambios de lógica):
+#    · Contenedor principal max-w-2xl → max-w-4xl (más espacio)
+#    · Tab default al entrar: "disponibilidad" (antes "asientos")
+#    · Vista "disponibilidad": layout side-by-side en desktop
+#      izquierda → DisponibilidadInline (zonas ocupadas)
+#      derecha   → CalendarioCoworking (eventos del mes)
+#    · Tab "Calendario" eliminado de la barra (integrado en Disponibilidad)
 #
-#  Fixes BACKEND (coworking-back):
-#    · prisma/prisma.service.ts → pg.Pool con max:10, idleTimeoutMillis,
-#      connectionTimeoutMillis
-#    · src/ocupacion/ocupacion.service.ts → cron cada 5 min en vez de 1 min
-#
-#  Fixes FRONTEND (coworking-front):
-#    · hooks/use-seats.ts → fetchSeats con useCallback sin deps + polling
-#      cada 30s en vez de en cada render
-#    · app/page.tsx → useEffect con [] para fetchSeats inicial (sin deps)
-#
-#  El script detecta en qué repo estás y aplica solo lo que corresponde.
+#  Sin cambios de lógica ni de backend.
 #
 #  Uso:
-#    cd coworking-back  → chmod +x v17... && ./v17...
-#    cd coworking-front → chmod +x v17... && ./v17...
+#    cd coworking-front
+#    chmod +x v18-ui-disponibilidad-calendario.sh
+#    ./v18-ui-disponibilidad-calendario.sh
 # ============================================================================
 set -euo pipefail
 
-IS_BACK=false
-IS_FRONT=false
-
-if [ -f "package.json" ] && [ -d "src" ] && grep -q "nestjs" package.json 2>/dev/null; then
-  IS_BACK=true
-fi
-if [ -f "package.json" ] && [ -d "app" ] && grep -q "next" package.json 2>/dev/null; then
-  IS_FRONT=true
-fi
-
-if [ "$IS_BACK" = false ] && [ "$IS_FRONT" = false ]; then
-  echo "❌  No se reconoce el proyecto. Corré desde coworking-back o coworking-front."
+if [ ! -f "package.json" ] || [ ! -d "app" ]; then
+  echo "❌  Corré desde la raíz de coworking-front"
   exit 1
 fi
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  🔧  v17 — Fix Too Many Connections                             ║"
+echo "║  🎨  v18 — UI: disponibilidad + calendario lado a lado          ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 
 # ════════════════════════════════════════════════════════════════════════════
-# BACKEND
+# app/page.tsx
 # ════════════════════════════════════════════════════════════════════════════
-if [ "$IS_BACK" = true ]; then
-  echo ""
-  echo "── BACKEND ──────────────────────────────────────────────────────────"
-
-  # ── prisma/prisma.service.ts — pool limitado ────────────────────────────
-  echo "📄  prisma/prisma.service.ts..."
-  cat > prisma/prisma.service.ts << 'EOF'
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import * as pg from 'pg';
-
-@Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(PrismaService.name);
-  private readonly pool: pg.Pool;
-
-  constructor() {
-    const connectionString = process.env.DATABASE_URL;
-
-    // Pool con límite explícito — evita saturar PostgreSQL
-    const pool = new pg.Pool({
-      connectionString,
-      max:                    10,   // máximo 10 conexiones simultáneas
-      idleTimeoutMillis:   30_000, // libera conexiones inactivas a los 30s
-      connectionTimeoutMillis: 5_000, // error si no consigue conexión en 5s
-    });
-
-    pool.on('error', (err) => {
-      // Log del error pero sin crashear la app
-      console.error('[PrismaService] Pool error:', err.message);
-    });
-
-    const adapter = new PrismaPg(pool);
-
-    super({ adapter });
-
-    // Guardar referencia para destruir el pool al apagar
-    this.pool = pool;
-  }
-
-  async onModuleInit() {
-    await this.$connect();
-    this.logger.log('Prisma conectado (pool max=10)');
-  }
-
-  async onModuleDestroy() {
-    await this.$disconnect();
-    await this.pool.end();
-    this.logger.log('Prisma desconectado');
-  }
-}
-EOF
-  echo "✅  prisma/prisma.service.ts — pool max=10"
-
-  # ── src/ocupacion/ocupacion.service.ts — cron cada 5 min ───────────────
-  echo "📄  src/ocupacion/ocupacion.service.ts — cron cada 5 min..."
-  # Reemplazar @Cron('* * * * *') por @Cron('*/5 * * * *')
-  sed -i "s|@Cron('\\* \\* \\* \\* \\*')|@Cron('*/5 * * * *')|g" src/ocupacion/ocupacion.service.ts
-  echo "✅  Cron: cada minuto → cada 5 minutos"
-
-  echo ""
-  echo "🔨  Compilando backend..."
-  pnpm build
-
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  ✅  BACKEND completado                                          ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "  Cambios:"
-  echo "    · prisma.service.ts → pg.Pool max=10, idle=30s, timeout=5s"
-  echo "    · ocupacion.service.ts → cron cada 5 min (era cada 1 min)"
-  echo ""
-  echo "  Sin cambios de schema."
-  echo ""
-fi
-
-# ════════════════════════════════════════════════════════════════════════════
-# FRONTEND
-# ════════════════════════════════════════════════════════════════════════════
-if [ "$IS_FRONT" = true ]; then
-  echo ""
-  echo "── FRONTEND ─────────────────────────────────────────────────────────"
-
-  # ── hooks/use-seats.ts — fetchSeats estable + polling controlado ────────
-  echo "📄  hooks/use-seats.ts..."
-  cat > hooks/use-seats.ts << 'EOF'
-"use client"
-
-import { useState, useCallback, useRef, useEffect } from "react"
-import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
-import type { Seat } from "@/types/seat"
-import { useToast } from "@/hooks/use-toast"
-
-// Polling cada 30s — suficiente para datos en tiempo real sin saturar la DB
-const POLLING_MS = 30_000
-
-export function useSeats() {
-  const { toast }    = useToast()
-  const toastRef     = useRef(toast)
-  useEffect(() => { toastRef.current = toast }, [toast])
-
-  const [seats,   setSeats]   = useState<Seat[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
-
-  // ── fetchSeats: estable, no se recrea entre renders ──────────────────────
-  const fetchSeats = useCallback(async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      const [areas, reservas] = await Promise.all([
-        areasApi.getAll(),
-        reservasApi.getAll(),
-      ])
-      setSeats(areas.map((area) => convertBackendAreaToSeat(area, reservas)))
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al cargar áreas"
-      setError(msg)
-    } finally {
-      setLoading(false)
-    }
-  }, []) // sin deps → referencia estable entre renders
-
-  // ── updateSeatStatus ─────────────────────────────────────────────────────
-  const updateSeatStatus = useCallback(async (
-    seat: Seat,
-    newStatus: string,
-    userName?: string,
-    peopleCount?: number,
-    shareLimit?: number,
-  ) => {
-    if (!seat.backendId) throw new Error("Asiento sin ID de backend")
-
-    try {
-      if (newStatus === "occupied" || newStatus === "for-share" || newStatus === "shared") {
-        if (!userName) throw new Error("Nombre de usuario requerido")
-
-        // Buscar usuario por nombre
-        const user = await (async () => {
-          try {
-            const res = await fetch(
-              `${process.env.NEXT_PUBLIC_API_URL ?? ""}/usuario`,
-              { headers: { "Content-Type": "application/json" } }
-            )
-            if (!res.ok) return null
-            const usuarios = await res.json()
-            return usuarios.find((u: { nombre: string; id: number }) => u.nombre === userName) ?? null
-          } catch { return null }
-        })()
-
-        const usuarioId = user?.id ?? 1
-        const detalles  =
-          newStatus === "for-share"
-            ? `Para compartir (límite: ${shareLimit || 6}, personas: ${peopleCount})`
-            : `Ocupado por ${peopleCount} persona(s)`
-
-        await reservasApi.create({ nombre: userName, detalles, usuarioId, areaId: seat.backendId })
-
-        if (newStatus === "for-share") {
-          const reservas    = await reservasApi.getAll()
-          const activeCount = reservas.filter((r) => r.areaId === seat.backendId && r.fin === null).length
-          await areasApi.cambiarEstado(seat.backendId, activeCount >= (shareLimit || 6) ? "shared" : newStatus)
-        } else {
-          await areasApi.cambiarEstado(seat.backendId, newStatus)
-        }
-
-        toastRef.current({ title: "Reserva creada", description: `${seat.id} asignado a ${userName}` })
-      } else {
-        await areasApi.cambiarEstado(seat.backendId, newStatus)
-        toastRef.current({ title: "Estado actualizado", description: `${seat.id} cambió de estado` })
-      }
-
-      await fetchSeats()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al actualizar"
-      setError(msg)
-      toastRef.current({ variant: "destructive", title: "Error al actualizar asiento", description: msg })
-      throw err
-    }
-  }, [fetchSeats])
-
-  // ── toggleBlockAll ───────────────────────────────────────────────────────
-  const toggleBlockAll = useCallback(async (block: boolean) => {
-    try {
-      setLoading(true)
-      await areasApi.bloquearTodas(block)
-      toastRef.current({
-        title:       block ? "Coworking bloqueado" : "Coworking desbloqueado",
-        description: block ? "Todas las áreas están bloqueadas" : "Las áreas volvieron a su estado libre",
-      })
-      await fetchSeats()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al operar"
-      setError(msg)
-      toastRef.current({ variant: "destructive", title: "Error", description: msg })
-    } finally {
-      setLoading(false)
-    }
-  }, [fetchSeats])
-
-  return { seats, loading, error, fetchSeats, updateSeatStatus, toggleBlockAll, POLLING_MS }
-}
-EOF
-  echo "✅  hooks/use-seats.ts"
-
-  # ── app/page.tsx — polling controlado, useEffect sin deps ───────────────
-  echo "📄  app/page.tsx — polling controlado..."
-  cat > app/page.tsx << 'EOF'
+echo "📄  app/page.tsx..."
+cat > app/page.tsx << 'EOF'
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -282,21 +56,20 @@ import { cn }                   from "@/lib/utils"
 import { useToast }             from "@/hooks/use-toast"
 import {
   Loader2, RefreshCw, LogOut, Menu,
-  Armchair, CalendarPlus, CalendarRange, MapPin, Map, LayoutGrid,
+  Armchair, CalendarPlus, MapPin, Map, LayoutGrid,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar" | "calendario"
+// ── Vistas — "calendario" integrado en "disponibilidad" ──────────────────────
+type Vista = "disponibilidad" | "asientos" | "mapa" | "agendar"
 
 const VISTAS: { id: Vista; label: string; icon: React.ElementType }[] = [
-  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin        },
-  { id: "asientos",       label: "Asientos",       icon: LayoutGrid    },
-  { id: "mapa",           label: "Mapa",           icon: Map           },
-  { id: "agendar",        label: "Agendar",        icon: CalendarPlus  },
-  { id: "calendario",     label: "Calendario",     icon: CalendarRange },
+  { id: "disponibilidad", label: "Disponibilidad", icon: MapPin     },
+  { id: "asientos",       label: "Asientos",       icon: LayoutGrid },
+  { id: "mapa",           label: "Mapa",           icon: Map        },
+  { id: "agendar",        label: "Agendar",        icon: CalendarPlus },
 ]
 
-// Polling cada 30s — evita saturar la DB
 const POLLING_MS = 30_000
 
 export default function CoworkingSeatsPage() {
@@ -308,34 +81,29 @@ export default function CoworkingSeatsPage() {
 
   const [isAdminMode,    setIsAdminMode]    = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [vista,          setVista]          = useState<Vista>("asientos")
+  // ✅ Default: "disponibilidad"
+  const [vista,          setVista]          = useState<Vista>("disponibilidad")
   const [mapaOpen,       setMapaOpen]       = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
   const bloqueadoPorEventoRef = useRef<string | null>(null)
 
-  // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !admin) router.push("/login")
   }, [admin, authLoading, router])
 
-  // ── Carga inicial UNA sola vez ────────────────────────────────────────────
   useEffect(() => {
     fetchSeats()
-    // fetchSeats es estable (useCallback con []) → este effect solo corre al montar
   }, [fetchSeats])
 
-  // ── Polling cada 30s — controlado ────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(fetchSeats, POLLING_MS)
     return () => clearInterval(id)
-  }, [fetchSeats]) // fetchSeats es estable → el interval se crea una sola vez
+  }, [fetchSeats])
 
-  // ── Auto-bloqueo por evento del calendario ────────────────────────────────
   useEffect(() => {
     const eventoId = eventoActivo?.id ?? null
     if (eventoId === bloqueadoPorEventoRef.current) return
-
     if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
       bloqueadoPorEventoRef.current = eventoId
       toggleBlockAll(true).catch(() => {})
@@ -347,7 +115,6 @@ export default function CoworkingSeatsPage() {
     }
   }, [eventoActivo, toggleBlockAll])
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleRefresh = async () => {
     await fetchSeats()
     toast({ title: "Datos actualizados" })
@@ -390,8 +157,10 @@ export default function CoworkingSeatsPage() {
 
       {/* ══ Header ══════════════════════════════════════════════════ */}
       <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-border/50 shadow-sm">
-        <div className="max-w-2xl mx-auto px-4 py-3">
+        {/* ✅ max-w-4xl para header también */}
+        <div className="max-w-4xl mx-auto px-4 py-3">
 
+          {/* Desktop */}
           <div className="hidden md:flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
@@ -418,6 +187,7 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
+          {/* Mobile */}
           <div className="flex md:hidden items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
@@ -465,11 +235,12 @@ export default function CoworkingSeatsPage() {
         </div>
       </div>
 
-      {/* ══ Contenido ════════════════════════════════════════════════ */}
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4 pb-24">
+      {/* ══ Contenido — ✅ max-w-4xl ════════════════════════════════ */}
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-4 pb-24">
 
         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
 
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
@@ -485,10 +256,10 @@ export default function CoworkingSeatsPage() {
           </div>
         </div>
 
+        {/* Admin panel */}
         {isAdminMode && isAdmin && !bloqueadoPorEvento && (
           <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
         )}
-
         {isAdminMode && isAdmin && bloqueadoPorEvento && (
           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
             El panel de administración está deshabilitado mientras haya un evento activo.
@@ -496,21 +267,27 @@ export default function CoworkingSeatsPage() {
           </div>
         )}
 
+        {/* ══ Card principal ═══════════════════════════════════════ */}
         <div className="bg-white rounded-xl border border-primary/10 shadow-sm overflow-hidden">
+
+          {/* Barra de tabs */}
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {VISTAS.map(({ id, label, icon: Icon }) => {
                 const isModal  = id === "mapa" || id === "agendar"
                 const isActive = !isModal && vista === id
                 return (
-                  <button key={id} onClick={() => handleVista(id)}
+                  <button
+                    key={id}
+                    onClick={() => handleVista(id)}
                     className={cn(
                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
                       isActive
                         ? "border-primary text-primary bg-primary/5"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
                       id === "agendar" && !isActive ? "hover:text-primary" : "",
-                    )}>
+                    )}
+                  >
                     <Icon className="w-4 h-4" />
                     <span>{label}</span>
                   </button>
@@ -519,8 +296,34 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
+          {/* Contenido */}
           <div className="p-4 md:p-6">
-            {vista === "disponibilidad" && <DisponibilidadInline onSuccess={fetchSeats} />}
+
+            {/* ✅ Disponibilidad + Calendario lado a lado */}
+            {vista === "disponibilidad" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Columna izquierda: zonas ocupadas */}
+                <div className="min-w-0">
+                  <DisponibilidadInline onSuccess={fetchSeats} />
+                </div>
+
+                {/* Separador vertical solo en desktop */}
+                <div className="hidden lg:block w-px bg-border self-stretch" />
+
+                {/* Columna derecha: calendario de eventos */}
+                <div className="min-w-0">
+                  {/* Label para diferenciar la sección en mobile */}
+                  <div className="lg:hidden mb-3 pt-3 border-t border-border">
+                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                      <span>📅</span> Calendario
+                    </h3>
+                  </div>
+                  <CalendarioCoworking />
+                </div>
+              </div>
+            )}
+
+            {/* Asientos */}
             {vista === "asientos" && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -536,7 +339,7 @@ export default function CoworkingSeatsPage() {
                 </div>
               </div>
             )}
-            {vista === "calendario" && <CalendarioCoworking />}
+
           </div>
         </div>
 
@@ -549,21 +352,28 @@ export default function CoworkingSeatsPage() {
   )
 }
 EOF
-  echo "✅  app/page.tsx"
+echo "✅  app/page.tsx"
 
-  echo ""
-  echo "🔨  Compilando frontend..."
-  pnpm build
+# ════════════════════════════════════════════════════════════════════════════
+# Build
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo "🔨  Compilando..."
+pnpm build
 
-  echo ""
-  echo "╔══════════════════════════════════════════════════════════════════╗"
-  echo "║  ✅  FRONTEND completado                                         ║"
-  echo "╚══════════════════════════════════════════════════════════════════╝"
-  echo ""
-  echo "  Cambios:"
-  echo "    · hooks/use-seats.ts → fetchSeats useCallback([]) estable"
-  echo "                           polling SOLO en app/page.tsx cada 30s"
-  echo "    · app/page.tsx       → polling setInterval 30s, un solo"
-  echo "                           useEffect de carga inicial"
-  echo ""
-fi
+echo ""
+echo "╔══════════════════════════════════════════════════════════════════╗"
+echo "║  ✅  v18-ui-disponibilidad-calendario.sh completado             ║"
+echo "╚══════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "  Cambios UI:"
+echo "    · Contenedor: max-w-2xl → max-w-4xl"
+echo "    · Tab default al entrar: Disponibilidad (antes Asientos)"
+echo "    · Vista Disponibilidad: grid 2 columnas en desktop"
+echo "      col-izq → DisponibilidadInline (zonas ocupadas)"
+echo "      col-der → CalendarioCoworking (eventos del mes)"
+echo "    · Tab Calendario eliminado de la barra (integrado)"
+echo "    · En mobile: sección calendario debajo con label"
+echo ""
+echo "  Sin cambios de lógica ni de backend."
+echo ""
