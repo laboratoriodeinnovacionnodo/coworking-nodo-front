@@ -1,16 +1,77 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v25b-fix-agendar-modal-build.sh  — coworking-front
-#  Reescribe agendar-modal.tsx completo y limpio, sin colapsables.
+#  v26-front-telefono.sh  — coworking-front
+#  Agrega campo `telefono` (opcional) al modal de agendar ocupación.
+#  Toca: types/ocupacion.ts · components/agendar-modal.tsx
 # ============================================================================
 set -euo pipefail
 
-if [ ! -f "package.json" ] || [ ! -d "app" ]; then
-  echo "❌  Corré desde la raíz de coworking-front"; exit 1
-fi
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; RESET='\033[0m'
+ok()   { echo -e "${GREEN}✅  $*${RESET}"; }
+warn() { echo -e "${YELLOW}⚠️   $*${RESET}"; }
+fail() { echo -e "${RED}❌  $*${RESET}"; exit 1; }
 
-echo "📄  components/agendar-modal.tsx (reescritura completa)..."
-cat > components/agendar-modal.tsx << 'EOF'
+[[ -f "package.json" && -d "app" ]] || fail "Corré desde la raíz de coworking-front"
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo "  v26 · coworking-front · campo telefono en AgendarModal"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+
+# ── 1. types/ocupacion.ts ──────────────────────────────────────────────────
+echo "📄  types/ocupacion.ts"
+cat > types/ocupacion.ts << 'TSEOF'
+export interface OcupacionArea {
+  ocupacionId: number
+  areaId:      number
+  area: {
+    id:     number
+    nombre: string
+  }
+}
+
+export interface Ocupacion {
+  id:               number
+  titulo:           string
+  requerimiento:    string
+  cantidadPersonas: number
+  organizador:      string
+  telefono?:        string | null
+  fechaDesde:       string
+  fechaHasta:       string
+  horaDesde:        string
+  horaHasta:        string
+  edadMin?:         number | null
+  edadMax?:         number | null
+  anexos:           string[]
+  liberadaAt?:      string | null
+  createdAt:        string
+  updatedAt:        string
+  areas:            OcupacionArea[]
+}
+
+export interface CreateOcupacionPayload {
+  titulo:           string
+  requerimiento:    string
+  cantidadPersonas: number
+  organizador:      string
+  telefono?:        string
+  fechaDesde:       string
+  fechaHasta:       string
+  horaDesde:        string
+  horaHasta:        string
+  edadMin?:         number
+  edadMax?:         number
+  anexos?:          string[]
+  areaIds:          number[]
+}
+TSEOF
+ok "types/ocupacion.ts"
+
+# ── 2. components/agendar-modal.tsx ────────────────────────────────────────
+echo "📄  components/agendar-modal.tsx"
+cat > components/agendar-modal.tsx << 'TSEOF'
 "use client"
 
 import { useState, useCallback, useEffect, useMemo } from "react"
@@ -39,6 +100,7 @@ import {
   Clock,
   Users,
   User,
+  Phone,
   FileText,
   Link2,
   Plus,
@@ -60,6 +122,7 @@ const EMPTY_FORM = {
   requerimiento:    "",
   cantidadPersonas: 1,
   organizador:      "",
+  telefono:         "",
   fechaDesde:       "",
   fechaHasta:       "",
   horaDesde:        "",
@@ -232,8 +295,9 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
       horaHasta:        form.horaHasta,
       anexos,
       areaIds,
-      ...(form.edadMin && { edadMin: Number(form.edadMin) }),
-      ...(form.edadMax && { edadMax: Number(form.edadMax) }),
+      ...(form.telefono.trim()  && { telefono:  form.telefono.trim() }),
+      ...(form.edadMin          && { edadMin: Number(form.edadMin) }),
+      ...(form.edadMax          && { edadMax: Number(form.edadMax) }),
     }
 
     setLoading(true)
@@ -275,34 +339,48 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             </Label>
             <Input
               id="titulo"
-              placeholder="Ej: Taller de fotografía"
+              placeholder="Nombre del evento o actividad"
               value={form.titulo}
               onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
             />
           </div>
 
-          {/* Organizador */}
-          <div className="space-y-1.5">
-            <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
-              <User className="w-3.5 h-3.5" /> Organizador *
-            </Label>
-            <Input
-              id="organizador"
-              placeholder="Nombre del responsable"
-              value={form.organizador}
-              onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
-            />
+          {/* Organizador + Teléfono */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
+                <User className="w-3.5 h-3.5" /> Organizador *
+              </Label>
+              <Input
+                id="organizador"
+                placeholder="Nombre completo"
+                value={form.organizador}
+                onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="telefono" className="flex items-center gap-1.5 text-sm font-medium">
+                <Phone className="w-3.5 h-3.5" /> Teléfono (opcional)
+              </Label>
+              <Input
+                id="telefono"
+                type="tel"
+                placeholder="Ej: +54 383 000-0000"
+                value={form.telefono}
+                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+              />
+            </div>
           </div>
 
           {/* Requerimiento */}
           <div className="space-y-1.5">
             <Label htmlFor="requerimiento" className="flex items-center gap-1.5 text-sm font-medium">
-              <FileText className="w-3.5 h-3.5" /> Requerimiento *
+              <FileText className="w-3.5 h-3.5" /> Descripción / Requerimientos *
             </Label>
             <Textarea
               id="requerimiento"
-              placeholder="Describe los requerimientos del espacio..."
-              rows={2}
+              placeholder="Describí la actividad y sus necesidades..."
+              rows={3}
               value={form.requerimiento}
               onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
             />
@@ -310,11 +388,11 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
 
           {/* Cantidad de personas */}
           <div className="space-y-1.5">
-            <Label htmlFor="cantPersonas" className="flex items-center gap-1.5 text-sm font-medium">
-              <Users className="w-3.5 h-3.5" /> Cantidad de personas *
+            <Label htmlFor="cantidadPersonas" className="flex items-center gap-1.5 text-sm font-medium">
+              <Users className="w-3.5 h-3.5" /> Cantidad estimada de personas *
             </Label>
             <Input
-              id="cantPersonas"
+              id="cantidadPersonas"
               type="number"
               min={1}
               value={form.cantidadPersonas}
@@ -447,7 +525,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             )}
           </div>
 
-          {/* Edad mín/máx — siempre visible */}
+          {/* Edad mín/máx */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="edadMin" className="text-sm font-medium">Edad mínima (opcional)</Label>
@@ -473,7 +551,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             </div>
           </div>
 
-          {/* Anexos — siempre visible */}
+          {/* Anexos */}
           <div className="space-y-2">
             <Label className="text-sm font-medium flex items-center gap-1.5">
               <Link2 className="w-3.5 h-3.5" /> Anexos / enlaces (opcional)
@@ -521,14 +599,26 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     </Dialog>
   )
 }
-EOF
-echo "✅  components/agendar-modal.tsx"
+TSEOF
+ok "components/agendar-modal.tsx"
 
+# ── 3. Verificar TypeScript ────────────────────────────────────────────────
 echo ""
-echo "🔨  Compilando..."
+echo "🔨  Verificando TypeScript..."
+pnpm exec tsc --noEmit --skipLibCheck 2>&1 | head -40 || true
+
+# ── 4. Build ───────────────────────────────────────────────────────────────
+echo ""
+echo "🔨  Build de producción..."
 pnpm build
 
+# ── Resumen ────────────────────────────────────────────────────────────────
 echo ""
-echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  ✅  v25b completado — modal limpio sin colapsables             ║"
-echo "╚══════════════════════════════════════════════════════════════════╝"
+echo -e "${GREEN}════════════════════════════════════════════════════════════${RESET}"
+echo -e "${GREEN}  ✅  v26 coworking-front completado                       ${RESET}"
+echo -e "${GREEN}════════════════════════════════════════════════════════════${RESET}"
+echo ""
+echo "  Archivos modificados:"
+echo "    types/ocupacion.ts           → campo telefono? añadido a interfaces"
+echo "    components/agendar-modal.tsx → input Teléfono junto a Organizador"
+echo ""

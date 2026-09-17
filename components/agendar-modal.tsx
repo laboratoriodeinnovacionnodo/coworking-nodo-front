@@ -26,6 +26,7 @@ import {
   Clock,
   Users,
   User,
+  Phone,
   FileText,
   Link2,
   Plus,
@@ -47,6 +48,7 @@ const EMPTY_FORM = {
   requerimiento:    "",
   cantidadPersonas: 1,
   organizador:      "",
+  telefono:         "",
   fechaDesde:       "",
   fechaHasta:       "",
   horaDesde:        "",
@@ -219,8 +221,9 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
       horaHasta:        form.horaHasta,
       anexos,
       areaIds,
-      ...(form.edadMin && { edadMin: Number(form.edadMin) }),
-      ...(form.edadMax && { edadMax: Number(form.edadMax) }),
+      ...(form.telefono.trim()  && { telefono:  form.telefono.trim() }),
+      ...(form.edadMin          && { edadMin: Number(form.edadMin) }),
+      ...(form.edadMax          && { edadMax: Number(form.edadMax) }),
     }
 
     setLoading(true)
@@ -262,34 +265,48 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             </Label>
             <Input
               id="titulo"
-              placeholder="Ej: Taller de fotografía"
+              placeholder="Nombre del evento o actividad"
               value={form.titulo}
               onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
             />
           </div>
 
-          {/* Organizador */}
-          <div className="space-y-1.5">
-            <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
-              <User className="w-3.5 h-3.5" /> Organizador *
-            </Label>
-            <Input
-              id="organizador"
-              placeholder="Nombre del responsable"
-              value={form.organizador}
-              onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
-            />
+          {/* Organizador + Teléfono */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
+                <User className="w-3.5 h-3.5" /> Organizador *
+              </Label>
+              <Input
+                id="organizador"
+                placeholder="Nombre completo"
+                value={form.organizador}
+                onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="telefono" className="flex items-center gap-1.5 text-sm font-medium">
+                <Phone className="w-3.5 h-3.5" /> Teléfono (opcional)
+              </Label>
+              <Input
+                id="telefono"
+                type="tel"
+                placeholder="Ej: +54 383 000-0000"
+                value={form.telefono}
+                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+              />
+            </div>
           </div>
 
           {/* Requerimiento */}
           <div className="space-y-1.5">
             <Label htmlFor="requerimiento" className="flex items-center gap-1.5 text-sm font-medium">
-              <FileText className="w-3.5 h-3.5" /> Requerimiento *
+              <FileText className="w-3.5 h-3.5" /> Descripción / Requerimientos *
             </Label>
             <Textarea
               id="requerimiento"
-              placeholder="Describe los requerimientos del espacio..."
-              rows={2}
+              placeholder="Describí la actividad y sus necesidades..."
+              rows={3}
               value={form.requerimiento}
               onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
             />
@@ -297,11 +314,11 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
 
           {/* Cantidad de personas */}
           <div className="space-y-1.5">
-            <Label htmlFor="cantPersonas" className="flex items-center gap-1.5 text-sm font-medium">
-              <Users className="w-3.5 h-3.5" /> Cantidad de personas *
+            <Label htmlFor="cantidadPersonas" className="flex items-center gap-1.5 text-sm font-medium">
+              <Users className="w-3.5 h-3.5" /> Cantidad estimada de personas *
             </Label>
             <Input
-              id="cantPersonas"
+              id="cantidadPersonas"
               type="number"
               min={1}
               value={form.cantidadPersonas}
@@ -434,7 +451,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             )}
           </div>
 
-          {/* Edad mín/máx — siempre visible */}
+          {/* Edad mín/máx */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="edadMin" className="text-sm font-medium">Edad mínima (opcional)</Label>
@@ -460,7 +477,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             </div>
           </div>
 
-          {/* Anexos — siempre visible */}
+          {/* Anexos */}
           <div className="space-y-2">
             <Label className="text-sm font-medium flex items-center gap-1.5">
               <Link2 className="w-3.5 h-3.5" /> Anexos / enlaces (opcional)
