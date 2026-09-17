@@ -4,10 +4,10 @@
  * Fotos en public/areas/
  */
 export const AREA_IMAGES: Record<string, string> = {
-  A: "/areas/zona-a.jpge",
-  B: "/areas/zona-b.jpge",
-  C: "/areas/zona-c.jpge",
-  D: "/areas/zona-d.jpge",
+  A: "/areas/zona-a.jpeg",
+  B: "/areas/zona-b.jpeg",
+  C: "/areas/zona-c.jpeg",
+  D: "/areas/zona-d.jpeg",
 }
 
 export const AREA_LABELS: Record<string, string> = {
