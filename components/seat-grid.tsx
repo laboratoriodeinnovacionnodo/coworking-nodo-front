@@ -1,13 +1,12 @@
 "use client"
 
 import type { Seat } from "@/types/seat"
-import { seatStatusColors } from "@/lib/seat-utils"
+import { seatStatusDot, seatStatusBadge, seatStatusLabel } from "@/lib/seat-utils"
 import { cn } from "@/lib/utils"
-import { Armchair } from "lucide-react"
 
 interface SeatGridProps {
-  seats:       Seat[]
-  isBlocked?:  boolean
+  seats:      Seat[]
+  isBlocked?: boolean
 }
 
 export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
@@ -26,24 +25,46 @@ export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
     <div className="space-y-3 md:space-y-4">
       {rows.map((row) => (
         <div key={row} className="flex items-start gap-2 md:gap-3">
-          <div className="w-6 md:w-8 text-xs md:text-sm font-medium text-muted-foreground pt-2 flex-shrink-0">
+          {/* Letra de fila */}
+          <div className="w-6 md:w-8 text-xs md:text-sm font-medium text-muted-foreground pt-3 flex-shrink-0">
             {row}
           </div>
+
+          {/* Cards de asientos */}
           <div className="flex gap-2 md:gap-3 flex-wrap flex-1">
             {seatsByRow[row]
               .sort((a, b) => a.number - b.number)
               .map((seat) => (
                 <div
                   key={seat.id}
-                  title={`${seat.id} — ${seat.status === "available" ? "Libre" : "Ocupado"}`}
+                  title={`${seat.id} — ${seatStatusLabel[seat.status]}`}
                   className={cn(
-                    "relative flex flex-col items-center justify-center w-12 h-12 md:w-14 md:h-14 rounded-lg transition-all",
-                    seatStatusColors[seat.status],
-                    isBlocked && "opacity-50 cursor-not-allowed",
+                    "bg-white border border-gray-100 rounded-2xl shadow-sm",
+                    "flex flex-col items-center gap-1.5 px-2 py-2.5",
+                    "w-12 md:w-14 transition-shadow hover:shadow-md",
+                    isBlocked && "opacity-40 cursor-not-allowed",
                   )}
                 >
-                  <Armchair className="w-5 h-5 md:w-6 md:h-6" />
-                  <span className="text-[10px] md:text-xs font-bold mt-0.5">{seat.number}</span>
+                  {/* Punto de color */}
+                  <span
+                    className={cn(
+                      "w-2.5 h-2.5 rounded-full flex-shrink-0",
+                      seatStatusDot[seat.status],
+                    )}
+                  />
+                  {/* Número */}
+                  <span className="text-xs font-bold text-gray-800 leading-none">
+                    {seat.number}
+                  </span>
+                  {/* Badge suave */}
+                  <span
+                    className={cn(
+                      "text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none",
+                      seatStatusBadge[seat.status],
+                    )}
+                  >
+                    {seatStatusLabel[seat.status]}
+                  </span>
                 </div>
               ))}
           </div>
