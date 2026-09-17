@@ -151,34 +151,29 @@ export const adminsApi = {
   },
 }
 
+/**
+ * Convierte BackendArea → Seat.
+ * zone = letra del área (A1→"A", B3→"B") para mapear la imagen por zona.
+ */
 export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendReserva[]) => {
   const activeReservas = reservas.filter((r) => r.areaId === area.id && r.fin === null)
 
-  let row = ""
-  let number = 0
-  const match = area.nombre.match(/^([A-Z])(\d+)$/)
-  if (match) {
-    row = match[1]
-    number = parseInt(match[2])
-  } else {
-    row = String.fromCharCode(65 + Math.floor((area.id - 1) / 10))
-    number = ((area.id - 1) % 10) + 1
-  }
+  const match  = area.nombre.match(/^([A-Za-z]+)(\d+)$/)
+  const letra  = match ? match[1].toUpperCase() : "A"
+  const numero = match ? parseInt(match[2]) : area.id
 
   return {
-    id:         area.nombre,
-    backendId:  area.id,
-    row,
-    number,
-    status:     (reverseStatusMap[area.estado] || "available") as "available" | "occupied",
-    userName:   activeReservas[0]?.nombre,
-    occupiedAt: activeReservas[0]?.inicio ? new Date(activeReservas[0].inicio) : undefined,
+    id:          area.nombre,
+    backendId:   area.id,
+    row:         letra,
+    number:      numero,
+    status:      (reverseStatusMap[area.estado] || "available") as "available" | "occupied",
+    userName:    activeReservas[0]?.nombre,
+    occupiedAt:  activeReservas[0]?.inicio ? new Date(activeReservas[0].inicio) : undefined,
     peopleCount: activeReservas.length,
-    image:      `/placeholder.svg?height=300&width=400`,
-    capacity:   2,
-    zone:       area.descripcion || "Zona Principal",
-    amenities:  ['Monitor 24"', "Enchufe USB-C", "Iluminación LED"],
-    mapPdfUrl:  "/coworking-map.pdf",
+    zone:        letra,
+    amenities:   area.descripcion ? [area.descripcion] : [],
+    mapPdfUrl:   "/coworking-map.pdf",
   }
 }
 
