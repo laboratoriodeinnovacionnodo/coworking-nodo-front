@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter }             from "next/navigation"
 import { useAuth }               from "@/contexts/auth-context"
 import { useSeats }              from "@/hooks/use-seats"
@@ -18,7 +18,7 @@ import { cn }                    from "@/lib/utils"
 import { useToast }              from "@/hooks/use-toast"
 import {
   Loader2, RefreshCw, LogOut, Menu,
-  Armchair, CalendarPlus, MapPin, LayoutGrid,
+  CalendarPlus, MapPin, LayoutGrid,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
@@ -36,7 +36,7 @@ export default function CoworkingSeatsPage() {
   const router  = useRouter()
   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
   const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
-  const { eventoActivo }       = useEventoActivo()
+  const { eventoActivo, cargando: eventoCargando }       = useEventoActivo()
   const { toast }              = useToast()
 
   const [isAdminMode,    setIsAdminMode]    = useState(false)
@@ -44,12 +44,22 @@ export default function CoworkingSeatsPage() {
   const [asientosOpen,   setAsientosOpen]   = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
 
+  // ── Ref del último evento que disparó bloqueo ─────────────────────────────
+  // Guardamos el ID (string) o null.
+  // Usamos ref para no incluirlo como dep del useEffect de sync.
   const bloqueadoPorEventoRef = useRef<string | null>(null)
 
+  // ── Ref estable de toggleBlockAll — evita que el useEffect de sync
+  //    se re-ejecute cada vez que toggleBlockAll cambia de referencia.
+  const toggleBlockAllRef = useRef(toggleBlockAll)
+  useEffect(() => { toggleBlockAllRef.current = toggleBlockAll }, [toggleBlockAll])
+
+  // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authLoading && !admin) router.push("/login")
   }, [admin, authLoading, router])
 
+  // ── Fetch inicial + polling ───────────────────────────────────────────────
   useEffect(() => { fetchSeats() }, [fetchSeats])
 
   useEffect(() => {
@@ -57,24 +67,41 @@ export default function CoworkingSeatsPage() {
     return () => clearInterval(id)
   }, [fetchSeats])
 
+  // ── Sync bloqueo por evento ───────────────────────────────────────────────
+  // REGLA: no actuar hasta que useEventoActivo haya resuelto su primera
+  // consulta (cargando === false). Esto evita que el estado inicial null
+  // dispare un toggleBlockAll(false) prematuro cuando todavía no sabemos
+  // si hay evento.
   useEffect(() => {
+    if (eventoCargando) return          // aún no sabemos → esperar
+
     const eventoId = eventoActivo?.id ?? null
+
+    // Sin cambio real → no hacer nada
     if (eventoId === bloqueadoPorEventoRef.current) return
+
     if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
+      // Nuevo evento detectado → bloquear
       bloqueadoPorEventoRef.current = eventoId
-      toggleBlockAll(true).catch(() => {})
+      toggleBlockAllRef.current(true).catch(() => {})
+
     } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
+      // Evento terminó → liberar
       bloqueadoPorEventoRef.current = null
-      toggleBlockAll(false).catch(() => {})
+      toggleBlockAllRef.current(false).catch(() => {})
+
     } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
+      // Cambio de evento (raro) → actualizar ref sin re-bloquear
       bloqueadoPorEventoRef.current = eventoId
     }
-  }, [eventoActivo, toggleBlockAll])
 
-  const handleRefresh = async () => {
+  // Solo eventoActivo y eventoCargando como deps — toggleBlockAll va por ref.
+  }, [eventoActivo, eventoCargando])
+
+  const handleRefresh = useCallback(async () => {
     await fetchSeats()
     toast({ title: "Datos actualizados" })
-  }
+  }, [fetchSeats, toast])
 
   const handleAccion = (a: Accion) => {
     if (a === "asientos") { setAsientosOpen(true); return }
@@ -111,10 +138,9 @@ export default function CoworkingSeatsPage() {
     <div className="min-h-screen bg-background pb-28">
       <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
 
-        {/* ══ Header — mismo estilo que /calendario ═══════════════════ */}
+        {/* ══ Header ════════════════════════════════════════════════ */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
 
-          {/* Título */}
           <div>
             <h1 className="text-3xl font-bold text-foreground">
               Coworking <span className="text-primary">NODO</span>
@@ -177,7 +203,7 @@ export default function CoworkingSeatsPage() {
               <SheetContent side="right" className="w-72">
                 <div className="space-y-3 pt-4">
                   <div className="pb-3 border-b">
-                    <p className="font-semibold">{admin.nombre}</p>
+                    <p className="font-semibold">{admin.nombre ?? admin.email}</p>
                     <p className="text-xs text-muted-foreground">{admin.email}</p>
                   </div>
                   <Button variant="outline" className="w-full justify-start gap-2"
@@ -232,7 +258,7 @@ export default function CoworkingSeatsPage() {
           </div>
         )}
 
-        {/* ══ Card principal ═══════════════════════════════════════ */}
+        {/* ══ Card principal ════════════════════════════════════════ */}
         <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
 
           {/* Barra de acciones */}

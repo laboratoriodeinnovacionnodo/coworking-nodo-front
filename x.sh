@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v30-coworking-front-seat-modal-ui.sh  — coworking-front
-#  - Cards de asientos: fondo blanco sólido, sin blur, sombra nítida
-#  - Modal asientos: UI de botones mejorada, layout más limpio
+#  v32-front-fix-bloqueo-race-condition.sh  — coworking-front
+#
+#  Bug:  Las áreas quedan bloqueadas en la DB aunque no haya evento activo.
+#
+#  Root cause (dos problemas encadenados):
+#    1. El useEffect de sync-evento depende de toggleBlockAll como dep,
+#       que cambia de referencia y re-ejecuta el efecto con estado stale.
+#    2. El efecto no espera a que useEventoActivo termine de cargar
+#       (cargando:true → eventoActivo:null) → no dispara el unlock.
+#       Si el usuario navegó o refrescó mientras había evento, la DB quedó
+#       con todas las áreas OCUPADO y nadie las liberó.
+#
+#  Fix:
+#    · app/page.tsx  → useEffect usa useRef para toggleBlockAll (referencia
+#                      estable), y no actúa hasta que cargando === false.
 # ============================================================================
 set -euo pipefail
 
@@ -14,346 +26,338 @@ fail() { echo -e "\033[0;31m❌  $*${RESET}"; exit 1; }
 
 echo ""
 echo "════════════════════════════════════════════════════════════"
-echo "  v30 · coworking-front · cards nítidas + modal mejorado"
+echo "  v32 · coworking-front · fix bloqueo race condition"
 echo "════════════════════════════════════════════════════════════"
 echo ""
 
-# ── components/seat-grid.tsx ─────────────────────────────────────────────
-# Cards: fondo blanco sólido, borde gris muy suave, sombra pequeña nítida
-echo "📄  components/seat-grid.tsx"
-cat > components/seat-grid.tsx << 'TSEOF'
+# ── app/page.tsx ─────────────────────────────────────────────────────────────
+echo "📄  app/page.tsx"
+cat > app/page.tsx << 'TSEOF'
 "use client"
 
-import type { Seat } from "@/types/seat"
-import { seatStatusDot, seatStatusBadge, seatStatusLabel } from "@/lib/seat-utils"
-import { cn } from "@/lib/utils"
-
-interface SeatGridProps {
-  seats:      Seat[]
-  isBlocked?: boolean
-}
-
-export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
-  const seatsByRow = seats.reduce(
-    (acc, seat) => {
-      if (!acc[seat.row]) acc[seat.row] = []
-      acc[seat.row].push(seat)
-      return acc
-    },
-    {} as Record<string, Seat[]>,
-  )
-
-  const rows = Object.keys(seatsByRow).sort()
-
-  return (
-    <div className="space-y-4">
-      {rows.map((row) => (
-        <div key={row} className="flex items-start gap-3">
-          {/* Letra de fila */}
-          <div className="w-5 text-xs font-semibold text-slate-400 pt-3 flex-shrink-0 select-none">
-            {row}
-          </div>
-
-          {/* Cards */}
-          <div className="flex gap-2.5 flex-wrap flex-1">
-            {seatsByRow[row]
-              .sort((a, b) => a.number - b.number)
-              .map((seat) => (
-                <div
-                  key={seat.id}
-                  title={`${seat.id} — ${seatStatusLabel[seat.status]}`}
-                  className={cn(
-                    // fondo blanco sólido, sin blur
-                    "bg-white border border-slate-200 rounded-xl",
-                    "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
-                    "flex flex-col items-center gap-1 px-2 py-2.5",
-                    "w-[52px] select-none transition-shadow hover:shadow-[0_2px_6px_rgba(0,0,0,0.12)]",
-                    isBlocked && "opacity-40 cursor-not-allowed pointer-events-none",
-                  )}
-                >
-                  {/* Punto de color */}
-                  <span className={cn("w-2.5 h-2.5 rounded-full", seatStatusDot[seat.status])} />
-                  {/* Número */}
-                  <span className="text-[11px] font-bold text-slate-800 leading-none">
-                    {seat.number}
-                  </span>
-                  {/* Badge */}
-                  <span className={cn(
-                    "text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap",
-                    seatStatusBadge[seat.status],
-                  )}>
-                    {seatStatusLabel[seat.status]}
-                  </span>
-                </div>
-              ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-TSEOF
-ok "components/seat-grid.tsx"
-
-# ── components/asientos-mapa-modal.tsx ───────────────────────────────────
-echo "📄  components/asientos-mapa-modal.tsx"
-cat > components/asientos-mapa-modal.tsx << 'TSEOF'
-"use client"
-
-import { useState, useEffect } from "react"
-import Image from "next/image"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useRouter }             from "next/navigation"
+import { useAuth }               from "@/contexts/auth-context"
+import { useSeats }              from "@/hooks/use-seats"
+import { useEventoActivo }       from "@/hooks/use-evento-activo"
+import { AdminPanel }            from "@/components/admin-panel"
+import { AgendarModal }          from "@/components/agendar-modal"
+import { AsientosMapaModal }     from "@/components/asientos-mapa-modal"
+import { DisponibilidadInline }  from "@/components/disponibilidad-inline"
+import { CalendarioCoworking }   from "@/components/calendario-coworking"
+import { EventoActivoBanner }    from "@/components/evento-activo-banner"
+import { Button }                from "@/components/ui/button"
+import { Switch }                from "@/components/ui/switch"
+import { Label }                 from "@/components/ui/label"
+import { cn }                    from "@/lib/utils"
+import { useToast }              from "@/hooks/use-toast"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog"
-import { Badge }      from "@/components/ui/badge"
-import { Button }     from "@/components/ui/button"
-import { SeatGrid }   from "@/components/seat-grid"
-import { SeatLegend } from "@/components/seat-legend"
-import type { Seat }  from "@/types/seat"
-import { getAreaImage, getAreaLabel } from "@/lib/area-images"
-import { cn }         from "@/lib/utils"
-import { Armchair, ImageIcon, ChevronLeft, CheckCircle2, XCircle } from "lucide-react"
+  Loader2, RefreshCw, LogOut, Menu,
+  CalendarPlus, MapPin, LayoutGrid,
+} from "lucide-react"
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-interface ZonaGroup {
-  letra:     string
-  seats:     Seat[]
-  isBlocked: boolean
-  eventName?: string
-}
+type Accion = "disponibilidad" | "asientos" | "agendar"
 
-interface AsientosMapaModalProps {
-  open:          boolean
-  onOpenChange:  (open: boolean) => void
-  seats:         Seat[]
-  isBlocked?:    boolean
-  eventoTitulo?: string
-}
+const ACCIONES: { id: Accion; label: string; icon: React.ElementType; esModal: boolean }[] = [
+  { id: "disponibilidad", label: "Disponibilidad",  icon: MapPin,       esModal: false },
+  { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid,   esModal: true  },
+  { id: "agendar",        label: "Agendar",         icon: CalendarPlus, esModal: true  },
+]
 
-function agruparPorZona(seats: Seat[], isBlocked: boolean, eventoTitulo?: string): ZonaGroup[] {
-  const map = new Map<string, Seat[]>()
-  for (const seat of seats) {
-    const letra = seat.zone ?? "A"
-    if (!map.has(letra)) map.set(letra, [])
-    map.get(letra)!.push(seat)
-  }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([letra, s]) => ({
-      letra,
-      seats:     s,
-      isBlocked,
-      eventName: isBlocked ? eventoTitulo : undefined,
-    }))
-}
+const POLLING_MS = 30_000
 
-export function AsientosMapaModal({
-  open,
-  onOpenChange,
-  seats,
-  isBlocked = false,
-  eventoTitulo,
-}: AsientosMapaModalProps) {
+export default function CoworkingSeatsPage() {
+  const router  = useRouter()
+  const { admin, isAdmin, logout, loading: authLoading } = useAuth()
+  const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
+  const { eventoActivo, cargando: eventoCargando }       = useEventoActivo()
+  const { toast }              = useToast()
 
-  const [zonaSeleccionada, setZonaSeleccionada] = useState<ZonaGroup | null>(null)
-  const [imgError,         setImgError]         = useState(false)
+  const [isAdminMode,    setIsAdminMode]    = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [asientosOpen,   setAsientosOpen]   = useState(false)
+  const [agendarOpen,    setAgendarOpen]    = useState(false)
+
+  // ── Ref del último evento que disparó bloqueo ─────────────────────────────
+  // Guardamos el ID (string) o null.
+  // Usamos ref para no incluirlo como dep del useEffect de sync.
+  const bloqueadoPorEventoRef = useRef<string | null>(null)
+
+  // ── Ref estable de toggleBlockAll — evita que el useEffect de sync
+  //    se re-ejecute cada vez que toggleBlockAll cambia de referencia.
+  const toggleBlockAllRef = useRef(toggleBlockAll)
+  useEffect(() => { toggleBlockAllRef.current = toggleBlockAll }, [toggleBlockAll])
+
+  // ── Auth guard ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!authLoading && !admin) router.push("/login")
+  }, [admin, authLoading, router])
+
+  // ── Fetch inicial + polling ───────────────────────────────────────────────
+  useEffect(() => { fetchSeats() }, [fetchSeats])
 
   useEffect(() => {
-    if (!open) { setZonaSeleccionada(null); setImgError(false) }
-  }, [open])
+    const id = setInterval(fetchSeats, POLLING_MS)
+    return () => clearInterval(id)
+  }, [fetchSeats])
 
-  const zonas    = agruparPorZona(seats, isBlocked, eventoTitulo)
-  const libres   = zonaSeleccionada?.seats.filter((s) => s.status === "available").length ?? 0
-  const ocupados = zonaSeleccionada?.seats.filter((s) => s.status === "occupied").length  ?? 0
-  const imagen   = zonaSeleccionada ? getAreaImage(zonaSeleccionada.letra) : null
-  const label    = zonaSeleccionada ? getAreaLabel(zonaSeleccionada.letra) : ""
-  const descZona = zonaSeleccionada?.seats[0]?.amenities?.[0] ?? null
+  // ── Sync bloqueo por evento ───────────────────────────────────────────────
+  // REGLA: no actuar hasta que useEventoActivo haya resuelto su primera
+  // consulta (cargando === false). Esto evita que el estado inicial null
+  // dispare un toggleBlockAll(false) prematuro cuando todavía no sabemos
+  // si hay evento.
+  useEffect(() => {
+    if (eventoCargando) return          // aún no sabemos → esperar
+
+    const eventoId = eventoActivo?.id ?? null
+
+    // Sin cambio real → no hacer nada
+    if (eventoId === bloqueadoPorEventoRef.current) return
+
+    if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
+      // Nuevo evento detectado → bloquear
+      bloqueadoPorEventoRef.current = eventoId
+      toggleBlockAllRef.current(true).catch(() => {})
+
+    } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
+      // Evento terminó → liberar
+      bloqueadoPorEventoRef.current = null
+      toggleBlockAllRef.current(false).catch(() => {})
+
+    } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
+      // Cambio de evento (raro) → actualizar ref sin re-bloquear
+      bloqueadoPorEventoRef.current = eventoId
+    }
+
+  // Solo eventoActivo y eventoCargando como deps — toggleBlockAll va por ref.
+  }, [eventoActivo, eventoCargando])
+
+  const handleRefresh = useCallback(async () => {
+    await fetchSeats()
+    toast({ title: "Datos actualizados" })
+  }, [fetchSeats, toast])
+
+  const handleAccion = (a: Accion) => {
+    if (a === "asientos") { setAsientosOpen(true); return }
+    if (a === "agendar")  { setAgendarOpen(true);  return }
+  }
+
+  const bloqueadoPorEvento = eventoActivo !== null
+  const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
+  const isBlocked          = bloqueadoPorEvento || bloqueadoManual
+  const occupiedCount      = seats.filter((s) => s.status === "occupied").length
+  const availableCount     = seats.filter((s) => s.status === "available").length
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+  if (!admin) return null
+
+  if (loading && seats.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <div className="text-center space-y-3">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+          <p className="text-muted-foreground text-sm">Cargando áreas...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-y-auto bg-white">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
-            <Armchair className="w-5 h-5 text-primary" />
-            {zonaSeleccionada ? label : "Asientos / Mapa"}
-          </DialogTitle>
-          <DialogDescription className="text-slate-400 text-sm">
-            {zonaSeleccionada
-              ? `${libres} libre${libres !== 1 ? "s" : ""} · ${ocupados} ocupado${ocupados !== 1 ? "s" : ""}`
-              : "Seleccioná una zona para ver el estado de sus asientos"}
-          </DialogDescription>
-        </DialogHeader>
+    <div className="min-h-screen bg-background pb-28">
+      <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
 
-        {/* ── Vista: grilla de zonas ───────────────────────────────── */}
-        {!zonaSeleccionada && (
-          <div className="space-y-4 py-1">
+        {/* ══ Header ════════════════════════════════════════════════ */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
 
-            <SeatLegend />
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">
+              Coworking <span className="text-primary">NODO</span>
+            </h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Gestión de asientos en tiempo real
+            </p>
+          </div>
 
-            {isBlocked && eventoTitulo && (
-              <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm">
-                <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
-                <span><span className="font-semibold">Evento activo:</span> {eventoTitulo}</span>
+          {/* Controles desktop */}
+          <div className="hidden sm:flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-white"
+              onClick={handleRefresh}
+              disabled={loading}
+              title="Actualizar"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+
+            {isAdmin && (
+              <div className="flex items-center gap-2 bg-white border border-border rounded-md px-3 h-9">
+                <Switch
+                  id="admin-mode"
+                  checked={isAdminMode}
+                  onCheckedChange={setIsAdminMode}
+                  className="scale-90"
+                />
+                <Label htmlFor="admin-mode" className="text-sm cursor-pointer whitespace-nowrap">
+                  Modo Admin
+                </Label>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
-              {zonas.map((zona) => {
-                const img   = getAreaImage(zona.letra)
-                const lbl   = getAreaLabel(zona.letra)
-                const lib   = zona.seats.filter((s) => s.status === "available").length
-                const ocu   = zona.seats.filter((s) => s.status === "occupied").length
-                const total = zona.seats.length
-                const pct   = total > 0 ? Math.round((ocu / total) * 100) : 0
+            <Button
+              variant="outline"
+              size="icon"
+              className="bg-white text-muted-foreground hover:text-destructive"
+              onClick={logout}
+              title="Cerrar sesión"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
 
+          {/* Controles mobile */}
+          <div className="flex sm:hidden items-center gap-2 self-end">
+            <Button variant="outline" size="icon" className="bg-white h-9 w-9"
+              onClick={handleRefresh} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="bg-white h-9 w-9">
+                  <Menu className="w-4 h-4" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-72">
+                <div className="space-y-3 pt-4">
+                  <div className="pb-3 border-b">
+                    <p className="font-semibold">{admin.nombre ?? admin.email}</p>
+                    <p className="text-xs text-muted-foreground">{admin.email}</p>
+                  </div>
+                  <Button variant="outline" className="w-full justify-start gap-2"
+                    onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
+                    <RefreshCw className="w-4 h-4" /> Actualizar
+                  </Button>
+                  {isAdmin && (
+                    <div className="flex items-center gap-2 py-1">
+                      <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+                      <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
+                    </div>
+                  )}
+                  <Button variant="outline"
+                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+                    onClick={logout}>
+                    <LogOut className="w-4 h-4" /> Cerrar sesión
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
+          </div>
+
+        </div>
+
+        {/* Banner evento activo */}
+        {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
+          </div>
+          <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
+          </div>
+          <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
+            <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
+            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
+          </div>
+        </div>
+
+        {/* Admin panel */}
+        {isAdminMode && isAdmin && !bloqueadoPorEvento && (
+          <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
+        )}
+        {isAdminMode && isAdmin && bloqueadoPorEvento && (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
+            El panel de administración está deshabilitado mientras haya un evento activo.
+            Las áreas se liberarán automáticamente cuando el evento termine.
+          </div>
+        )}
+
+        {/* ══ Card principal ════════════════════════════════════════ */}
+        <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+
+          {/* Barra de acciones */}
+          <div className="border-b border-border px-4 pt-4 pb-0">
+            <div className="flex gap-1 overflow-x-auto scrollbar-none">
+              {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
+                const isActive = !esModal && id === "disponibilidad"
                 return (
                   <button
-                    key={zona.letra}
-                    type="button"
-                    onClick={() => { setImgError(false); setZonaSeleccionada(zona) }}
-                    className="group text-left rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.07)] hover:border-primary/40 hover:shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-all overflow-hidden"
+                    key={id}
+                    onClick={() => handleAccion(id)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
+                      isActive
+                        ? "border-primary text-primary bg-primary/5"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+                      esModal ? "hover:text-primary" : "",
+                    )}
                   >
-                    {/* Imagen */}
-                    <div className="relative w-full h-36 bg-slate-100 overflow-hidden">
-                      {img ? (
-                        <Image
-                          src={img}
-                          alt={lbl}
-                          fill
-                          className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
-                          sizes="(max-width: 640px) 100vw, 50vw"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
-                          <ImageIcon className="w-7 h-7" />
-                          <span className="text-xs">Sin imagen</span>
-                        </div>
-                      )}
-                      {/* Label sobre imagen */}
-                      <div className="absolute top-2.5 left-3">
-                        <span className="text-base font-bold text-white drop-shadow-sm">{lbl}</span>
-                      </div>
-                      {/* Badge estado */}
-                      <div className="absolute top-2.5 right-2.5">
-                        {zona.isBlocked ? (
-                          <span className="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-full">Bloqueada</span>
-                        ) : ocu === total && total > 0 ? (
-                          <span className="text-[10px] font-semibold bg-red-500 text-white px-2 py-0.5 rounded-full">Llena</span>
-                        ) : lib === total ? (
-                          <span className="text-[10px] font-semibold bg-green-500 text-white px-2 py-0.5 rounded-full">Libre</span>
-                        ) : (
-                          <span className="text-[10px] font-semibold bg-yellow-500 text-white px-2 py-0.5 rounded-full">Parcial</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Info */}
-                    <div className="px-3 py-2.5 space-y-2">
-                      {/* Barra */}
-                      <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                        <div
-                          className={cn(
-                            "h-full rounded-full transition-all",
-                            pct === 100 ? "bg-red-400" : pct > 50 ? "bg-yellow-400" : "bg-green-400"
-                          )}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      {/* Contadores */}
-                      <div className="flex items-center gap-3 text-xs text-slate-500">
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-green-500" />
-                          {lib} libres
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-red-400" />
-                          {ocu} ocupados
-                        </span>
-                      </div>
-                    </div>
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
                   </button>
                 )
               })}
             </div>
           </div>
-        )}
 
-        {/* ── Vista: detalle de zona ───────────────────────────────── */}
-        {zonaSeleccionada && (
-          <div className="space-y-4 py-1">
-
-            {/* Botón volver */}
-            <button
-              type="button"
-              onClick={() => { setZonaSeleccionada(null); setImgError(false) }}
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-700 transition-colors -ml-0.5"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Todas las zonas
-            </button>
-
-            {/* Imagen grande */}
-            {imagen && !imgError && (
-              <div className="relative w-full h-48 rounded-2xl overflow-hidden bg-slate-100">
-                <Image
-                  src={imagen}
-                  alt={label}
-                  fill
-                  className="object-cover"
-                  sizes="(max-width: 768px) 100vw, 700px"
-                  onError={() => setImgError(true)}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-                <div className="absolute bottom-3.5 left-4">
-                  <p className="text-xl font-bold text-white drop-shadow">{label}</p>
-                  {descZona && (
-                    <p className="text-xs text-white/75 max-w-sm line-clamp-2 mt-0.5">{descZona}</p>
-                  )}
-                </div>
+          {/* Contenido fijo: Disponibilidad + Calendario */}
+          <div className="p-4 md:p-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+              <div className="min-w-0">
+                <DisponibilidadInline onSuccess={fetchSeats} />
               </div>
-            )}
-
-            {/* Stats: 3 pills limpias */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="font-semibold text-slate-700">{libres}</span>
-                <span className="text-slate-400">libre{libres !== 1 ? "s" : ""}</span>
+              <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+                <CalendarioCoworking />
               </div>
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
-                <span className="w-2 h-2 rounded-full bg-red-400" />
-                <span className="font-semibold text-slate-700">{ocupados}</span>
-                <span className="text-slate-400">ocupado{ocupados !== 1 ? "s" : ""}</span>
-              </div>
-              {zonaSeleccionada.isBlocked && (
-                <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm text-orange-700">
-                  <span className="w-2 h-2 rounded-full bg-orange-400" />
-                  {zonaSeleccionada.eventName
-                    ? `Bloqueada: ${zonaSeleccionada.eventName}`
-                    : "Bloqueada por evento"}
-                </div>
-              )}
             </div>
-
-            {/* Grid de asientos */}
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-              <SeatGrid seats={zonaSeleccionada.seats} isBlocked={zonaSeleccionada.isBlocked} />
-            </div>
-
-            <SeatLegend />
           </div>
-        )}
-      </DialogContent>
-    </Dialog>
+
+        </div>
+
+      </div>
+
+      {/* Modales */}
+      <AsientosMapaModal
+        open={asientosOpen}
+        onOpenChange={setAsientosOpen}
+        seats={seats}
+        isBlocked={isBlocked && !isAdminMode}
+        eventoTitulo={eventoActivo?.titulo}
+      />
+      <AgendarModal
+        open={agendarOpen}
+        onOpenChange={setAgendarOpen}
+        onSuccess={fetchSeats}
+      />
+
+    </div>
   )
 }
 TSEOF
-ok "components/asientos-mapa-modal.tsx"
+ok "app/page.tsx"
 
-# ── TypeScript check ──────────────────────────────────────────────────────
+# ── TypeScript check ──────────────────────────────────────────────────────────
 echo ""
 echo "🔨  TypeScript check..."
 pnpm exec tsc --noEmit --skipLibCheck 2>&1 | head -40 || true
@@ -364,11 +368,16 @@ pnpm build
 
 echo ""
 echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
-echo -e "\033[0;32m  ✅  v30 completado\033[0m"
+echo -e "\033[0;32m  ✅  v32 completado\033[0m"
 echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
 echo ""
-echo "  Archivos tocados:"
-echo "    components/seat-grid.tsx          → fondo blanco sólido, sombra nítida"
-echo "    components/asientos-mapa-modal.tsx → modal limpio, pills de stats,"
-echo "                                         botón volver como texto, bg-white"
+echo "  Cambios en app/page.tsx:"
+echo "    · toggleBlockAllRef  → ref estable, no dep del useEffect"
+echo "    · Guard eventoCargando → espera que useEventoActivo resuelva"
+echo "    · admin.nombre ?? admin.email → evita blank en header mobile"
+echo ""
+echo "  ⚠️  Los asientos en la DB siguen OCUPADO."
+echo "  Para liberarlos ahora, usá el AdminPanel (Modo Admin → Desbloquear)"
+echo "  o ejecutá en la DB directamente:"
+echo "    UPDATE \"Area\" SET estado = 'LIBRE';"
 echo ""

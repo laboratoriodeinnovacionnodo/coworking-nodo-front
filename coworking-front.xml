@@ -77,6 +77,7 @@ hooks/
   use-toast.ts
 lib/
   api.ts
+  area-images.ts
   eventos-api.ts
   ocupacion-api.ts
   seat-utils.ts
@@ -1804,52 +1805,6 @@ x.sh
 125: }
 ```
 
-## File: types/ocupacion.ts
-```typescript
- 1: import type { BackendArea } from "@/types/seat"
- 2: 
- 3: export interface OcupacionArea {
- 4:   ocupacionId: number
- 5:   areaId:      number
- 6:   area:        BackendArea
- 7: }
- 8: 
- 9: export interface Ocupacion {
-10:   id:               number
-11:   titulo:           string
-12:   requerimiento:    string
-13:   cantidadPersonas: number
-14:   organizador:      string
-15:   // Nuevos campos — reemplaza dia + hora
-16:   fechaDesde:       string   // ISO: "2026-08-25T00:00:00.000Z"
-17:   fechaHasta:       string   // ISO: "2026-08-25T23:59:59.000Z"
-18:   horaDesde:        string   // "HH:mm"
-19:   horaHasta:        string   // "HH:mm"
-20:   edadMin?:         number | null
-21:   edadMax?:         number | null
-22:   anexos:           string[]
-23:   liberadaAt?:      string | null
-24:   areas:            OcupacionArea[]
-25:   createdAt:        string
-26:   updatedAt:        string
-27: }
-28: 
-29: export interface CreateOcupacionPayload {
-30:   titulo:           string
-31:   requerimiento:    string
-32:   cantidadPersonas: number
-33:   organizador:      string
-34:   fechaDesde:       string   // "YYYY-MM-DD"
-35:   fechaHasta:       string   // "YYYY-MM-DD"
-36:   horaDesde:        string   // "HH:mm"
-37:   horaHasta:        string   // "HH:mm"
-38:   edadMin?:         number
-39:   edadMax?:         number
-40:   anexos?:          string[]
-41:   areaIds:          number[]
-42: }
-```
-
 ## File: .gitignore
 ```
  1: # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
@@ -1975,102 +1930,6 @@ x.sh
 78:     </Card>
 79:   )
 80: }
-```
-
-## File: components/asientos-mapa-modal.tsx
-```typescript
- 1: "use client"
- 2: 
- 3: import type { Seat } from "@/types/seat"
- 4: import { SeatGrid }   from "@/components/seat-grid"
- 5: import { SeatLegend } from "@/components/seat-legend"
- 6: import {
- 7:   Dialog,
- 8:   DialogContent,
- 9:   DialogHeader,
-10:   DialogTitle,
-11:   DialogDescription,
-12: } from "@/components/ui/dialog"
-13: import { LayoutGrid } from "lucide-react"
-14: 
-15: interface AsientosMapaModalProps {
-16:   open:          boolean
-17:   onOpenChange:  (open: boolean) => void
-18:   seats:         Seat[]
-19:   isBlocked?:    boolean
-20:   eventoTitulo?: string
-21: }
-22: 
-23: export function AsientosMapaModal({
-24:   open,
-25:   onOpenChange,
-26:   seats,
-27:   isBlocked = false,
-28:   eventoTitulo,
-29: }: AsientosMapaModalProps) {
-30:   return (
-31:     <Dialog open={open} onOpenChange={onOpenChange}>
-32:       {/*
-33:         shadcn/ui DialogContent tiene max-w-lg hardcodeado en el componente base.
-34:         Se sobreescribe con style inline para evitar que Tailwind lo pise.
-35:       */}
-36:       <DialogContent
-37:         style={{ maxWidth: "min(1400px, 95vw)", width: "100%" }}
-38:         className="max-h-[90vh] overflow-hidden flex flex-col"
-39:       >
-40:         <DialogHeader className="flex-shrink-0">
-41:           <DialogTitle className="flex items-center gap-2">
-42:             <LayoutGrid className="w-5 h-5 text-primary" />
-43:             Asientos / Mapa
-44:           </DialogTitle>
-45:           <DialogDescription>
-46:             Estado actual de los asientos y plano del espacio
-47:           </DialogDescription>
-48:         </DialogHeader>
-49: 
-50:         {/* Contenido: side by side en desktop, stacked en mobile */}
-51:         <div className="flex-1 overflow-y-auto min-h-0">
-52:           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start p-1">
-53: 
-54:             {/* Columna izquierda: grilla de asientos */}
-55:             <div className="space-y-4">
-56:               <div className="flex items-center justify-between">
-57:                 <SeatLegend />
-58:                 {isBlocked && (
-59:                   <span className="text-xs text-destructive font-medium">
-60:                     {eventoTitulo ? `Evento: ${eventoTitulo}` : "Bloqueado"}
-61:                   </span>
-62:                 )}
-63:               </div>
-64:               <div className="overflow-x-auto">
-65:                 <SeatGrid seats={seats} isBlocked={isBlocked} />
-66:               </div>
-67:             </div>
-68: 
-69:             {/* Columna derecha: plano */}
-70:             <div className="border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8 space-y-3">
-71:               <div className="flex items-center gap-2">
-72:                 <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-73:                   Plano del espacio
-74:                 </h3>
-75:                 <span className="text-[10px] text-muted-foreground/60">Planta 1</span>
-76:               </div>
-77:               <div className="flex items-center justify-center bg-muted/20 rounded-xl p-4 min-h-[240px]">
-78:                 <img
-79:                   src="/NODO-PLANO-P1.svg"
-80:                   alt="Plano planta 1 del coworking"
-81:                   className="max-w-full max-h-[460px] object-contain"
-82:                   style={{ transform: "rotate(90deg)" }}
-83:                 />
-84:               </div>
-85:             </div>
-86: 
-87:           </div>
-88:         </div>
-89:       </DialogContent>
-90:     </Dialog>
-91:   )
-92: }
 ```
 
 ## File: components/calendario-coworking.tsx
@@ -2974,19 +2833,82 @@ x.sh
 93: }
 ```
 
-## File: lib/seat-utils.ts
+## File: lib/area-images.ts
 ```typescript
- 1: import type { SeatStatus } from "@/types/seat"
- 2: 
- 3: export const seatStatusColors: Record<SeatStatus, string> = {
- 4:   available: "bg-green-100 text-green-800 border border-green-300 hover:bg-green-200",
- 5:   occupied:  "bg-red-100   text-red-800   border border-red-300   hover:bg-red-200",
- 6: }
- 7: 
- 8: export const seatStatusLabel: Record<SeatStatus, string> = {
- 9:   available: "Libre",
-10:   occupied:  "Ocupado",
+ 1: /**
+ 2:  * lib/area-images.ts
+ 3:  * Imagen por zona (letra: A, B, C, D).
+ 4:  * Fotos en public/areas/
+ 5:  */
+ 6: export const AREA_IMAGES: Record<string, string> = {
+ 7:   A: "/areas/zona-a.jpeg",
+ 8:   B: "/areas/zona-b.jpeg",
+ 9:   C: "/areas/zona-c.jpeg",
+10:   D: "/areas/zona-d.jpeg",
 11: }
+12: 
+13: export const AREA_LABELS: Record<string, string> = {
+14:   A: "Zona A",
+15:   B: "Zona B",
+16:   C: "Zona C",
+17:   D: "Zona D",
+18: }
+19: 
+20: export function getAreaImage(zona: string): string | null {
+21:   return AREA_IMAGES[zona] ?? null
+22: }
+23: 
+24: export function getAreaLabel(zona: string): string {
+25:   return AREA_LABELS[zona] ?? `Zona ${zona}`
+26: }
+```
+
+## File: types/ocupacion.ts
+```typescript
+ 1: export interface OcupacionArea {
+ 2:   ocupacionId: number
+ 3:   areaId:      number
+ 4:   area: {
+ 5:     id:     number
+ 6:     nombre: string
+ 7:   }
+ 8: }
+ 9: 
+10: export interface Ocupacion {
+11:   id:               number
+12:   titulo:           string
+13:   requerimiento:    string
+14:   cantidadPersonas: number
+15:   organizador:      string
+16:   telefono?:        string | null
+17:   fechaDesde:       string
+18:   fechaHasta:       string
+19:   horaDesde:        string
+20:   horaHasta:        string
+21:   edadMin?:         number | null
+22:   edadMax?:         number | null
+23:   anexos:           string[]
+24:   liberadaAt?:      string | null
+25:   createdAt:        string
+26:   updatedAt:        string
+27:   areas:            OcupacionArea[]
+28: }
+29: 
+30: export interface CreateOcupacionPayload {
+31:   titulo:           string
+32:   requerimiento:    string
+33:   cantidadPersonas: number
+34:   organizador:      string
+35:   telefono?:        string
+36:   fechaDesde:       string
+37:   fechaHasta:       string
+38:   horaDesde:        string
+39:   horaHasta:        string
+40:   edadMin?:         number
+41:   edadMax?:         number
+42:   anexos?:          string[]
+43:   areaIds:          number[]
+44: }
 ```
 
 ## File: types/seat.ts
@@ -3499,84 +3421,6 @@ x.sh
 138: }
 ```
 
-## File: components/seat-grid.tsx
-```typescript
- 1: "use client"
- 2: 
- 3: import type { Seat } from "@/types/seat"
- 4: import { seatStatusColors } from "@/lib/seat-utils"
- 5: import { cn } from "@/lib/utils"
- 6: import { Armchair } from "lucide-react"
- 7: 
- 8: interface SeatGridProps {
- 9:   seats:       Seat[]
-10:   isBlocked?:  boolean
-11: }
-12: 
-13: export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
-14:   const seatsByRow = seats.reduce(
-15:     (acc, seat) => {
-16:       if (!acc[seat.row]) acc[seat.row] = []
-17:       acc[seat.row].push(seat)
-18:       return acc
-19:     },
-20:     {} as Record<string, Seat[]>,
-21:   )
-22: 
-23:   const rows = Object.keys(seatsByRow).sort()
-24: 
-25:   return (
-26:     <div className="space-y-3 md:space-y-4">
-27:       {rows.map((row) => (
-28:         <div key={row} className="flex items-start gap-2 md:gap-3">
-29:           <div className="w-6 md:w-8 text-xs md:text-sm font-medium text-muted-foreground pt-2 flex-shrink-0">
-30:             {row}
-31:           </div>
-32:           <div className="flex gap-2 md:gap-3 flex-wrap flex-1">
-33:             {seatsByRow[row]
-34:               .sort((a, b) => a.number - b.number)
-35:               .map((seat) => (
-36:                 <div
-37:                   key={seat.id}
-38:                   title={`${seat.id} — ${seat.status === "available" ? "Libre" : "Ocupado"}`}
-39:                   className={cn(
-40:                     "relative flex flex-col items-center justify-center w-12 h-12 md:w-14 md:h-14 rounded-lg transition-all",
-41:                     seatStatusColors[seat.status],
-42:                     isBlocked && "opacity-50 cursor-not-allowed",
-43:                   )}
-44:                 >
-45:                   <Armchair className="w-5 h-5 md:w-6 md:h-6" />
-46:                   <span className="text-[10px] md:text-xs font-bold mt-0.5">{seat.number}</span>
-47:                 </div>
-48:               ))}
-49:           </div>
-50:         </div>
-51:       ))}
-52:     </div>
-53:   )
-54: }
-```
-
-## File: components/seat-legend.tsx
-```typescript
- 1: "use client"
- 2: 
- 3: export function SeatLegend() {
- 4:   return (
- 5:     <div className="flex flex-wrap gap-3 text-xs">
- 6:       <div className="flex items-center gap-1.5">
- 7:         <span className="w-3 h-3 rounded-full bg-green-400 flex-shrink-0" />
- 8:         <span className="text-muted-foreground">Libre</span>
- 9:       </div>
-10:       <div className="flex items-center gap-1.5">
-11:         <span className="w-3 h-3 rounded-full bg-red-400 flex-shrink-0" />
-12:         <span className="text-muted-foreground">Ocupado</span>
-13:       </div>
-14:     </div>
-15:   )
-16: }
-```
-
 ## File: hooks/use-seats.ts
 ```typescript
   1: "use client"
@@ -3697,193 +3541,33 @@ x.sh
 116: }
 ```
 
-## File: lib/api.ts
+## File: lib/seat-utils.ts
 ```typescript
-  1: const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
-  2: 
-  3: import type { BackendArea, BackendReserva, BackendUsuario, BackendAdmin } from "@/types/seat"
-  4: 
-  5: const statusMap: Record<string, string> = {
-  6:   available: "LIBRE",
-  7:   occupied:  "OCUPADO",
-  8: }
-  9: 
- 10: const reverseStatusMap: Record<string, string> = {
- 11:   LIBRE:   "available",
- 12:   OCUPADO: "occupied",
- 13: }
- 14: 
- 15: export const usuariosApi = {
- 16:   getAll: async (): Promise<BackendUsuario[]> => {
- 17:     const res = await fetch(`${API_BASE_URL}/usuario`, { headers: { "Content-Type": "application/json" } })
- 18:     if (!res.ok) throw new Error("Error al obtener usuarios")
- 19:     return res.json()
- 20:   },
- 21:   getById: async (id: number): Promise<BackendUsuario> => {
- 22:     const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { headers: { "Content-Type": "application/json" } })
- 23:     if (!res.ok) throw new Error("Error al obtener usuario")
- 24:     return res.json()
- 25:   },
- 26:   create: async (data: { nombre: string; email: string }): Promise<BackendUsuario> => {
- 27:     const res = await fetch(`${API_BASE_URL}/usuario`, {
- 28:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
- 29:     })
- 30:     if (!res.ok) throw new Error("Error al crear usuario")
- 31:     return res.json()
- 32:   },
- 33:   update: async (id: number, data: Partial<{ nombre: string; email: string }>): Promise<BackendUsuario> => {
- 34:     const res = await fetch(`${API_BASE_URL}/usuario/${id}`, {
- 35:       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
- 36:     })
- 37:     if (!res.ok) throw new Error("Error al actualizar usuario")
- 38:     return res.json()
- 39:   },
- 40:   delete: async (id: number): Promise<void> => {
- 41:     const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { method: "DELETE" })
- 42:     if (!res.ok) throw new Error("Error al eliminar usuario")
- 43:   },
- 44: }
- 45: 
- 46: export const areasApi = {
- 47:   getAll: async (): Promise<BackendArea[]> => {
- 48:     const res = await fetch(`${API_BASE_URL}/areas`, { headers: { "Content-Type": "application/json" } })
- 49:     if (!res.ok) throw new Error(`HTTP ${res.status}`)
- 50:     return res.json()
- 51:   },
- 52:   getById: async (id: number): Promise<BackendArea> => {
- 53:     const res = await fetch(`${API_BASE_URL}/areas/${id}`, { headers: { "Content-Type": "application/json" } })
- 54:     if (!res.ok) throw new Error("Error al obtener área")
- 55:     return res.json()
- 56:   },
- 57:   create: async (data: { nombre: string; descripcion?: string; estado?: string }): Promise<BackendArea> => {
- 58:     const res = await fetch(`${API_BASE_URL}/areas`, {
- 59:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
- 60:     })
- 61:     if (!res.ok) throw new Error("Error al crear área")
- 62:     return res.json()
- 63:   },
- 64:   update: async (id: number, data: Partial<BackendArea>): Promise<BackendArea> => {
- 65:     const res = await fetch(`${API_BASE_URL}/areas/${id}`, {
- 66:       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
- 67:     })
- 68:     if (!res.ok) throw new Error("Error al actualizar área")
- 69:     return res.json()
- 70:   },
- 71:   cambiarEstado: async (id: number, estado: string): Promise<BackendArea> => {
- 72:     const backendEstado = statusMap[estado] || estado
- 73:     const res = await fetch(`${API_BASE_URL}/areas/${id}/estado/${backendEstado}`, { method: "PATCH" })
- 74:     if (!res.ok) throw new Error("Error al cambiar estado")
- 75:     return res.json()
- 76:   },
- 77:   bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
- 78:     const estado = bloquear ? "OCUPADO" : "LIBRE"
- 79:     const areas = await areasApi.getAll()
- 80:     const results = await Promise.all(
- 81:       areas.map((area) =>
- 82:         fetch(`${API_BASE_URL}/areas/${area.id}/estado/${estado}`, { method: "PATCH" }).then((r) => {
- 83:           if (!r.ok) throw new Error(`Error al actualizar área ${area.id}`)
- 84:           return r.json()
- 85:         }),
- 86:       ),
- 87:     )
- 88:     return results
- 89:   },
- 90:   delete: async (id: number): Promise<void> => {
- 91:     const res = await fetch(`${API_BASE_URL}/areas/${id}`, { method: "DELETE" })
- 92:     if (!res.ok) throw new Error("Error al eliminar área")
- 93:   },
- 94: }
- 95: 
- 96: export const reservasApi = {
- 97:   getAll: async (): Promise<BackendReserva[]> => {
- 98:     const res = await fetch(`${API_BASE_URL}/reservas`, { headers: { "Content-Type": "application/json" } })
- 99:     if (!res.ok) throw new Error("Error al obtener reservas")
-100:     return res.json()
-101:   },
-102:   getById: async (id: number): Promise<BackendReserva> => {
-103:     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { headers: { "Content-Type": "application/json" } })
-104:     if (!res.ok) throw new Error("Error al obtener reserva")
-105:     return res.json()
-106:   },
-107:   create: async (data: { nombre: string; detalles?: string; usuarioId: number; areaId: number }): Promise<BackendReserva> => {
-108:     const res = await fetch(`${API_BASE_URL}/reservas`, {
-109:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-110:     })
-111:     if (!res.ok) { const e = await res.text(); throw new Error(`Error al crear reserva: ${e}`) }
-112:     return res.json()
-113:   },
-114:   update: async (id: number, data: Partial<BackendReserva>): Promise<BackendReserva> => {
-115:     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, {
-116:       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-117:     })
-118:     if (!res.ok) throw new Error("Error al actualizar reserva")
-119:     return res.json()
-120:   },
-121:   completar: async (id: number): Promise<BackendReserva> => {
-122:     const res = await fetch(`${API_BASE_URL}/reservas/${id}/completar`, { method: "PATCH" })
-123:     if (!res.ok) throw new Error("Error al completar reserva")
-124:     return res.json()
-125:   },
-126:   delete: async (id: number): Promise<void> => {
-127:     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { method: "DELETE" })
-128:     if (!res.ok) throw new Error("Error al eliminar reserva")
-129:   },
-130: }
-131: 
-132: export const adminsApi = {
-133:   login: async (email: string, password: string): Promise<BackendAdmin> => {
-134:     const res = await fetch(`${API_BASE_URL}/auth/login`, {
-135:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }),
-136:     })
-137:     if (!res.ok) { const e = await res.text(); throw new Error(e || "Credenciales inválidas") }
-138:     return res.json()
-139:   },
-140:   getAll: async (): Promise<BackendAdmin[]> => {
-141:     const res = await fetch(`${API_BASE_URL}/admin`, { headers: { "Content-Type": "application/json" } })
-142:     if (!res.ok) throw new Error("Error al obtener administradores")
-143:     return res.json()
-144:   },
-145:   create: async (data: { nombre: string; email: string; password: string }): Promise<BackendAdmin> => {
-146:     const res = await fetch(`${API_BASE_URL}/admin`, {
-147:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-148:     })
-149:     if (!res.ok) throw new Error("Error al crear administrador")
-150:     return res.json()
-151:   },
-152: }
-153: 
-154: export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendReserva[]) => {
-155:   const activeReservas = reservas.filter((r) => r.areaId === area.id && r.fin === null)
-156: 
-157:   let row = ""
-158:   let number = 0
-159:   const match = area.nombre.match(/^([A-Z])(\d+)$/)
-160:   if (match) {
-161:     row = match[1]
-162:     number = parseInt(match[2])
-163:   } else {
-164:     row = String.fromCharCode(65 + Math.floor((area.id - 1) / 10))
-165:     number = ((area.id - 1) % 10) + 1
-166:   }
-167: 
-168:   return {
-169:     id:         area.nombre,
-170:     backendId:  area.id,
-171:     row,
-172:     number,
-173:     status:     (reverseStatusMap[area.estado] || "available") as "available" | "occupied",
-174:     userName:   activeReservas[0]?.nombre,
-175:     occupiedAt: activeReservas[0]?.inicio ? new Date(activeReservas[0].inicio) : undefined,
-176:     peopleCount: activeReservas.length,
-177:     image:      `/placeholder.svg?height=300&width=400`,
-178:     capacity:   2,
-179:     zone:       area.descripcion || "Zona Principal",
-180:     amenities:  ['Monitor 24"', "Enchufe USB-C", "Iluminación LED"],
-181:     mapPdfUrl:  "/coworking-map.pdf",
-182:   }
-183: }
-184: 
-185: export { statusMap, reverseStatusMap }
+ 1: import type { SeatStatus } from "@/types/seat"
+ 2: 
+ 3: /** Color del punto de estado (pequeño, sólido) */
+ 4: export const seatStatusDot: Record<SeatStatus, string> = {
+ 5:   available:      "bg-green-500",
+ 6:   occupied:       "bg-red-400",
+ 7: }
+ 8: 
+ 9: /** Clases del badge de estado (fondo suave + texto de color) */
+10: export const seatStatusBadge: Record<SeatStatus, string> = {
+11:   available:      "bg-green-100 text-green-700",
+12:   occupied:       "bg-red-100   text-red-600",
+13: }
+14: 
+15: /** Texto legible del estado */
+16: export const seatStatusLabel: Record<SeatStatus, string> = {
+17:   available: "Libre",
+18:   occupied:  "Ocupado",
+19: }
+20: 
+21: /**
+22:  * Mantener por compatibilidad con cualquier componente que aún use
+23:  * seatStatusColors (devuelve los colores suaves del badge).
+24:  */
+25: export const seatStatusColors: Record<SeatStatus, string> = seatStatusBadge
 ```
 
 ## File: app/calendario/page.tsx
@@ -4383,6 +4067,262 @@ x.sh
 493: }
 ```
 
+## File: components/asientos-mapa-modal.tsx
+```typescript
+  1: "use client"
+  2: 
+  3: import { useState, useEffect } from "react"
+  4: import Image from "next/image"
+  5: import {
+  6:   Dialog,
+  7:   DialogContent,
+  8:   DialogHeader,
+  9:   DialogTitle,
+ 10:   DialogDescription,
+ 11: } from "@/components/ui/dialog"
+ 12: import { Badge }      from "@/components/ui/badge"
+ 13: import { Button }     from "@/components/ui/button"
+ 14: import { SeatGrid }   from "@/components/seat-grid"
+ 15: import { SeatLegend } from "@/components/seat-legend"
+ 16: import type { Seat }  from "@/types/seat"
+ 17: import { getAreaImage, getAreaLabel } from "@/lib/area-images"
+ 18: import { cn }         from "@/lib/utils"
+ 19: import { Armchair, ImageIcon, ChevronLeft, CheckCircle2, XCircle } from "lucide-react"
+ 20: 
+ 21: interface ZonaGroup {
+ 22:   letra:     string
+ 23:   seats:     Seat[]
+ 24:   isBlocked: boolean
+ 25:   eventName?: string
+ 26: }
+ 27: 
+ 28: interface AsientosMapaModalProps {
+ 29:   open:          boolean
+ 30:   onOpenChange:  (open: boolean) => void
+ 31:   seats:         Seat[]
+ 32:   isBlocked?:    boolean
+ 33:   eventoTitulo?: string
+ 34: }
+ 35: 
+ 36: function agruparPorZona(seats: Seat[], isBlocked: boolean, eventoTitulo?: string): ZonaGroup[] {
+ 37:   const map = new Map<string, Seat[]>()
+ 38:   for (const seat of seats) {
+ 39:     const letra = seat.zone ?? "A"
+ 40:     if (!map.has(letra)) map.set(letra, [])
+ 41:     map.get(letra)!.push(seat)
+ 42:   }
+ 43:   return Array.from(map.entries())
+ 44:     .sort(([a], [b]) => a.localeCompare(b))
+ 45:     .map(([letra, s]) => ({
+ 46:       letra,
+ 47:       seats:     s,
+ 48:       isBlocked,
+ 49:       eventName: isBlocked ? eventoTitulo : undefined,
+ 50:     }))
+ 51: }
+ 52: 
+ 53: export function AsientosMapaModal({
+ 54:   open,
+ 55:   onOpenChange,
+ 56:   seats,
+ 57:   isBlocked = false,
+ 58:   eventoTitulo,
+ 59: }: AsientosMapaModalProps) {
+ 60: 
+ 61:   const [zonaSeleccionada, setZonaSeleccionada] = useState<ZonaGroup | null>(null)
+ 62:   const [imgError,         setImgError]         = useState(false)
+ 63: 
+ 64:   useEffect(() => {
+ 65:     if (!open) { setZonaSeleccionada(null); setImgError(false) }
+ 66:   }, [open])
+ 67: 
+ 68:   const zonas    = agruparPorZona(seats, isBlocked, eventoTitulo)
+ 69:   const libres   = zonaSeleccionada?.seats.filter((s) => s.status === "available").length ?? 0
+ 70:   const ocupados = zonaSeleccionada?.seats.filter((s) => s.status === "occupied").length  ?? 0
+ 71:   const imagen   = zonaSeleccionada ? getAreaImage(zonaSeleccionada.letra) : null
+ 72:   const label    = zonaSeleccionada ? getAreaLabel(zonaSeleccionada.letra) : ""
+ 73:   const descZona = zonaSeleccionada?.seats[0]?.amenities?.[0] ?? null
+ 74: 
+ 75:   return (
+ 76:     <Dialog open={open} onOpenChange={onOpenChange}>
+ 77:       <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-y-auto bg-white">
+ 78:         <DialogHeader>
+ 79:           <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+ 80:             <Armchair className="w-5 h-5 text-primary" />
+ 81:             {zonaSeleccionada ? label : "Asientos / Mapa"}
+ 82:           </DialogTitle>
+ 83:           <DialogDescription className="text-slate-400 text-sm">
+ 84:             {zonaSeleccionada
+ 85:               ? `${libres} libre${libres !== 1 ? "s" : ""} · ${ocupados} ocupado${ocupados !== 1 ? "s" : ""}`
+ 86:               : "Seleccioná una zona para ver el estado de sus asientos"}
+ 87:           </DialogDescription>
+ 88:         </DialogHeader>
+ 89: 
+ 90:         {/* ── Vista: grilla de zonas ───────────────────────────────── */}
+ 91:         {!zonaSeleccionada && (
+ 92:           <div className="space-y-4 py-1">
+ 93: 
+ 94:             <SeatLegend />
+ 95: 
+ 96:             {isBlocked && eventoTitulo && (
+ 97:               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm">
+ 98:                 <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+ 99:                 <span><span className="font-semibold">Evento activo:</span> {eventoTitulo}</span>
+100:               </div>
+101:             )}
+102: 
+103:             <div className="grid grid-cols-2 gap-3">
+104:               {zonas.map((zona) => {
+105:                 const img   = getAreaImage(zona.letra)
+106:                 const lbl   = getAreaLabel(zona.letra)
+107:                 const lib   = zona.seats.filter((s) => s.status === "available").length
+108:                 const ocu   = zona.seats.filter((s) => s.status === "occupied").length
+109:                 const total = zona.seats.length
+110:                 const pct   = total > 0 ? Math.round((ocu / total) * 100) : 0
+111: 
+112:                 return (
+113:                   <button
+114:                     key={zona.letra}
+115:                     type="button"
+116:                     onClick={() => { setImgError(false); setZonaSeleccionada(zona) }}
+117:                     className="group text-left rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.07)] hover:border-primary/40 hover:shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-all overflow-hidden"
+118:                   >
+119:                     {/* Imagen */}
+120:                     <div className="relative w-full h-36 bg-slate-100 overflow-hidden">
+121:                       {img ? (
+122:                         <Image
+123:                           src={img}
+124:                           alt={lbl}
+125:                           fill
+126:                           className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
+127:                           sizes="(max-width: 640px) 100vw, 50vw"
+128:                         />
+129:                       ) : (
+130:                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
+131:                           <ImageIcon className="w-7 h-7" />
+132:                           <span className="text-xs">Sin imagen</span>
+133:                         </div>
+134:                       )}
+135:                       {/* Label sobre imagen */}
+136:                       <div className="absolute top-2.5 left-3">
+137:                         <span className="text-base font-bold text-white drop-shadow-sm">{lbl}</span>
+138:                       </div>
+139:                       {/* Badge estado */}
+140:                       <div className="absolute top-2.5 right-2.5">
+141:                         {zona.isBlocked ? (
+142:                           <span className="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-full">Bloqueada</span>
+143:                         ) : ocu === total && total > 0 ? (
+144:                           <span className="text-[10px] font-semibold bg-red-500 text-white px-2 py-0.5 rounded-full">Llena</span>
+145:                         ) : lib === total ? (
+146:                           <span className="text-[10px] font-semibold bg-green-500 text-white px-2 py-0.5 rounded-full">Libre</span>
+147:                         ) : (
+148:                           <span className="text-[10px] font-semibold bg-yellow-500 text-white px-2 py-0.5 rounded-full">Parcial</span>
+149:                         )}
+150:                       </div>
+151:                     </div>
+152: 
+153:                     {/* Info */}
+154:                     <div className="px-3 py-2.5 space-y-2">
+155:                       {/* Barra */}
+156:                       <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+157:                         <div
+158:                           className={cn(
+159:                             "h-full rounded-full transition-all",
+160:                             pct === 100 ? "bg-red-400" : pct > 50 ? "bg-yellow-400" : "bg-green-400"
+161:                           )}
+162:                           style={{ width: `${pct}%` }}
+163:                         />
+164:                       </div>
+165:                       {/* Contadores */}
+166:                       <div className="flex items-center gap-3 text-xs text-slate-500">
+167:                         <span className="flex items-center gap-1">
+168:                           <span className="w-2 h-2 rounded-full bg-green-500" />
+169:                           {lib} libres
+170:                         </span>
+171:                         <span className="flex items-center gap-1">
+172:                           <span className="w-2 h-2 rounded-full bg-red-400" />
+173:                           {ocu} ocupados
+174:                         </span>
+175:                       </div>
+176:                     </div>
+177:                   </button>
+178:                 )
+179:               })}
+180:             </div>
+181:           </div>
+182:         )}
+183: 
+184:         {/* ── Vista: detalle de zona ───────────────────────────────── */}
+185:         {zonaSeleccionada && (
+186:           <div className="space-y-4 py-1">
+187: 
+188:             {/* Botón volver */}
+189:             <button
+190:               type="button"
+191:               onClick={() => { setZonaSeleccionada(null); setImgError(false) }}
+192:               className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-700 transition-colors -ml-0.5"
+193:             >
+194:               <ChevronLeft className="w-4 h-4" />
+195:               Todas las zonas
+196:             </button>
+197: 
+198:             {/* Imagen grande */}
+199:             {imagen && !imgError && (
+200:               <div className="relative w-full h-48 rounded-2xl overflow-hidden bg-slate-100">
+201:                 <Image
+202:                   src={imagen}
+203:                   alt={label}
+204:                   fill
+205:                   className="object-cover"
+206:                   sizes="(max-width: 768px) 100vw, 700px"
+207:                   onError={() => setImgError(true)}
+208:                 />
+209:                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+210:                 <div className="absolute bottom-3.5 left-4">
+211:                   <p className="text-xl font-bold text-white drop-shadow">{label}</p>
+212:                   {descZona && (
+213:                     <p className="text-xs text-white/75 max-w-sm line-clamp-2 mt-0.5">{descZona}</p>
+214:                   )}
+215:                 </div>
+216:               </div>
+217:             )}
+218: 
+219:             {/* Stats: 3 pills limpias */}
+220:             <div className="flex items-center gap-2 flex-wrap">
+221:               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
+222:                 <span className="w-2 h-2 rounded-full bg-green-500" />
+223:                 <span className="font-semibold text-slate-700">{libres}</span>
+224:                 <span className="text-slate-400">libre{libres !== 1 ? "s" : ""}</span>
+225:               </div>
+226:               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
+227:                 <span className="w-2 h-2 rounded-full bg-red-400" />
+228:                 <span className="font-semibold text-slate-700">{ocupados}</span>
+229:                 <span className="text-slate-400">ocupado{ocupados !== 1 ? "s" : ""}</span>
+230:               </div>
+231:               {zonaSeleccionada.isBlocked && (
+232:                 <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm text-orange-700">
+233:                   <span className="w-2 h-2 rounded-full bg-orange-400" />
+234:                   {zonaSeleccionada.eventName
+235:                     ? `Bloqueada: ${zonaSeleccionada.eventName}`
+236:                     : "Bloqueada por evento"}
+237:                 </div>
+238:               )}
+239:             </div>
+240: 
+241:             {/* Grid de asientos */}
+242:             <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+243:               <SeatGrid seats={zonaSeleccionada.seats} isBlocked={zonaSeleccionada.isBlocked} />
+244:             </div>
+245: 
+246:             <SeatLegend />
+247:           </div>
+248:         )}
+249:       </DialogContent>
+250:     </Dialog>
+251:   )
+252: }
+```
+
 ## File: components/disponibilidad-inline.tsx
 ```typescript
   1: "use client"
@@ -4703,6 +4643,214 @@ x.sh
 316: }
 ```
 
+## File: components/seat-legend.tsx
+```typescript
+ 1: "use client"
+ 2: 
+ 3: import { seatStatusDot, seatStatusLabel } from "@/lib/seat-utils"
+ 4: import type { SeatStatus } from "@/types/seat"
+ 5: import { cn } from "@/lib/utils"
+ 6: 
+ 7: const ESTADOS: SeatStatus[] = ["available", "occupied"]
+ 8: 
+ 9: export function SeatLegend() {
+10:   return (
+11:     <div className="flex flex-wrap gap-3 text-xs">
+12:       {ESTADOS.map((status) => (
+13:         <div key={status} className="flex items-center gap-1.5">
+14:           <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", seatStatusDot[status])} />
+15:           <span className="text-muted-foreground">{seatStatusLabel[status]}</span>
+16:         </div>
+17:       ))}
+18:     </div>
+19:   )
+20: }
+```
+
+## File: lib/api.ts
+```typescript
+  1: const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+  2: 
+  3: import type { BackendArea, BackendReserva, BackendUsuario, BackendAdmin } from "@/types/seat"
+  4: 
+  5: const statusMap: Record<string, string> = {
+  6:   available: "LIBRE",
+  7:   occupied:  "OCUPADO",
+  8: }
+  9: 
+ 10: const reverseStatusMap: Record<string, string> = {
+ 11:   LIBRE:   "available",
+ 12:   OCUPADO: "occupied",
+ 13: }
+ 14: 
+ 15: export const usuariosApi = {
+ 16:   getAll: async (): Promise<BackendUsuario[]> => {
+ 17:     const res = await fetch(`${API_BASE_URL}/usuario`, { headers: { "Content-Type": "application/json" } })
+ 18:     if (!res.ok) throw new Error("Error al obtener usuarios")
+ 19:     return res.json()
+ 20:   },
+ 21:   getById: async (id: number): Promise<BackendUsuario> => {
+ 22:     const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { headers: { "Content-Type": "application/json" } })
+ 23:     if (!res.ok) throw new Error("Error al obtener usuario")
+ 24:     return res.json()
+ 25:   },
+ 26:   create: async (data: { nombre: string; email: string }): Promise<BackendUsuario> => {
+ 27:     const res = await fetch(`${API_BASE_URL}/usuario`, {
+ 28:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+ 29:     })
+ 30:     if (!res.ok) throw new Error("Error al crear usuario")
+ 31:     return res.json()
+ 32:   },
+ 33:   update: async (id: number, data: Partial<{ nombre: string; email: string }>): Promise<BackendUsuario> => {
+ 34:     const res = await fetch(`${API_BASE_URL}/usuario/${id}`, {
+ 35:       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+ 36:     })
+ 37:     if (!res.ok) throw new Error("Error al actualizar usuario")
+ 38:     return res.json()
+ 39:   },
+ 40:   delete: async (id: number): Promise<void> => {
+ 41:     const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { method: "DELETE" })
+ 42:     if (!res.ok) throw new Error("Error al eliminar usuario")
+ 43:   },
+ 44: }
+ 45: 
+ 46: export const areasApi = {
+ 47:   getAll: async (): Promise<BackendArea[]> => {
+ 48:     const res = await fetch(`${API_BASE_URL}/areas`, { headers: { "Content-Type": "application/json" } })
+ 49:     if (!res.ok) throw new Error(`HTTP ${res.status}`)
+ 50:     return res.json()
+ 51:   },
+ 52:   getById: async (id: number): Promise<BackendArea> => {
+ 53:     const res = await fetch(`${API_BASE_URL}/areas/${id}`, { headers: { "Content-Type": "application/json" } })
+ 54:     if (!res.ok) throw new Error("Error al obtener área")
+ 55:     return res.json()
+ 56:   },
+ 57:   create: async (data: { nombre: string; descripcion?: string; estado?: string }): Promise<BackendArea> => {
+ 58:     const res = await fetch(`${API_BASE_URL}/areas`, {
+ 59:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+ 60:     })
+ 61:     if (!res.ok) throw new Error("Error al crear área")
+ 62:     return res.json()
+ 63:   },
+ 64:   update: async (id: number, data: Partial<BackendArea>): Promise<BackendArea> => {
+ 65:     const res = await fetch(`${API_BASE_URL}/areas/${id}`, {
+ 66:       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+ 67:     })
+ 68:     if (!res.ok) throw new Error("Error al actualizar área")
+ 69:     return res.json()
+ 70:   },
+ 71:   cambiarEstado: async (id: number, estado: string): Promise<BackendArea> => {
+ 72:     const backendEstado = statusMap[estado] || estado
+ 73:     const res = await fetch(`${API_BASE_URL}/areas/${id}/estado/${backendEstado}`, { method: "PATCH" })
+ 74:     if (!res.ok) throw new Error("Error al cambiar estado")
+ 75:     return res.json()
+ 76:   },
+ 77:   bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
+ 78:     const estado = bloquear ? "OCUPADO" : "LIBRE"
+ 79:     const areas = await areasApi.getAll()
+ 80:     const results = await Promise.all(
+ 81:       areas.map((area) =>
+ 82:         fetch(`${API_BASE_URL}/areas/${area.id}/estado/${estado}`, { method: "PATCH" }).then((r) => {
+ 83:           if (!r.ok) throw new Error(`Error al actualizar área ${area.id}`)
+ 84:           return r.json()
+ 85:         }),
+ 86:       ),
+ 87:     )
+ 88:     return results
+ 89:   },
+ 90:   delete: async (id: number): Promise<void> => {
+ 91:     const res = await fetch(`${API_BASE_URL}/areas/${id}`, { method: "DELETE" })
+ 92:     if (!res.ok) throw new Error("Error al eliminar área")
+ 93:   },
+ 94: }
+ 95: 
+ 96: export const reservasApi = {
+ 97:   getAll: async (): Promise<BackendReserva[]> => {
+ 98:     const res = await fetch(`${API_BASE_URL}/reservas`, { headers: { "Content-Type": "application/json" } })
+ 99:     if (!res.ok) throw new Error("Error al obtener reservas")
+100:     return res.json()
+101:   },
+102:   getById: async (id: number): Promise<BackendReserva> => {
+103:     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { headers: { "Content-Type": "application/json" } })
+104:     if (!res.ok) throw new Error("Error al obtener reserva")
+105:     return res.json()
+106:   },
+107:   create: async (data: { nombre: string; detalles?: string; usuarioId: number; areaId: number }): Promise<BackendReserva> => {
+108:     const res = await fetch(`${API_BASE_URL}/reservas`, {
+109:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+110:     })
+111:     if (!res.ok) { const e = await res.text(); throw new Error(`Error al crear reserva: ${e}`) }
+112:     return res.json()
+113:   },
+114:   update: async (id: number, data: Partial<BackendReserva>): Promise<BackendReserva> => {
+115:     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, {
+116:       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+117:     })
+118:     if (!res.ok) throw new Error("Error al actualizar reserva")
+119:     return res.json()
+120:   },
+121:   completar: async (id: number): Promise<BackendReserva> => {
+122:     const res = await fetch(`${API_BASE_URL}/reservas/${id}/completar`, { method: "PATCH" })
+123:     if (!res.ok) throw new Error("Error al completar reserva")
+124:     return res.json()
+125:   },
+126:   delete: async (id: number): Promise<void> => {
+127:     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { method: "DELETE" })
+128:     if (!res.ok) throw new Error("Error al eliminar reserva")
+129:   },
+130: }
+131: 
+132: export const adminsApi = {
+133:   login: async (email: string, password: string): Promise<BackendAdmin> => {
+134:     const res = await fetch(`${API_BASE_URL}/auth/login`, {
+135:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }),
+136:     })
+137:     if (!res.ok) { const e = await res.text(); throw new Error(e || "Credenciales inválidas") }
+138:     return res.json()
+139:   },
+140:   getAll: async (): Promise<BackendAdmin[]> => {
+141:     const res = await fetch(`${API_BASE_URL}/admin`, { headers: { "Content-Type": "application/json" } })
+142:     if (!res.ok) throw new Error("Error al obtener administradores")
+143:     return res.json()
+144:   },
+145:   create: async (data: { nombre: string; email: string; password: string }): Promise<BackendAdmin> => {
+146:     const res = await fetch(`${API_BASE_URL}/admin`, {
+147:       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+148:     })
+149:     if (!res.ok) throw new Error("Error al crear administrador")
+150:     return res.json()
+151:   },
+152: }
+153: 
+154: /**
+155:  * Convierte BackendArea → Seat.
+156:  * zone = letra del área (A1→"A", B3→"B") para mapear la imagen por zona.
+157:  */
+158: export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendReserva[]) => {
+159:   const activeReservas = reservas.filter((r) => r.areaId === area.id && r.fin === null)
+160: 
+161:   const match  = area.nombre.match(/^([A-Za-z]+)(\d+)$/)
+162:   const letra  = match ? match[1].toUpperCase() : "A"
+163:   const numero = match ? parseInt(match[2]) : area.id
+164: 
+165:   return {
+166:     id:          area.nombre,
+167:     backendId:   area.id,
+168:     row:         letra,
+169:     number:      numero,
+170:     status:      (reverseStatusMap[area.estado] || "available") as "available" | "occupied",
+171:     userName:    activeReservas[0]?.nombre,
+172:     occupiedAt:  activeReservas[0]?.inicio ? new Date(activeReservas[0].inicio) : undefined,
+173:     peopleCount: activeReservas.length,
+174:     zone:        letra,
+175:     amenities:   area.descripcion ? [area.descripcion] : [],
+176:     mapPdfUrl:   "/coworking-map.pdf",
+177:   }
+178: }
+179: 
+180: export { statusMap, reverseStatusMap }
+```
+
 ## File: next.config.mjs
 ```javascript
  1: /** @type {import('next').NextConfig} */
@@ -4717,6 +4865,80 @@ x.sh
 10: }
 11: 
 12: export default nextConfig
+```
+
+## File: components/seat-grid.tsx
+```typescript
+ 1: "use client"
+ 2: 
+ 3: import type { Seat } from "@/types/seat"
+ 4: import { seatStatusDot, seatStatusBadge, seatStatusLabel } from "@/lib/seat-utils"
+ 5: import { cn } from "@/lib/utils"
+ 6: 
+ 7: interface SeatGridProps {
+ 8:   seats:      Seat[]
+ 9:   isBlocked?: boolean
+10: }
+11: 
+12: export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
+13:   const seatsByRow = seats.reduce(
+14:     (acc, seat) => {
+15:       if (!acc[seat.row]) acc[seat.row] = []
+16:       acc[seat.row].push(seat)
+17:       return acc
+18:     },
+19:     {} as Record<string, Seat[]>,
+20:   )
+21: 
+22:   const rows = Object.keys(seatsByRow).sort()
+23: 
+24:   return (
+25:     <div className="space-y-4">
+26:       {rows.map((row) => (
+27:         <div key={row} className="flex items-start gap-3">
+28:           {/* Letra de fila */}
+29:           <div className="w-5 text-xs font-semibold text-slate-400 pt-3 flex-shrink-0 select-none">
+30:             {row}
+31:           </div>
+32: 
+33:           {/* Cards */}
+34:           <div className="flex gap-2.5 flex-wrap flex-1">
+35:             {seatsByRow[row]
+36:               .sort((a, b) => a.number - b.number)
+37:               .map((seat) => (
+38:                 <div
+39:                   key={seat.id}
+40:                   title={`${seat.id} — ${seatStatusLabel[seat.status]}`}
+41:                   className={cn(
+42:                     // fondo blanco sólido, sin blur
+43:                     "bg-white border border-slate-200 rounded-xl",
+44:                     "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
+45:                     "flex flex-col items-center gap-1 px-2 py-2.5",
+46:                     "w-[52px] select-none transition-shadow hover:shadow-[0_2px_6px_rgba(0,0,0,0.12)]",
+47:                     isBlocked && "opacity-40 cursor-not-allowed pointer-events-none",
+48:                   )}
+49:                 >
+50:                   {/* Punto de color */}
+51:                   <span className={cn("w-2.5 h-2.5 rounded-full", seatStatusDot[seat.status])} />
+52:                   {/* Número */}
+53:                   <span className="text-[11px] font-bold text-slate-800 leading-none">
+54:                     {seat.number}
+55:                   </span>
+56:                   {/* Badge */}
+57:                   <span className={cn(
+58:                     "text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap",
+59:                     seatStatusBadge[seat.status],
+60:                   )}>
+61:                     {seatStatusLabel[seat.status]}
+62:                   </span>
+63:                 </div>
+64:               ))}
+65:           </div>
+66:         </div>
+67:       ))}
+68:     </div>
+69:   )
+70: }
 ```
 
 ## File: components/agendar-modal.tsx
@@ -4749,488 +4971,505 @@ x.sh
  26:   Clock,
  27:   Users,
  28:   User,
- 29:   FileText,
- 30:   Link2,
- 31:   Plus,
- 32:   Loader2,
- 33:   MapPin,
- 34:   X,
- 35:   CheckSquare,
- 36:   AlertTriangle,
- 37: } from "lucide-react"
- 38: 
- 39: interface AgendarModalProps {
- 40:   open:         boolean
- 41:   onOpenChange: (open: boolean) => void
- 42:   onSuccess?:   () => void
- 43: }
- 44: 
- 45: const EMPTY_FORM = {
- 46:   titulo:           "",
- 47:   requerimiento:    "",
- 48:   cantidadPersonas: 1,
- 49:   organizador:      "",
- 50:   fechaDesde:       "",
- 51:   fechaHasta:       "",
- 52:   horaDesde:        "",
- 53:   horaHasta:        "",
- 54:   edadMin:          "",
- 55:   edadMax:          "",
- 56: }
- 57: 
- 58: function timeToMinutes(hhmm: string): number {
- 59:   const [h, m] = hhmm.split(":").map(Number)
- 60:   return h * 60 + m
- 61: }
- 62: 
- 63: function rangoFechasSolapa(aD: string, aH: string, bD: string, bH: string): boolean {
- 64:   return aD <= bH && aH >= bD
- 65: }
- 66: 
- 67: function rangoHorarioSolapa(hDA: string, hHA: string, hDB: string, hHB: string): boolean {
- 68:   return timeToMinutes(hDA) < timeToMinutes(hHB) && timeToMinutes(hHA) > timeToMinutes(hDB)
- 69: }
- 70: 
- 71: function calcularConflictos(
- 72:   ocupaciones: Ocupacion[],
- 73:   eventosCalendario: EventoCalendario[],
- 74:   todasLasAreas: BackendArea[],
- 75:   fechaDesde: string,
- 76:   fechaHasta: string,
- 77:   horaDesde: string,
- 78:   horaHasta: string,
- 79: ): { areaIds: Set<number>; eventosBloqueantes: EventoCalendario[] } {
- 80:   const areaIds: Set<number> = new Set()
- 81:   const eventosBloqueantes: EventoCalendario[] = []
- 82: 
- 83:   if (!fechaDesde || !fechaHasta || !horaDesde || !horaHasta) return { areaIds, eventosBloqueantes }
- 84:   if (timeToMinutes(horaDesde) >= timeToMinutes(horaHasta))  return { areaIds, eventosBloqueantes }
- 85: 
- 86:   for (const oc of ocupaciones) {
- 87:     const ocD = oc.fechaDesde.split("T")[0]
- 88:     const ocH = oc.fechaHasta.split("T")[0]
- 89:     if (!rangoFechasSolapa(fechaDesde, fechaHasta, ocD, ocH)) continue
- 90:     if (!rangoHorarioSolapa(horaDesde, horaHasta, oc.horaDesde, oc.horaHasta)) continue
- 91:     oc.areas.forEach((r) => areaIds.add(r.areaId))
- 92:   }
- 93: 
- 94:   for (const ev of eventosCalendario) {
- 95:     const evD = ev.fechaDesde.split("T")[0]
- 96:     const evH = ev.fechaHasta.split("T")[0]
- 97:     if (!rangoFechasSolapa(fechaDesde, fechaHasta, evD, evH)) continue
- 98:     if (!rangoHorarioSolapa(horaDesde, horaHasta, ev.horaDesde, ev.horaHasta)) continue
- 99:     todasLasAreas.forEach((a) => areaIds.add(a.id))
-100:     eventosBloqueantes.push(ev)
-101:   }
-102: 
-103:   return { areaIds, eventosBloqueantes }
-104: }
-105: 
-106: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
-107:   const { toast } = useToast()
-108: 
-109:   const [form,              setForm]              = useState(EMPTY_FORM)
-110:   const [anexos,            setAnexos]            = useState<string[]>([])
-111:   const [newAnexo,          setNewAnexo]          = useState("")
-112:   const [areas,             setAreas]             = useState<BackendArea[]>([])
-113:   const [ocupaciones,       setOcupaciones]       = useState<Ocupacion[]>([])
-114:   const [eventosCalendario, setEventosCalendario] = useState<EventoCalendario[]>([])
-115:   const [areaIds,           setAreaIds]           = useState<number[]>([])
-116:   const [loading,           setLoading]           = useState(false)
-117:   const [loadAreas,         setLoadAreas]         = useState(false)
-118:   const [loadingEventos,    setLoadingEventos]    = useState(false)
-119: 
-120:   useEffect(() => {
-121:     if (!open) return
-122:     setLoadAreas(true)
-123:     Promise.all([areasApi.getAll(), ocupacionesApi.getActivas()])
-124:       .then(([a, o]) => { setAreas(a); setOcupaciones(o) })
-125:       .catch(() => toast({ variant: "destructive", title: "Error al cargar áreas" }))
-126:       .finally(() => setLoadAreas(false))
-127:   }, [open, toast])
-128: 
-129:   useEffect(() => {
-130:     if (!open || !form.fechaDesde || !form.fechaHasta) { setEventosCalendario([]); return }
-131:     if (form.fechaDesde > form.fechaHasta) return
-132:     setLoadingEventos(true)
-133:     getEventosActivosCoworking(form.fechaDesde, form.fechaHasta)
-134:       .then(setEventosCalendario)
-135:       .catch(() => setEventosCalendario([]))
-136:       .finally(() => setLoadingEventos(false))
-137:   }, [open, form.fechaDesde, form.fechaHasta])
-138: 
-139:   const { areaIds: areasConConflicto, eventosBloqueantes } = useMemo(
-140:     () => calcularConflictos(
-141:       ocupaciones, eventosCalendario, areas,
-142:       form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta,
-143:     ),
-144:     [ocupaciones, eventosCalendario, areas, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta],
-145:   )
-146: 
-147:   useEffect(() => {
-148:     if (areasConConflicto.size === 0) return
-149:     setAreaIds((prev) => prev.filter((id) => !areasConConflicto.has(id)))
-150:   }, [areasConConflicto])
-151: 
-152:   const resetForm = useCallback(() => {
-153:     setForm(EMPTY_FORM)
-154:     setAnexos([])
-155:     setNewAnexo("")
-156:     setAreaIds([])
-157:     setEventosCalendario([])
-158:   }, [])
-159: 
-160:   const handleClose = useCallback(() => {
-161:     onOpenChange(false)
-162:     resetForm()
-163:   }, [onOpenChange, resetForm])
-164: 
-165:   const toggleArea = (id: number) => {
-166:     if (areasConConflicto.has(id)) return
-167:     setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
-168:   }
-169: 
-170:   const addAnexo = () => {
-171:     const url = newAnexo.trim()
-172:     if (!url) return
-173:     setAnexos((prev) => [...prev, url])
-174:     setNewAnexo("")
-175:   }
-176: 
-177:   function parsearErrorBackend(err: unknown): string {
-178:     if (!(err instanceof Error)) return "Error desconocido"
-179:     try {
-180:       const body = JSON.parse(err.message)
-181:       if (typeof body?.message === "string") return body.message
-182:       if (Array.isArray(body?.message))      return body.message.join(", ")
-183:     } catch { /* mensaje plano */ }
-184:     const msg = err.message
-185:     if (msg.includes("Conflicto de horario")) {
-186:       const match = msg.match(/las áreas \[([^\]]+)\].+\(ocupación "([^"]+)"\)/)
-187:       if (match) return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
-188:     }
-189:     return msg
-190:   }
-191: 
-192:   const handleSubmit = async () => {
-193:     if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Falta el título" });        return }
-194:     if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Falta el organizador" });   return }
-195:     if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Falta el requerimiento" }); return }
-196:     if (!form.fechaDesde)           { toast({ variant: "destructive", title: "Falta la fecha desde" });   return }
-197:     if (!form.fechaHasta)           { toast({ variant: "destructive", title: "Falta la fecha hasta" });   return }
-198:     if (!form.horaDesde)            { toast({ variant: "destructive", title: "Falta la hora desde" });    return }
-199:     if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" });    return }
-200:     if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área disponible" }); return }
-201: 
-202:     if (eventosBloqueantes.length > 0 && areaIds.every((id) => areasConConflicto.has(id))) {
-203:       toast({
-204:         variant: "destructive",
-205:         title: "Horario no disponible",
-206:         description: `Hay un evento en el calendario ("${eventosBloqueantes[0].titulo}") que ocupa el coworking en ese horario.`,
-207:       })
-208:       return
-209:     }
-210: 
-211:     const payload: CreateOcupacionPayload = {
-212:       titulo:           form.titulo.trim(),
-213:       requerimiento:    form.requerimiento.trim(),
-214:       cantidadPersonas: Number(form.cantidadPersonas),
-215:       organizador:      form.organizador.trim(),
-216:       fechaDesde:       form.fechaDesde,
-217:       fechaHasta:       form.fechaHasta,
-218:       horaDesde:        form.horaDesde,
-219:       horaHasta:        form.horaHasta,
-220:       anexos,
-221:       areaIds,
-222:       ...(form.edadMin && { edadMin: Number(form.edadMin) }),
-223:       ...(form.edadMax && { edadMax: Number(form.edadMax) }),
-224:     }
-225: 
-226:     setLoading(true)
-227:     try {
-228:       await ocupacionesApi.create(payload)
-229:       toast({ title: "✅ Ocupación agendada", description: `"${payload.titulo}" creada correctamente` })
-230:       handleClose()
-231:       onSuccess?.()
-232:     } catch (err) {
-233:       toast({ variant: "destructive", title: "No se pudo agendar", description: parsearErrorBackend(err) })
-234:     } finally {
-235:       setLoading(false)
-236:     }
-237:   }
-238: 
-239:   const fechasCompletas       = form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
-240:   const hayConflictoOcupacion = areasConConflicto.size > 0 && eventosBloqueantes.length === 0 && fechasCompletas
-241:   const hayConflictoEvento    = eventosBloqueantes.length > 0 && fechasCompletas
-242: 
-243:   return (
-244:     <Dialog open={open} onOpenChange={handleClose}>
-245:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
-246:         <DialogHeader>
-247:           <DialogTitle className="flex items-center gap-2 text-xl">
-248:             <CalendarDays className="w-5 h-5 text-primary" />
-249:             Agendar Ocupación
-250:           </DialogTitle>
-251:           <DialogDescription>
-252:             Reservá uno o más espacios para un evento o actividad
-253:           </DialogDescription>
-254:         </DialogHeader>
-255: 
-256:         <div className="space-y-4 py-2">
-257: 
-258:           {/* Título */}
-259:           <div className="space-y-1.5">
-260:             <Label htmlFor="titulo" className="flex items-center gap-1.5 text-sm font-medium">
-261:               <FileText className="w-3.5 h-3.5" /> Título *
-262:             </Label>
-263:             <Input
-264:               id="titulo"
-265:               placeholder="Ej: Taller de fotografía"
-266:               value={form.titulo}
-267:               onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
-268:             />
-269:           </div>
-270: 
-271:           {/* Organizador */}
-272:           <div className="space-y-1.5">
-273:             <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
-274:               <User className="w-3.5 h-3.5" /> Organizador *
-275:             </Label>
-276:             <Input
-277:               id="organizador"
-278:               placeholder="Nombre del responsable"
-279:               value={form.organizador}
-280:               onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
-281:             />
-282:           </div>
-283: 
-284:           {/* Requerimiento */}
-285:           <div className="space-y-1.5">
-286:             <Label htmlFor="requerimiento" className="flex items-center gap-1.5 text-sm font-medium">
-287:               <FileText className="w-3.5 h-3.5" /> Requerimiento *
-288:             </Label>
-289:             <Textarea
-290:               id="requerimiento"
-291:               placeholder="Describe los requerimientos del espacio..."
-292:               rows={2}
-293:               value={form.requerimiento}
-294:               onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
-295:             />
-296:           </div>
-297: 
-298:           {/* Cantidad de personas */}
-299:           <div className="space-y-1.5">
-300:             <Label htmlFor="cantPersonas" className="flex items-center gap-1.5 text-sm font-medium">
-301:               <Users className="w-3.5 h-3.5" /> Cantidad de personas *
-302:             </Label>
-303:             <Input
-304:               id="cantPersonas"
-305:               type="number"
-306:               min={1}
-307:               value={form.cantidadPersonas}
-308:               onChange={(e) => setForm((f) => ({ ...f, cantidadPersonas: Number(e.target.value) }))}
-309:             />
-310:           </div>
-311: 
-312:           {/* Fechas */}
-313:           <div className="grid grid-cols-2 gap-3">
-314:             <div className="space-y-1.5">
-315:               <Label htmlFor="fechaDesde" className="flex items-center gap-1.5 text-sm font-medium">
-316:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha desde *
-317:               </Label>
-318:               <Input
-319:                 id="fechaDesde"
-320:                 type="date"
-321:                 value={form.fechaDesde}
-322:                 onChange={(e) => setForm((f) => ({ ...f, fechaDesde: e.target.value }))}
-323:               />
-324:             </div>
-325:             <div className="space-y-1.5">
-326:               <Label htmlFor="fechaHasta" className="flex items-center gap-1.5 text-sm font-medium">
-327:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha hasta *
-328:               </Label>
-329:               <Input
-330:                 id="fechaHasta"
-331:                 type="date"
-332:                 value={form.fechaHasta}
-333:                 onChange={(e) => setForm((f) => ({ ...f, fechaHasta: e.target.value }))}
-334:               />
-335:             </div>
-336:           </div>
-337: 
-338:           {/* Horas */}
-339:           <div className="grid grid-cols-2 gap-3">
-340:             <div className="space-y-1.5">
-341:               <Label htmlFor="horaDesde" className="flex items-center gap-1.5 text-sm font-medium">
-342:                 <Clock className="w-3.5 h-3.5" /> Hora desde *
-343:               </Label>
-344:               <Input
-345:                 id="horaDesde"
-346:                 type="time"
-347:                 value={form.horaDesde}
-348:                 onChange={(e) => setForm((f) => ({ ...f, horaDesde: e.target.value }))}
-349:               />
-350:             </div>
-351:             <div className="space-y-1.5">
-352:               <Label htmlFor="horaHasta" className="flex items-center gap-1.5 text-sm font-medium">
-353:                 <Clock className="w-3.5 h-3.5" /> Hora hasta *
-354:               </Label>
-355:               <Input
-356:                 id="horaHasta"
-357:                 type="time"
-358:                 value={form.horaHasta}
-359:                 onChange={(e) => setForm((f) => ({ ...f, horaHasta: e.target.value }))}
-360:               />
-361:             </div>
-362:           </div>
-363: 
-364:           {/* Alerta: evento del calendario bloquea todo */}
-365:           {hayConflictoEvento && (
-366:             <div className="flex items-start gap-2.5 p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm">
-367:               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" />
-368:               <div className="space-y-1">
-369:                 <p className="font-medium">El coworking no está disponible en ese horario</p>
-370:                 {eventosBloqueantes.map((ev) => (
-371:                   <p key={ev.id} className="text-xs text-orange-700">
-372:                     Evento: <span className="font-semibold">"{ev.titulo}"</span>
-373:                     {" "}· {ev.fechaDesde.split("T")[0]} {ev.horaDesde}–{ev.horaHasta}
-374:                   </p>
-375:                 ))}
-376:               </div>
-377:             </div>
-378:           )}
-379: 
-380:           {/* Áreas */}
-381:           <div className="space-y-1.5">
-382:             <Label className="flex items-center gap-1.5 text-sm font-medium">
-383:               <MapPin className="w-3.5 h-3.5" /> Áreas a reservar *
-384:               {loadingEventos && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground ml-1" />}
-385:             </Label>
-386: 
-387:             {loadAreas ? (
-388:               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-389:                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
-390:               </div>
-391:             ) : (
-392:               <>
-393:                 {hayConflictoOcupacion && (
-394:                   <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/8 border border-destructive/20 text-destructive text-xs">
-395:                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-396:                     <span>Algunas zonas ya están ocupadas en ese horario.</span>
-397:                   </div>
-398:                 )}
-399:                 <div className="flex flex-wrap gap-2">
-400:                   {areas.map((area) => {
-401:                     const bloqueada = areasConConflicto.has(area.id)
-402:                     const sel       = areaIds.includes(area.id)
-403:                     return (
-404:                       <button
-405:                         key={area.id}
-406:                         type="button"
-407:                         disabled={bloqueada}
-408:                         onClick={() => toggleArea(area.id)}
-409:                         title={bloqueada && hayConflictoEvento ? "Zona bloqueada por evento del calendario" : bloqueada ? "Zona ocupada en ese horario" : undefined}
-410:                         className={[
-411:                           "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
-412:                           bloqueada
-413:                             ? "bg-muted text-muted-foreground border-muted-foreground/20 cursor-not-allowed line-through opacity-50"
-414:                             : sel
-415:                             ? "bg-primary text-primary-foreground border-primary"
-416:                             : "bg-background border-border text-foreground hover:bg-muted cursor-pointer",
-417:                         ].join(" ")}
-418:                       >
-419:                         {sel && !bloqueada && <CheckSquare className="w-3.5 h-3.5" />}
-420:                         {area.nombre}
-421:                         {bloqueada && (
-422:                           <Badge variant="destructive" className="text-[9px] px-1 py-0 ml-0.5">
-423:                             {hayConflictoEvento ? "Evento" : "Ocupada"}
-424:                           </Badge>
-425:                         )}
-426:                       </button>
-427:                     )
-428:                   })}
-429:                 </div>
-430:                 {areaIds.length > 0 && (
-431:                   <p className="text-xs text-muted-foreground">{areaIds.length} área(s) seleccionada(s)</p>
-432:                 )}
-433:               </>
-434:             )}
-435:           </div>
-436: 
-437:           {/* Edad mín/máx — siempre visible */}
-438:           <div className="grid grid-cols-2 gap-3">
-439:             <div className="space-y-1.5">
-440:               <Label htmlFor="edadMin" className="text-sm font-medium">Edad mínima (opcional)</Label>
-441:               <Input
-442:                 id="edadMin"
-443:                 type="number"
-444:                 min={0}
-445:                 placeholder="0"
-446:                 value={form.edadMin}
-447:                 onChange={(e) => setForm((f) => ({ ...f, edadMin: e.target.value }))}
-448:               />
-449:             </div>
-450:             <div className="space-y-1.5">
-451:               <Label htmlFor="edadMax" className="text-sm font-medium">Edad máxima (opcional)</Label>
-452:               <Input
-453:                 id="edadMax"
-454:                 type="number"
-455:                 min={0}
-456:                 placeholder="99"
-457:                 value={form.edadMax}
-458:                 onChange={(e) => setForm((f) => ({ ...f, edadMax: e.target.value }))}
-459:               />
-460:             </div>
-461:           </div>
-462: 
-463:           {/* Anexos — siempre visible */}
-464:           <div className="space-y-2">
-465:             <Label className="text-sm font-medium flex items-center gap-1.5">
-466:               <Link2 className="w-3.5 h-3.5" /> Anexos / enlaces (opcional)
-467:             </Label>
-468:             <div className="flex gap-2">
+ 29:   Phone,
+ 30:   FileText,
+ 31:   Link2,
+ 32:   Plus,
+ 33:   Loader2,
+ 34:   MapPin,
+ 35:   X,
+ 36:   CheckSquare,
+ 37:   AlertTriangle,
+ 38: } from "lucide-react"
+ 39: 
+ 40: interface AgendarModalProps {
+ 41:   open:         boolean
+ 42:   onOpenChange: (open: boolean) => void
+ 43:   onSuccess?:   () => void
+ 44: }
+ 45: 
+ 46: const EMPTY_FORM = {
+ 47:   titulo:           "",
+ 48:   requerimiento:    "",
+ 49:   cantidadPersonas: 1,
+ 50:   organizador:      "",
+ 51:   telefono:         "",
+ 52:   fechaDesde:       "",
+ 53:   fechaHasta:       "",
+ 54:   horaDesde:        "",
+ 55:   horaHasta:        "",
+ 56:   edadMin:          "",
+ 57:   edadMax:          "",
+ 58: }
+ 59: 
+ 60: function timeToMinutes(hhmm: string): number {
+ 61:   const [h, m] = hhmm.split(":").map(Number)
+ 62:   return h * 60 + m
+ 63: }
+ 64: 
+ 65: function rangoFechasSolapa(aD: string, aH: string, bD: string, bH: string): boolean {
+ 66:   return aD <= bH && aH >= bD
+ 67: }
+ 68: 
+ 69: function rangoHorarioSolapa(hDA: string, hHA: string, hDB: string, hHB: string): boolean {
+ 70:   return timeToMinutes(hDA) < timeToMinutes(hHB) && timeToMinutes(hHA) > timeToMinutes(hDB)
+ 71: }
+ 72: 
+ 73: function calcularConflictos(
+ 74:   ocupaciones: Ocupacion[],
+ 75:   eventosCalendario: EventoCalendario[],
+ 76:   todasLasAreas: BackendArea[],
+ 77:   fechaDesde: string,
+ 78:   fechaHasta: string,
+ 79:   horaDesde: string,
+ 80:   horaHasta: string,
+ 81: ): { areaIds: Set<number>; eventosBloqueantes: EventoCalendario[] } {
+ 82:   const areaIds: Set<number> = new Set()
+ 83:   const eventosBloqueantes: EventoCalendario[] = []
+ 84: 
+ 85:   if (!fechaDesde || !fechaHasta || !horaDesde || !horaHasta) return { areaIds, eventosBloqueantes }
+ 86:   if (timeToMinutes(horaDesde) >= timeToMinutes(horaHasta))  return { areaIds, eventosBloqueantes }
+ 87: 
+ 88:   for (const oc of ocupaciones) {
+ 89:     const ocD = oc.fechaDesde.split("T")[0]
+ 90:     const ocH = oc.fechaHasta.split("T")[0]
+ 91:     if (!rangoFechasSolapa(fechaDesde, fechaHasta, ocD, ocH)) continue
+ 92:     if (!rangoHorarioSolapa(horaDesde, horaHasta, oc.horaDesde, oc.horaHasta)) continue
+ 93:     oc.areas.forEach((r) => areaIds.add(r.areaId))
+ 94:   }
+ 95: 
+ 96:   for (const ev of eventosCalendario) {
+ 97:     const evD = ev.fechaDesde.split("T")[0]
+ 98:     const evH = ev.fechaHasta.split("T")[0]
+ 99:     if (!rangoFechasSolapa(fechaDesde, fechaHasta, evD, evH)) continue
+100:     if (!rangoHorarioSolapa(horaDesde, horaHasta, ev.horaDesde, ev.horaHasta)) continue
+101:     todasLasAreas.forEach((a) => areaIds.add(a.id))
+102:     eventosBloqueantes.push(ev)
+103:   }
+104: 
+105:   return { areaIds, eventosBloqueantes }
+106: }
+107: 
+108: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
+109:   const { toast } = useToast()
+110: 
+111:   const [form,              setForm]              = useState(EMPTY_FORM)
+112:   const [anexos,            setAnexos]            = useState<string[]>([])
+113:   const [newAnexo,          setNewAnexo]          = useState("")
+114:   const [areas,             setAreas]             = useState<BackendArea[]>([])
+115:   const [ocupaciones,       setOcupaciones]       = useState<Ocupacion[]>([])
+116:   const [eventosCalendario, setEventosCalendario] = useState<EventoCalendario[]>([])
+117:   const [areaIds,           setAreaIds]           = useState<number[]>([])
+118:   const [loading,           setLoading]           = useState(false)
+119:   const [loadAreas,         setLoadAreas]         = useState(false)
+120:   const [loadingEventos,    setLoadingEventos]    = useState(false)
+121: 
+122:   useEffect(() => {
+123:     if (!open) return
+124:     setLoadAreas(true)
+125:     Promise.all([areasApi.getAll(), ocupacionesApi.getActivas()])
+126:       .then(([a, o]) => { setAreas(a); setOcupaciones(o) })
+127:       .catch(() => toast({ variant: "destructive", title: "Error al cargar áreas" }))
+128:       .finally(() => setLoadAreas(false))
+129:   }, [open, toast])
+130: 
+131:   useEffect(() => {
+132:     if (!open || !form.fechaDesde || !form.fechaHasta) { setEventosCalendario([]); return }
+133:     if (form.fechaDesde > form.fechaHasta) return
+134:     setLoadingEventos(true)
+135:     getEventosActivosCoworking(form.fechaDesde, form.fechaHasta)
+136:       .then(setEventosCalendario)
+137:       .catch(() => setEventosCalendario([]))
+138:       .finally(() => setLoadingEventos(false))
+139:   }, [open, form.fechaDesde, form.fechaHasta])
+140: 
+141:   const { areaIds: areasConConflicto, eventosBloqueantes } = useMemo(
+142:     () => calcularConflictos(
+143:       ocupaciones, eventosCalendario, areas,
+144:       form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta,
+145:     ),
+146:     [ocupaciones, eventosCalendario, areas, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta],
+147:   )
+148: 
+149:   useEffect(() => {
+150:     if (areasConConflicto.size === 0) return
+151:     setAreaIds((prev) => prev.filter((id) => !areasConConflicto.has(id)))
+152:   }, [areasConConflicto])
+153: 
+154:   const resetForm = useCallback(() => {
+155:     setForm(EMPTY_FORM)
+156:     setAnexos([])
+157:     setNewAnexo("")
+158:     setAreaIds([])
+159:     setEventosCalendario([])
+160:   }, [])
+161: 
+162:   const handleClose = useCallback(() => {
+163:     onOpenChange(false)
+164:     resetForm()
+165:   }, [onOpenChange, resetForm])
+166: 
+167:   const toggleArea = (id: number) => {
+168:     if (areasConConflicto.has(id)) return
+169:     setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+170:   }
+171: 
+172:   const addAnexo = () => {
+173:     const url = newAnexo.trim()
+174:     if (!url) return
+175:     setAnexos((prev) => [...prev, url])
+176:     setNewAnexo("")
+177:   }
+178: 
+179:   function parsearErrorBackend(err: unknown): string {
+180:     if (!(err instanceof Error)) return "Error desconocido"
+181:     try {
+182:       const body = JSON.parse(err.message)
+183:       if (typeof body?.message === "string") return body.message
+184:       if (Array.isArray(body?.message))      return body.message.join(", ")
+185:     } catch { /* mensaje plano */ }
+186:     const msg = err.message
+187:     if (msg.includes("Conflicto de horario")) {
+188:       const match = msg.match(/las áreas \[([^\]]+)\].+\(ocupación "([^"]+)"\)/)
+189:       if (match) return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
+190:     }
+191:     return msg
+192:   }
+193: 
+194:   const handleSubmit = async () => {
+195:     if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Falta el título" });        return }
+196:     if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Falta el organizador" });   return }
+197:     if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Falta el requerimiento" }); return }
+198:     if (!form.fechaDesde)           { toast({ variant: "destructive", title: "Falta la fecha desde" });   return }
+199:     if (!form.fechaHasta)           { toast({ variant: "destructive", title: "Falta la fecha hasta" });   return }
+200:     if (!form.horaDesde)            { toast({ variant: "destructive", title: "Falta la hora desde" });    return }
+201:     if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" });    return }
+202:     if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área disponible" }); return }
+203: 
+204:     if (eventosBloqueantes.length > 0 && areaIds.every((id) => areasConConflicto.has(id))) {
+205:       toast({
+206:         variant: "destructive",
+207:         title: "Horario no disponible",
+208:         description: `Hay un evento en el calendario ("${eventosBloqueantes[0].titulo}") que ocupa el coworking en ese horario.`,
+209:       })
+210:       return
+211:     }
+212: 
+213:     const payload: CreateOcupacionPayload = {
+214:       titulo:           form.titulo.trim(),
+215:       requerimiento:    form.requerimiento.trim(),
+216:       cantidadPersonas: Number(form.cantidadPersonas),
+217:       organizador:      form.organizador.trim(),
+218:       fechaDesde:       form.fechaDesde,
+219:       fechaHasta:       form.fechaHasta,
+220:       horaDesde:        form.horaDesde,
+221:       horaHasta:        form.horaHasta,
+222:       anexos,
+223:       areaIds,
+224:       ...(form.telefono.trim()  && { telefono:  form.telefono.trim() }),
+225:       ...(form.edadMin          && { edadMin: Number(form.edadMin) }),
+226:       ...(form.edadMax          && { edadMax: Number(form.edadMax) }),
+227:     }
+228: 
+229:     setLoading(true)
+230:     try {
+231:       await ocupacionesApi.create(payload)
+232:       toast({ title: "✅ Ocupación agendada", description: `"${payload.titulo}" creada correctamente` })
+233:       handleClose()
+234:       onSuccess?.()
+235:     } catch (err) {
+236:       toast({ variant: "destructive", title: "No se pudo agendar", description: parsearErrorBackend(err) })
+237:     } finally {
+238:       setLoading(false)
+239:     }
+240:   }
+241: 
+242:   const fechasCompletas       = form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
+243:   const hayConflictoOcupacion = areasConConflicto.size > 0 && eventosBloqueantes.length === 0 && fechasCompletas
+244:   const hayConflictoEvento    = eventosBloqueantes.length > 0 && fechasCompletas
+245: 
+246:   return (
+247:     <Dialog open={open} onOpenChange={handleClose}>
+248:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+249:         <DialogHeader>
+250:           <DialogTitle className="flex items-center gap-2 text-xl">
+251:             <CalendarDays className="w-5 h-5 text-primary" />
+252:             Agendar Ocupación
+253:           </DialogTitle>
+254:           <DialogDescription>
+255:             Reservá uno o más espacios para un evento o actividad
+256:           </DialogDescription>
+257:         </DialogHeader>
+258: 
+259:         <div className="space-y-4 py-2">
+260: 
+261:           {/* Título */}
+262:           <div className="space-y-1.5">
+263:             <Label htmlFor="titulo" className="flex items-center gap-1.5 text-sm font-medium">
+264:               <FileText className="w-3.5 h-3.5" /> Título *
+265:             </Label>
+266:             <Input
+267:               id="titulo"
+268:               placeholder="Nombre del evento o actividad"
+269:               value={form.titulo}
+270:               onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
+271:             />
+272:           </div>
+273: 
+274:           {/* Organizador + Teléfono */}
+275:           <div className="grid grid-cols-2 gap-3">
+276:             <div className="space-y-1.5">
+277:               <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
+278:                 <User className="w-3.5 h-3.5" /> Organizador *
+279:               </Label>
+280:               <Input
+281:                 id="organizador"
+282:                 placeholder="Nombre completo"
+283:                 value={form.organizador}
+284:                 onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
+285:               />
+286:             </div>
+287:             <div className="space-y-1.5">
+288:               <Label htmlFor="telefono" className="flex items-center gap-1.5 text-sm font-medium">
+289:                 <Phone className="w-3.5 h-3.5" /> Teléfono (opcional)
+290:               </Label>
+291:               <Input
+292:                 id="telefono"
+293:                 type="tel"
+294:                 placeholder="Ej: +54 383 000-0000"
+295:                 value={form.telefono}
+296:                 onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+297:               />
+298:             </div>
+299:           </div>
+300: 
+301:           {/* Requerimiento */}
+302:           <div className="space-y-1.5">
+303:             <Label htmlFor="requerimiento" className="flex items-center gap-1.5 text-sm font-medium">
+304:               <FileText className="w-3.5 h-3.5" /> Descripción / Requerimientos *
+305:             </Label>
+306:             <Textarea
+307:               id="requerimiento"
+308:               placeholder="Describí la actividad y sus necesidades..."
+309:               rows={3}
+310:               value={form.requerimiento}
+311:               onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
+312:             />
+313:           </div>
+314: 
+315:           {/* Cantidad de personas */}
+316:           <div className="space-y-1.5">
+317:             <Label htmlFor="cantidadPersonas" className="flex items-center gap-1.5 text-sm font-medium">
+318:               <Users className="w-3.5 h-3.5" /> Cantidad estimada de personas *
+319:             </Label>
+320:             <Input
+321:               id="cantidadPersonas"
+322:               type="number"
+323:               min={1}
+324:               value={form.cantidadPersonas}
+325:               onChange={(e) => setForm((f) => ({ ...f, cantidadPersonas: Number(e.target.value) }))}
+326:             />
+327:           </div>
+328: 
+329:           {/* Fechas */}
+330:           <div className="grid grid-cols-2 gap-3">
+331:             <div className="space-y-1.5">
+332:               <Label htmlFor="fechaDesde" className="flex items-center gap-1.5 text-sm font-medium">
+333:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha desde *
+334:               </Label>
+335:               <Input
+336:                 id="fechaDesde"
+337:                 type="date"
+338:                 value={form.fechaDesde}
+339:                 onChange={(e) => setForm((f) => ({ ...f, fechaDesde: e.target.value }))}
+340:               />
+341:             </div>
+342:             <div className="space-y-1.5">
+343:               <Label htmlFor="fechaHasta" className="flex items-center gap-1.5 text-sm font-medium">
+344:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha hasta *
+345:               </Label>
+346:               <Input
+347:                 id="fechaHasta"
+348:                 type="date"
+349:                 value={form.fechaHasta}
+350:                 onChange={(e) => setForm((f) => ({ ...f, fechaHasta: e.target.value }))}
+351:               />
+352:             </div>
+353:           </div>
+354: 
+355:           {/* Horas */}
+356:           <div className="grid grid-cols-2 gap-3">
+357:             <div className="space-y-1.5">
+358:               <Label htmlFor="horaDesde" className="flex items-center gap-1.5 text-sm font-medium">
+359:                 <Clock className="w-3.5 h-3.5" /> Hora desde *
+360:               </Label>
+361:               <Input
+362:                 id="horaDesde"
+363:                 type="time"
+364:                 value={form.horaDesde}
+365:                 onChange={(e) => setForm((f) => ({ ...f, horaDesde: e.target.value }))}
+366:               />
+367:             </div>
+368:             <div className="space-y-1.5">
+369:               <Label htmlFor="horaHasta" className="flex items-center gap-1.5 text-sm font-medium">
+370:                 <Clock className="w-3.5 h-3.5" /> Hora hasta *
+371:               </Label>
+372:               <Input
+373:                 id="horaHasta"
+374:                 type="time"
+375:                 value={form.horaHasta}
+376:                 onChange={(e) => setForm((f) => ({ ...f, horaHasta: e.target.value }))}
+377:               />
+378:             </div>
+379:           </div>
+380: 
+381:           {/* Alerta: evento del calendario bloquea todo */}
+382:           {hayConflictoEvento && (
+383:             <div className="flex items-start gap-2.5 p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm">
+384:               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" />
+385:               <div className="space-y-1">
+386:                 <p className="font-medium">El coworking no está disponible en ese horario</p>
+387:                 {eventosBloqueantes.map((ev) => (
+388:                   <p key={ev.id} className="text-xs text-orange-700">
+389:                     Evento: <span className="font-semibold">"{ev.titulo}"</span>
+390:                     {" "}· {ev.fechaDesde.split("T")[0]} {ev.horaDesde}–{ev.horaHasta}
+391:                   </p>
+392:                 ))}
+393:               </div>
+394:             </div>
+395:           )}
+396: 
+397:           {/* Áreas */}
+398:           <div className="space-y-1.5">
+399:             <Label className="flex items-center gap-1.5 text-sm font-medium">
+400:               <MapPin className="w-3.5 h-3.5" /> Áreas a reservar *
+401:               {loadingEventos && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground ml-1" />}
+402:             </Label>
+403: 
+404:             {loadAreas ? (
+405:               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+406:                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
+407:               </div>
+408:             ) : (
+409:               <>
+410:                 {hayConflictoOcupacion && (
+411:                   <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/8 border border-destructive/20 text-destructive text-xs">
+412:                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+413:                     <span>Algunas zonas ya están ocupadas en ese horario.</span>
+414:                   </div>
+415:                 )}
+416:                 <div className="flex flex-wrap gap-2">
+417:                   {areas.map((area) => {
+418:                     const bloqueada = areasConConflicto.has(area.id)
+419:                     const sel       = areaIds.includes(area.id)
+420:                     return (
+421:                       <button
+422:                         key={area.id}
+423:                         type="button"
+424:                         disabled={bloqueada}
+425:                         onClick={() => toggleArea(area.id)}
+426:                         title={bloqueada && hayConflictoEvento ? "Zona bloqueada por evento del calendario" : bloqueada ? "Zona ocupada en ese horario" : undefined}
+427:                         className={[
+428:                           "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
+429:                           bloqueada
+430:                             ? "bg-muted text-muted-foreground border-muted-foreground/20 cursor-not-allowed line-through opacity-50"
+431:                             : sel
+432:                             ? "bg-primary text-primary-foreground border-primary"
+433:                             : "bg-background border-border text-foreground hover:bg-muted cursor-pointer",
+434:                         ].join(" ")}
+435:                       >
+436:                         {sel && !bloqueada && <CheckSquare className="w-3.5 h-3.5" />}
+437:                         {area.nombre}
+438:                         {bloqueada && (
+439:                           <Badge variant="destructive" className="text-[9px] px-1 py-0 ml-0.5">
+440:                             {hayConflictoEvento ? "Evento" : "Ocupada"}
+441:                           </Badge>
+442:                         )}
+443:                       </button>
+444:                     )
+445:                   })}
+446:                 </div>
+447:                 {areaIds.length > 0 && (
+448:                   <p className="text-xs text-muted-foreground">{areaIds.length} área(s) seleccionada(s)</p>
+449:                 )}
+450:               </>
+451:             )}
+452:           </div>
+453: 
+454:           {/* Edad mín/máx */}
+455:           <div className="grid grid-cols-2 gap-3">
+456:             <div className="space-y-1.5">
+457:               <Label htmlFor="edadMin" className="text-sm font-medium">Edad mínima (opcional)</Label>
+458:               <Input
+459:                 id="edadMin"
+460:                 type="number"
+461:                 min={0}
+462:                 placeholder="0"
+463:                 value={form.edadMin}
+464:                 onChange={(e) => setForm((f) => ({ ...f, edadMin: e.target.value }))}
+465:               />
+466:             </div>
+467:             <div className="space-y-1.5">
+468:               <Label htmlFor="edadMax" className="text-sm font-medium">Edad máxima (opcional)</Label>
 469:               <Input
-470:                 placeholder="https://..."
-471:                 value={newAnexo}
-472:                 onChange={(e) => setNewAnexo(e.target.value)}
-473:                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAnexo() } }}
-474:               />
-475:               <Button type="button" variant="outline" size="icon" onClick={addAnexo}>
-476:                 <Plus className="w-4 h-4" />
-477:               </Button>
-478:             </div>
-479:             {anexos.map((url, i) => (
-480:               <div key={i} className="flex items-center gap-2 text-sm">
-481:                 <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-482:                 <span className="truncate flex-1 text-primary">{url}</span>
-483:                 <button
-484:                   type="button"
-485:                   onClick={() => setAnexos((prev) => prev.filter((_, j) => j !== i))}
-486:                   className="text-muted-foreground hover:text-destructive"
-487:                 >
-488:                   <X className="w-3.5 h-3.5" />
-489:                 </button>
-490:               </div>
-491:             ))}
-492:           </div>
-493: 
-494:         </div>
-495: 
-496:         <DialogFooter className="gap-2 pt-2">
-497:           <Button variant="outline" onClick={handleClose} disabled={loading}>
-498:             Cancelar
-499:           </Button>
-500:           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
-501:             {loading
-502:               ? <><Loader2 className="w-4 h-4 animate-spin" /> Agendando...</>
-503:               : "Agendar"
-504:             }
-505:           </Button>
-506:         </DialogFooter>
-507:       </DialogContent>
-508:     </Dialog>
-509:   )
-510: }
+470:                 id="edadMax"
+471:                 type="number"
+472:                 min={0}
+473:                 placeholder="99"
+474:                 value={form.edadMax}
+475:                 onChange={(e) => setForm((f) => ({ ...f, edadMax: e.target.value }))}
+476:               />
+477:             </div>
+478:           </div>
+479: 
+480:           {/* Anexos */}
+481:           <div className="space-y-2">
+482:             <Label className="text-sm font-medium flex items-center gap-1.5">
+483:               <Link2 className="w-3.5 h-3.5" /> Anexos / enlaces (opcional)
+484:             </Label>
+485:             <div className="flex gap-2">
+486:               <Input
+487:                 placeholder="https://..."
+488:                 value={newAnexo}
+489:                 onChange={(e) => setNewAnexo(e.target.value)}
+490:                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAnexo() } }}
+491:               />
+492:               <Button type="button" variant="outline" size="icon" onClick={addAnexo}>
+493:                 <Plus className="w-4 h-4" />
+494:               </Button>
+495:             </div>
+496:             {anexos.map((url, i) => (
+497:               <div key={i} className="flex items-center gap-2 text-sm">
+498:                 <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+499:                 <span className="truncate flex-1 text-primary">{url}</span>
+500:                 <button
+501:                   type="button"
+502:                   onClick={() => setAnexos((prev) => prev.filter((_, j) => j !== i))}
+503:                   className="text-muted-foreground hover:text-destructive"
+504:                 >
+505:                   <X className="w-3.5 h-3.5" />
+506:                 </button>
+507:               </div>
+508:             ))}
+509:           </div>
+510: 
+511:         </div>
+512: 
+513:         <DialogFooter className="gap-2 pt-2">
+514:           <Button variant="outline" onClick={handleClose} disabled={loading}>
+515:             Cancelar
+516:           </Button>
+517:           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
+518:             {loading
+519:               ? <><Loader2 className="w-4 h-4 animate-spin" /> Agendando...</>
+520:               : "Agendar"
+521:             }
+522:           </Button>
+523:         </DialogFooter>
+524:       </DialogContent>
+525:     </Dialog>
+526:   )
+527: }
 ```
 
 ## File: app/layout.tsx
@@ -5675,536 +5914,376 @@ x.sh
 ```bash
   1: #!/usr/bin/env bash
   2: # ============================================================================
-  3: #  v25b-fix-agendar-modal-build.sh  — coworking-front
-  4: #  Reescribe agendar-modal.tsx completo y limpio, sin colapsables.
-  5: # ============================================================================
-  6: set -euo pipefail
-  7: 
-  8: if [ ! -f "package.json" ] || [ ! -d "app" ]; then
-  9:   echo "❌  Corré desde la raíz de coworking-front"; exit 1
- 10: fi
- 11: 
- 12: echo "📄  components/agendar-modal.tsx (reescritura completa)..."
- 13: cat > components/agendar-modal.tsx << 'EOF'
- 14: "use client"
- 15: 
- 16: import { useState, useCallback, useEffect, useMemo } from "react"
- 17: import { ocupacionesApi } from "@/lib/ocupacion-api"
- 18: import { areasApi }       from "@/lib/api"
- 19: import { getEventosActivosCoworking, type EventoCalendario } from "@/lib/eventos-api"
- 20: import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
- 21: import type { BackendArea } from "@/types/seat"
- 22: import { useToast } from "@/hooks/use-toast"
- 23: 
- 24: import { Button }   from "@/components/ui/button"
- 25: import { Input }    from "@/components/ui/input"
- 26: import { Label }    from "@/components/ui/label"
- 27: import { Textarea } from "@/components/ui/textarea"
- 28: import { Badge }    from "@/components/ui/badge"
- 29: import {
- 30:   Dialog,
- 31:   DialogContent,
- 32:   DialogHeader,
- 33:   DialogTitle,
- 34:   DialogFooter,
- 35:   DialogDescription,
- 36: } from "@/components/ui/dialog"
- 37: import {
- 38:   CalendarDays,
- 39:   Clock,
- 40:   Users,
- 41:   User,
- 42:   FileText,
- 43:   Link2,
- 44:   Plus,
- 45:   Loader2,
- 46:   MapPin,
- 47:   X,
- 48:   CheckSquare,
- 49:   AlertTriangle,
- 50: } from "lucide-react"
- 51: 
- 52: interface AgendarModalProps {
- 53:   open:         boolean
- 54:   onOpenChange: (open: boolean) => void
- 55:   onSuccess?:   () => void
- 56: }
- 57: 
- 58: const EMPTY_FORM = {
- 59:   titulo:           "",
- 60:   requerimiento:    "",
- 61:   cantidadPersonas: 1,
- 62:   organizador:      "",
- 63:   fechaDesde:       "",
- 64:   fechaHasta:       "",
- 65:   horaDesde:        "",
- 66:   horaHasta:        "",
- 67:   edadMin:          "",
- 68:   edadMax:          "",
- 69: }
- 70: 
- 71: function timeToMinutes(hhmm: string): number {
- 72:   const [h, m] = hhmm.split(":").map(Number)
- 73:   return h * 60 + m
- 74: }
- 75: 
- 76: function rangoFechasSolapa(aD: string, aH: string, bD: string, bH: string): boolean {
- 77:   return aD <= bH && aH >= bD
- 78: }
- 79: 
- 80: function rangoHorarioSolapa(hDA: string, hHA: string, hDB: string, hHB: string): boolean {
- 81:   return timeToMinutes(hDA) < timeToMinutes(hHB) && timeToMinutes(hHA) > timeToMinutes(hDB)
- 82: }
- 83: 
- 84: function calcularConflictos(
- 85:   ocupaciones: Ocupacion[],
- 86:   eventosCalendario: EventoCalendario[],
- 87:   todasLasAreas: BackendArea[],
- 88:   fechaDesde: string,
- 89:   fechaHasta: string,
- 90:   horaDesde: string,
- 91:   horaHasta: string,
- 92: ): { areaIds: Set<number>; eventosBloqueantes: EventoCalendario[] } {
- 93:   const areaIds: Set<number> = new Set()
- 94:   const eventosBloqueantes: EventoCalendario[] = []
- 95: 
- 96:   if (!fechaDesde || !fechaHasta || !horaDesde || !horaHasta) return { areaIds, eventosBloqueantes }
- 97:   if (timeToMinutes(horaDesde) >= timeToMinutes(horaHasta))  return { areaIds, eventosBloqueantes }
- 98: 
- 99:   for (const oc of ocupaciones) {
-100:     const ocD = oc.fechaDesde.split("T")[0]
-101:     const ocH = oc.fechaHasta.split("T")[0]
-102:     if (!rangoFechasSolapa(fechaDesde, fechaHasta, ocD, ocH)) continue
-103:     if (!rangoHorarioSolapa(horaDesde, horaHasta, oc.horaDesde, oc.horaHasta)) continue
-104:     oc.areas.forEach((r) => areaIds.add(r.areaId))
-105:   }
-106: 
-107:   for (const ev of eventosCalendario) {
-108:     const evD = ev.fechaDesde.split("T")[0]
-109:     const evH = ev.fechaHasta.split("T")[0]
-110:     if (!rangoFechasSolapa(fechaDesde, fechaHasta, evD, evH)) continue
-111:     if (!rangoHorarioSolapa(horaDesde, horaHasta, ev.horaDesde, ev.horaHasta)) continue
-112:     todasLasAreas.forEach((a) => areaIds.add(a.id))
-113:     eventosBloqueantes.push(ev)
-114:   }
-115: 
-116:   return { areaIds, eventosBloqueantes }
-117: }
-118: 
-119: export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProps) {
-120:   const { toast } = useToast()
-121: 
-122:   const [form,              setForm]              = useState(EMPTY_FORM)
-123:   const [anexos,            setAnexos]            = useState<string[]>([])
-124:   const [newAnexo,          setNewAnexo]          = useState("")
-125:   const [areas,             setAreas]             = useState<BackendArea[]>([])
-126:   const [ocupaciones,       setOcupaciones]       = useState<Ocupacion[]>([])
-127:   const [eventosCalendario, setEventosCalendario] = useState<EventoCalendario[]>([])
-128:   const [areaIds,           setAreaIds]           = useState<number[]>([])
-129:   const [loading,           setLoading]           = useState(false)
-130:   const [loadAreas,         setLoadAreas]         = useState(false)
-131:   const [loadingEventos,    setLoadingEventos]    = useState(false)
-132: 
-133:   useEffect(() => {
-134:     if (!open) return
-135:     setLoadAreas(true)
-136:     Promise.all([areasApi.getAll(), ocupacionesApi.getActivas()])
-137:       .then(([a, o]) => { setAreas(a); setOcupaciones(o) })
-138:       .catch(() => toast({ variant: "destructive", title: "Error al cargar áreas" }))
-139:       .finally(() => setLoadAreas(false))
-140:   }, [open, toast])
-141: 
-142:   useEffect(() => {
-143:     if (!open || !form.fechaDesde || !form.fechaHasta) { setEventosCalendario([]); return }
-144:     if (form.fechaDesde > form.fechaHasta) return
-145:     setLoadingEventos(true)
-146:     getEventosActivosCoworking(form.fechaDesde, form.fechaHasta)
-147:       .then(setEventosCalendario)
-148:       .catch(() => setEventosCalendario([]))
-149:       .finally(() => setLoadingEventos(false))
-150:   }, [open, form.fechaDesde, form.fechaHasta])
-151: 
-152:   const { areaIds: areasConConflicto, eventosBloqueantes } = useMemo(
-153:     () => calcularConflictos(
-154:       ocupaciones, eventosCalendario, areas,
-155:       form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta,
-156:     ),
-157:     [ocupaciones, eventosCalendario, areas, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta],
-158:   )
-159: 
-160:   useEffect(() => {
-161:     if (areasConConflicto.size === 0) return
-162:     setAreaIds((prev) => prev.filter((id) => !areasConConflicto.has(id)))
-163:   }, [areasConConflicto])
-164: 
-165:   const resetForm = useCallback(() => {
-166:     setForm(EMPTY_FORM)
-167:     setAnexos([])
-168:     setNewAnexo("")
-169:     setAreaIds([])
-170:     setEventosCalendario([])
-171:   }, [])
-172: 
-173:   const handleClose = useCallback(() => {
-174:     onOpenChange(false)
-175:     resetForm()
-176:   }, [onOpenChange, resetForm])
-177: 
-178:   const toggleArea = (id: number) => {
-179:     if (areasConConflicto.has(id)) return
-180:     setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
-181:   }
-182: 
-183:   const addAnexo = () => {
-184:     const url = newAnexo.trim()
-185:     if (!url) return
-186:     setAnexos((prev) => [...prev, url])
-187:     setNewAnexo("")
-188:   }
+  3: #  v30-coworking-front-seat-modal-ui.sh  — coworking-front
+  4: #  - Cards de asientos: fondo blanco sólido, sin blur, sombra nítida
+  5: #  - Modal asientos: UI de botones mejorada, layout más limpio
+  6: # ============================================================================
+  7: set -euo pipefail
+  8: 
+  9: GREEN='\033[0;32m'; RESET='\033[0m'
+ 10: ok()   { echo -e "${GREEN}✅  $*${RESET}"; }
+ 11: fail() { echo -e "\033[0;31m❌  $*${RESET}"; exit 1; }
+ 12: 
+ 13: [[ -f "package.json" && -d "app" ]] || fail "Corré desde la raíz de coworking-front"
+ 14: 
+ 15: echo ""
+ 16: echo "════════════════════════════════════════════════════════════"
+ 17: echo "  v30 · coworking-front · cards nítidas + modal mejorado"
+ 18: echo "════════════════════════════════════════════════════════════"
+ 19: echo ""
+ 20: 
+ 21: # ── components/seat-grid.tsx ─────────────────────────────────────────────
+ 22: # Cards: fondo blanco sólido, borde gris muy suave, sombra pequeña nítida
+ 23: echo "📄  components/seat-grid.tsx"
+ 24: cat > components/seat-grid.tsx << 'TSEOF'
+ 25: "use client"
+ 26: 
+ 27: import type { Seat } from "@/types/seat"
+ 28: import { seatStatusDot, seatStatusBadge, seatStatusLabel } from "@/lib/seat-utils"
+ 29: import { cn } from "@/lib/utils"
+ 30: 
+ 31: interface SeatGridProps {
+ 32:   seats:      Seat[]
+ 33:   isBlocked?: boolean
+ 34: }
+ 35: 
+ 36: export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
+ 37:   const seatsByRow = seats.reduce(
+ 38:     (acc, seat) => {
+ 39:       if (!acc[seat.row]) acc[seat.row] = []
+ 40:       acc[seat.row].push(seat)
+ 41:       return acc
+ 42:     },
+ 43:     {} as Record<string, Seat[]>,
+ 44:   )
+ 45: 
+ 46:   const rows = Object.keys(seatsByRow).sort()
+ 47: 
+ 48:   return (
+ 49:     <div className="space-y-4">
+ 50:       {rows.map((row) => (
+ 51:         <div key={row} className="flex items-start gap-3">
+ 52:           {/* Letra de fila */}
+ 53:           <div className="w-5 text-xs font-semibold text-slate-400 pt-3 flex-shrink-0 select-none">
+ 54:             {row}
+ 55:           </div>
+ 56: 
+ 57:           {/* Cards */}
+ 58:           <div className="flex gap-2.5 flex-wrap flex-1">
+ 59:             {seatsByRow[row]
+ 60:               .sort((a, b) => a.number - b.number)
+ 61:               .map((seat) => (
+ 62:                 <div
+ 63:                   key={seat.id}
+ 64:                   title={`${seat.id} — ${seatStatusLabel[seat.status]}`}
+ 65:                   className={cn(
+ 66:                     // fondo blanco sólido, sin blur
+ 67:                     "bg-white border border-slate-200 rounded-xl",
+ 68:                     "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
+ 69:                     "flex flex-col items-center gap-1 px-2 py-2.5",
+ 70:                     "w-[52px] select-none transition-shadow hover:shadow-[0_2px_6px_rgba(0,0,0,0.12)]",
+ 71:                     isBlocked && "opacity-40 cursor-not-allowed pointer-events-none",
+ 72:                   )}
+ 73:                 >
+ 74:                   {/* Punto de color */}
+ 75:                   <span className={cn("w-2.5 h-2.5 rounded-full", seatStatusDot[seat.status])} />
+ 76:                   {/* Número */}
+ 77:                   <span className="text-[11px] font-bold text-slate-800 leading-none">
+ 78:                     {seat.number}
+ 79:                   </span>
+ 80:                   {/* Badge */}
+ 81:                   <span className={cn(
+ 82:                     "text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap",
+ 83:                     seatStatusBadge[seat.status],
+ 84:                   )}>
+ 85:                     {seatStatusLabel[seat.status]}
+ 86:                   </span>
+ 87:                 </div>
+ 88:               ))}
+ 89:           </div>
+ 90:         </div>
+ 91:       ))}
+ 92:     </div>
+ 93:   )
+ 94: }
+ 95: TSEOF
+ 96: ok "components/seat-grid.tsx"
+ 97: 
+ 98: # ── components/asientos-mapa-modal.tsx ───────────────────────────────────
+ 99: echo "📄  components/asientos-mapa-modal.tsx"
+100: cat > components/asientos-mapa-modal.tsx << 'TSEOF'
+101: "use client"
+102: 
+103: import { useState, useEffect } from "react"
+104: import Image from "next/image"
+105: import {
+106:   Dialog,
+107:   DialogContent,
+108:   DialogHeader,
+109:   DialogTitle,
+110:   DialogDescription,
+111: } from "@/components/ui/dialog"
+112: import { Badge }      from "@/components/ui/badge"
+113: import { Button }     from "@/components/ui/button"
+114: import { SeatGrid }   from "@/components/seat-grid"
+115: import { SeatLegend } from "@/components/seat-legend"
+116: import type { Seat }  from "@/types/seat"
+117: import { getAreaImage, getAreaLabel } from "@/lib/area-images"
+118: import { cn }         from "@/lib/utils"
+119: import { Armchair, ImageIcon, ChevronLeft, CheckCircle2, XCircle } from "lucide-react"
+120: 
+121: interface ZonaGroup {
+122:   letra:     string
+123:   seats:     Seat[]
+124:   isBlocked: boolean
+125:   eventName?: string
+126: }
+127: 
+128: interface AsientosMapaModalProps {
+129:   open:          boolean
+130:   onOpenChange:  (open: boolean) => void
+131:   seats:         Seat[]
+132:   isBlocked?:    boolean
+133:   eventoTitulo?: string
+134: }
+135: 
+136: function agruparPorZona(seats: Seat[], isBlocked: boolean, eventoTitulo?: string): ZonaGroup[] {
+137:   const map = new Map<string, Seat[]>()
+138:   for (const seat of seats) {
+139:     const letra = seat.zone ?? "A"
+140:     if (!map.has(letra)) map.set(letra, [])
+141:     map.get(letra)!.push(seat)
+142:   }
+143:   return Array.from(map.entries())
+144:     .sort(([a], [b]) => a.localeCompare(b))
+145:     .map(([letra, s]) => ({
+146:       letra,
+147:       seats:     s,
+148:       isBlocked,
+149:       eventName: isBlocked ? eventoTitulo : undefined,
+150:     }))
+151: }
+152: 
+153: export function AsientosMapaModal({
+154:   open,
+155:   onOpenChange,
+156:   seats,
+157:   isBlocked = false,
+158:   eventoTitulo,
+159: }: AsientosMapaModalProps) {
+160: 
+161:   const [zonaSeleccionada, setZonaSeleccionada] = useState<ZonaGroup | null>(null)
+162:   const [imgError,         setImgError]         = useState(false)
+163: 
+164:   useEffect(() => {
+165:     if (!open) { setZonaSeleccionada(null); setImgError(false) }
+166:   }, [open])
+167: 
+168:   const zonas    = agruparPorZona(seats, isBlocked, eventoTitulo)
+169:   const libres   = zonaSeleccionada?.seats.filter((s) => s.status === "available").length ?? 0
+170:   const ocupados = zonaSeleccionada?.seats.filter((s) => s.status === "occupied").length  ?? 0
+171:   const imagen   = zonaSeleccionada ? getAreaImage(zonaSeleccionada.letra) : null
+172:   const label    = zonaSeleccionada ? getAreaLabel(zonaSeleccionada.letra) : ""
+173:   const descZona = zonaSeleccionada?.seats[0]?.amenities?.[0] ?? null
+174: 
+175:   return (
+176:     <Dialog open={open} onOpenChange={onOpenChange}>
+177:       <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-y-auto bg-white">
+178:         <DialogHeader>
+179:           <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
+180:             <Armchair className="w-5 h-5 text-primary" />
+181:             {zonaSeleccionada ? label : "Asientos / Mapa"}
+182:           </DialogTitle>
+183:           <DialogDescription className="text-slate-400 text-sm">
+184:             {zonaSeleccionada
+185:               ? `${libres} libre${libres !== 1 ? "s" : ""} · ${ocupados} ocupado${ocupados !== 1 ? "s" : ""}`
+186:               : "Seleccioná una zona para ver el estado de sus asientos"}
+187:           </DialogDescription>
+188:         </DialogHeader>
 189: 
-190:   function parsearErrorBackend(err: unknown): string {
-191:     if (!(err instanceof Error)) return "Error desconocido"
-192:     try {
-193:       const body = JSON.parse(err.message)
-194:       if (typeof body?.message === "string") return body.message
-195:       if (Array.isArray(body?.message))      return body.message.join(", ")
-196:     } catch { /* mensaje plano */ }
-197:     const msg = err.message
-198:     if (msg.includes("Conflicto de horario")) {
-199:       const match = msg.match(/las áreas \[([^\]]+)\].+\(ocupación "([^"]+)"\)/)
-200:       if (match) return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
-201:     }
-202:     return msg
-203:   }
-204: 
-205:   const handleSubmit = async () => {
-206:     if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Falta el título" });        return }
-207:     if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Falta el organizador" });   return }
-208:     if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Falta el requerimiento" }); return }
-209:     if (!form.fechaDesde)           { toast({ variant: "destructive", title: "Falta la fecha desde" });   return }
-210:     if (!form.fechaHasta)           { toast({ variant: "destructive", title: "Falta la fecha hasta" });   return }
-211:     if (!form.horaDesde)            { toast({ variant: "destructive", title: "Falta la hora desde" });    return }
-212:     if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" });    return }
-213:     if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área disponible" }); return }
-214: 
-215:     if (eventosBloqueantes.length > 0 && areaIds.every((id) => areasConConflicto.has(id))) {
-216:       toast({
-217:         variant: "destructive",
-218:         title: "Horario no disponible",
-219:         description: `Hay un evento en el calendario ("${eventosBloqueantes[0].titulo}") que ocupa el coworking en ese horario.`,
-220:       })
-221:       return
-222:     }
-223: 
-224:     const payload: CreateOcupacionPayload = {
-225:       titulo:           form.titulo.trim(),
-226:       requerimiento:    form.requerimiento.trim(),
-227:       cantidadPersonas: Number(form.cantidadPersonas),
-228:       organizador:      form.organizador.trim(),
-229:       fechaDesde:       form.fechaDesde,
-230:       fechaHasta:       form.fechaHasta,
-231:       horaDesde:        form.horaDesde,
-232:       horaHasta:        form.horaHasta,
-233:       anexos,
-234:       areaIds,
-235:       ...(form.edadMin && { edadMin: Number(form.edadMin) }),
-236:       ...(form.edadMax && { edadMax: Number(form.edadMax) }),
-237:     }
-238: 
-239:     setLoading(true)
-240:     try {
-241:       await ocupacionesApi.create(payload)
-242:       toast({ title: "✅ Ocupación agendada", description: `"${payload.titulo}" creada correctamente` })
-243:       handleClose()
-244:       onSuccess?.()
-245:     } catch (err) {
-246:       toast({ variant: "destructive", title: "No se pudo agendar", description: parsearErrorBackend(err) })
-247:     } finally {
-248:       setLoading(false)
-249:     }
-250:   }
-251: 
-252:   const fechasCompletas       = form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
-253:   const hayConflictoOcupacion = areasConConflicto.size > 0 && eventosBloqueantes.length === 0 && fechasCompletas
-254:   const hayConflictoEvento    = eventosBloqueantes.length > 0 && fechasCompletas
-255: 
-256:   return (
-257:     <Dialog open={open} onOpenChange={handleClose}>
-258:       <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
-259:         <DialogHeader>
-260:           <DialogTitle className="flex items-center gap-2 text-xl">
-261:             <CalendarDays className="w-5 h-5 text-primary" />
-262:             Agendar Ocupación
-263:           </DialogTitle>
-264:           <DialogDescription>
-265:             Reservá uno o más espacios para un evento o actividad
-266:           </DialogDescription>
-267:         </DialogHeader>
-268: 
-269:         <div className="space-y-4 py-2">
-270: 
-271:           {/* Título */}
-272:           <div className="space-y-1.5">
-273:             <Label htmlFor="titulo" className="flex items-center gap-1.5 text-sm font-medium">
-274:               <FileText className="w-3.5 h-3.5" /> Título *
-275:             </Label>
-276:             <Input
-277:               id="titulo"
-278:               placeholder="Ej: Taller de fotografía"
-279:               value={form.titulo}
-280:               onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
-281:             />
-282:           </div>
+190:         {/* ── Vista: grilla de zonas ───────────────────────────────── */}
+191:         {!zonaSeleccionada && (
+192:           <div className="space-y-4 py-1">
+193: 
+194:             <SeatLegend />
+195: 
+196:             {isBlocked && eventoTitulo && (
+197:               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm">
+198:                 <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+199:                 <span><span className="font-semibold">Evento activo:</span> {eventoTitulo}</span>
+200:               </div>
+201:             )}
+202: 
+203:             <div className="grid grid-cols-2 gap-3">
+204:               {zonas.map((zona) => {
+205:                 const img   = getAreaImage(zona.letra)
+206:                 const lbl   = getAreaLabel(zona.letra)
+207:                 const lib   = zona.seats.filter((s) => s.status === "available").length
+208:                 const ocu   = zona.seats.filter((s) => s.status === "occupied").length
+209:                 const total = zona.seats.length
+210:                 const pct   = total > 0 ? Math.round((ocu / total) * 100) : 0
+211: 
+212:                 return (
+213:                   <button
+214:                     key={zona.letra}
+215:                     type="button"
+216:                     onClick={() => { setImgError(false); setZonaSeleccionada(zona) }}
+217:                     className="group text-left rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.07)] hover:border-primary/40 hover:shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-all overflow-hidden"
+218:                   >
+219:                     {/* Imagen */}
+220:                     <div className="relative w-full h-36 bg-slate-100 overflow-hidden">
+221:                       {img ? (
+222:                         <Image
+223:                           src={img}
+224:                           alt={lbl}
+225:                           fill
+226:                           className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
+227:                           sizes="(max-width: 640px) 100vw, 50vw"
+228:                         />
+229:                       ) : (
+230:                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
+231:                           <ImageIcon className="w-7 h-7" />
+232:                           <span className="text-xs">Sin imagen</span>
+233:                         </div>
+234:                       )}
+235:                       {/* Label sobre imagen */}
+236:                       <div className="absolute top-2.5 left-3">
+237:                         <span className="text-base font-bold text-white drop-shadow-sm">{lbl}</span>
+238:                       </div>
+239:                       {/* Badge estado */}
+240:                       <div className="absolute top-2.5 right-2.5">
+241:                         {zona.isBlocked ? (
+242:                           <span className="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-full">Bloqueada</span>
+243:                         ) : ocu === total && total > 0 ? (
+244:                           <span className="text-[10px] font-semibold bg-red-500 text-white px-2 py-0.5 rounded-full">Llena</span>
+245:                         ) : lib === total ? (
+246:                           <span className="text-[10px] font-semibold bg-green-500 text-white px-2 py-0.5 rounded-full">Libre</span>
+247:                         ) : (
+248:                           <span className="text-[10px] font-semibold bg-yellow-500 text-white px-2 py-0.5 rounded-full">Parcial</span>
+249:                         )}
+250:                       </div>
+251:                     </div>
+252: 
+253:                     {/* Info */}
+254:                     <div className="px-3 py-2.5 space-y-2">
+255:                       {/* Barra */}
+256:                       <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
+257:                         <div
+258:                           className={cn(
+259:                             "h-full rounded-full transition-all",
+260:                             pct === 100 ? "bg-red-400" : pct > 50 ? "bg-yellow-400" : "bg-green-400"
+261:                           )}
+262:                           style={{ width: `${pct}%` }}
+263:                         />
+264:                       </div>
+265:                       {/* Contadores */}
+266:                       <div className="flex items-center gap-3 text-xs text-slate-500">
+267:                         <span className="flex items-center gap-1">
+268:                           <span className="w-2 h-2 rounded-full bg-green-500" />
+269:                           {lib} libres
+270:                         </span>
+271:                         <span className="flex items-center gap-1">
+272:                           <span className="w-2 h-2 rounded-full bg-red-400" />
+273:                           {ocu} ocupados
+274:                         </span>
+275:                       </div>
+276:                     </div>
+277:                   </button>
+278:                 )
+279:               })}
+280:             </div>
+281:           </div>
+282:         )}
 283: 
-284:           {/* Organizador */}
-285:           <div className="space-y-1.5">
-286:             <Label htmlFor="organizador" className="flex items-center gap-1.5 text-sm font-medium">
-287:               <User className="w-3.5 h-3.5" /> Organizador *
-288:             </Label>
-289:             <Input
-290:               id="organizador"
-291:               placeholder="Nombre del responsable"
-292:               value={form.organizador}
-293:               onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
-294:             />
-295:           </div>
-296: 
-297:           {/* Requerimiento */}
-298:           <div className="space-y-1.5">
-299:             <Label htmlFor="requerimiento" className="flex items-center gap-1.5 text-sm font-medium">
-300:               <FileText className="w-3.5 h-3.5" /> Requerimiento *
-301:             </Label>
-302:             <Textarea
-303:               id="requerimiento"
-304:               placeholder="Describe los requerimientos del espacio..."
-305:               rows={2}
-306:               value={form.requerimiento}
-307:               onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
-308:             />
-309:           </div>
-310: 
-311:           {/* Cantidad de personas */}
-312:           <div className="space-y-1.5">
-313:             <Label htmlFor="cantPersonas" className="flex items-center gap-1.5 text-sm font-medium">
-314:               <Users className="w-3.5 h-3.5" /> Cantidad de personas *
-315:             </Label>
-316:             <Input
-317:               id="cantPersonas"
-318:               type="number"
-319:               min={1}
-320:               value={form.cantidadPersonas}
-321:               onChange={(e) => setForm((f) => ({ ...f, cantidadPersonas: Number(e.target.value) }))}
-322:             />
-323:           </div>
-324: 
-325:           {/* Fechas */}
-326:           <div className="grid grid-cols-2 gap-3">
-327:             <div className="space-y-1.5">
-328:               <Label htmlFor="fechaDesde" className="flex items-center gap-1.5 text-sm font-medium">
-329:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha desde *
-330:               </Label>
-331:               <Input
-332:                 id="fechaDesde"
-333:                 type="date"
-334:                 value={form.fechaDesde}
-335:                 onChange={(e) => setForm((f) => ({ ...f, fechaDesde: e.target.value }))}
-336:               />
-337:             </div>
-338:             <div className="space-y-1.5">
-339:               <Label htmlFor="fechaHasta" className="flex items-center gap-1.5 text-sm font-medium">
-340:                 <CalendarDays className="w-3.5 h-3.5" /> Fecha hasta *
-341:               </Label>
-342:               <Input
-343:                 id="fechaHasta"
-344:                 type="date"
-345:                 value={form.fechaHasta}
-346:                 onChange={(e) => setForm((f) => ({ ...f, fechaHasta: e.target.value }))}
-347:               />
-348:             </div>
-349:           </div>
-350: 
-351:           {/* Horas */}
-352:           <div className="grid grid-cols-2 gap-3">
-353:             <div className="space-y-1.5">
-354:               <Label htmlFor="horaDesde" className="flex items-center gap-1.5 text-sm font-medium">
-355:                 <Clock className="w-3.5 h-3.5" /> Hora desde *
-356:               </Label>
-357:               <Input
-358:                 id="horaDesde"
-359:                 type="time"
-360:                 value={form.horaDesde}
-361:                 onChange={(e) => setForm((f) => ({ ...f, horaDesde: e.target.value }))}
-362:               />
-363:             </div>
-364:             <div className="space-y-1.5">
-365:               <Label htmlFor="horaHasta" className="flex items-center gap-1.5 text-sm font-medium">
-366:                 <Clock className="w-3.5 h-3.5" /> Hora hasta *
-367:               </Label>
-368:               <Input
-369:                 id="horaHasta"
-370:                 type="time"
-371:                 value={form.horaHasta}
-372:                 onChange={(e) => setForm((f) => ({ ...f, horaHasta: e.target.value }))}
-373:               />
-374:             </div>
-375:           </div>
-376: 
-377:           {/* Alerta: evento del calendario bloquea todo */}
-378:           {hayConflictoEvento && (
-379:             <div className="flex items-start gap-2.5 p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm">
-380:               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" />
-381:               <div className="space-y-1">
-382:                 <p className="font-medium">El coworking no está disponible en ese horario</p>
-383:                 {eventosBloqueantes.map((ev) => (
-384:                   <p key={ev.id} className="text-xs text-orange-700">
-385:                     Evento: <span className="font-semibold">"{ev.titulo}"</span>
-386:                     {" "}· {ev.fechaDesde.split("T")[0]} {ev.horaDesde}–{ev.horaHasta}
-387:                   </p>
-388:                 ))}
-389:               </div>
-390:             </div>
-391:           )}
-392: 
-393:           {/* Áreas */}
-394:           <div className="space-y-1.5">
-395:             <Label className="flex items-center gap-1.5 text-sm font-medium">
-396:               <MapPin className="w-3.5 h-3.5" /> Áreas a reservar *
-397:               {loadingEventos && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground ml-1" />}
-398:             </Label>
-399: 
-400:             {loadAreas ? (
-401:               <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-402:                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
-403:               </div>
-404:             ) : (
-405:               <>
-406:                 {hayConflictoOcupacion && (
-407:                   <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/8 border border-destructive/20 text-destructive text-xs">
-408:                     <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-409:                     <span>Algunas zonas ya están ocupadas en ese horario.</span>
-410:                   </div>
-411:                 )}
-412:                 <div className="flex flex-wrap gap-2">
-413:                   {areas.map((area) => {
-414:                     const bloqueada = areasConConflicto.has(area.id)
-415:                     const sel       = areaIds.includes(area.id)
-416:                     return (
-417:                       <button
-418:                         key={area.id}
-419:                         type="button"
-420:                         disabled={bloqueada}
-421:                         onClick={() => toggleArea(area.id)}
-422:                         title={bloqueada && hayConflictoEvento ? "Zona bloqueada por evento del calendario" : bloqueada ? "Zona ocupada en ese horario" : undefined}
-423:                         className={[
-424:                           "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
-425:                           bloqueada
-426:                             ? "bg-muted text-muted-foreground border-muted-foreground/20 cursor-not-allowed line-through opacity-50"
-427:                             : sel
-428:                             ? "bg-primary text-primary-foreground border-primary"
-429:                             : "bg-background border-border text-foreground hover:bg-muted cursor-pointer",
-430:                         ].join(" ")}
-431:                       >
-432:                         {sel && !bloqueada && <CheckSquare className="w-3.5 h-3.5" />}
-433:                         {area.nombre}
-434:                         {bloqueada && (
-435:                           <Badge variant="destructive" className="text-[9px] px-1 py-0 ml-0.5">
-436:                             {hayConflictoEvento ? "Evento" : "Ocupada"}
-437:                           </Badge>
-438:                         )}
-439:                       </button>
-440:                     )
-441:                   })}
-442:                 </div>
-443:                 {areaIds.length > 0 && (
-444:                   <p className="text-xs text-muted-foreground">{areaIds.length} área(s) seleccionada(s)</p>
-445:                 )}
-446:               </>
-447:             )}
-448:           </div>
-449: 
-450:           {/* Edad mín/máx — siempre visible */}
-451:           <div className="grid grid-cols-2 gap-3">
-452:             <div className="space-y-1.5">
-453:               <Label htmlFor="edadMin" className="text-sm font-medium">Edad mínima (opcional)</Label>
-454:               <Input
-455:                 id="edadMin"
-456:                 type="number"
-457:                 min={0}
-458:                 placeholder="0"
-459:                 value={form.edadMin}
-460:                 onChange={(e) => setForm((f) => ({ ...f, edadMin: e.target.value }))}
-461:               />
-462:             </div>
-463:             <div className="space-y-1.5">
-464:               <Label htmlFor="edadMax" className="text-sm font-medium">Edad máxima (opcional)</Label>
-465:               <Input
-466:                 id="edadMax"
-467:                 type="number"
-468:                 min={0}
-469:                 placeholder="99"
-470:                 value={form.edadMax}
-471:                 onChange={(e) => setForm((f) => ({ ...f, edadMax: e.target.value }))}
-472:               />
-473:             </div>
-474:           </div>
-475: 
-476:           {/* Anexos — siempre visible */}
-477:           <div className="space-y-2">
-478:             <Label className="text-sm font-medium flex items-center gap-1.5">
-479:               <Link2 className="w-3.5 h-3.5" /> Anexos / enlaces (opcional)
-480:             </Label>
-481:             <div className="flex gap-2">
-482:               <Input
-483:                 placeholder="https://..."
-484:                 value={newAnexo}
-485:                 onChange={(e) => setNewAnexo(e.target.value)}
-486:                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAnexo() } }}
-487:               />
-488:               <Button type="button" variant="outline" size="icon" onClick={addAnexo}>
-489:                 <Plus className="w-4 h-4" />
-490:               </Button>
-491:             </div>
-492:             {anexos.map((url, i) => (
-493:               <div key={i} className="flex items-center gap-2 text-sm">
-494:                 <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-495:                 <span className="truncate flex-1 text-primary">{url}</span>
-496:                 <button
-497:                   type="button"
-498:                   onClick={() => setAnexos((prev) => prev.filter((_, j) => j !== i))}
-499:                   className="text-muted-foreground hover:text-destructive"
-500:                 >
-501:                   <X className="w-3.5 h-3.5" />
-502:                 </button>
-503:               </div>
-504:             ))}
-505:           </div>
-506: 
-507:         </div>
-508: 
-509:         <DialogFooter className="gap-2 pt-2">
-510:           <Button variant="outline" onClick={handleClose} disabled={loading}>
-511:             Cancelar
-512:           </Button>
-513:           <Button onClick={handleSubmit} disabled={loading} className="gap-2">
-514:             {loading
-515:               ? <><Loader2 className="w-4 h-4 animate-spin" /> Agendando...</>
-516:               : "Agendar"
-517:             }
-518:           </Button>
-519:         </DialogFooter>
-520:       </DialogContent>
-521:     </Dialog>
-522:   )
-523: }
-524: EOF
-525: echo "✅  components/agendar-modal.tsx"
-526: 
-527: echo ""
-528: echo "🔨  Compilando..."
-529: pnpm build
-530: 
-531: echo ""
-532: echo "╔══════════════════════════════════════════════════════════════════╗"
-533: echo "║  ✅  v25b completado — modal limpio sin colapsables             ║"
-534: echo "╚══════════════════════════════════════════════════════════════════╝"
+284:         {/* ── Vista: detalle de zona ───────────────────────────────── */}
+285:         {zonaSeleccionada && (
+286:           <div className="space-y-4 py-1">
+287: 
+288:             {/* Botón volver */}
+289:             <button
+290:               type="button"
+291:               onClick={() => { setZonaSeleccionada(null); setImgError(false) }}
+292:               className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-700 transition-colors -ml-0.5"
+293:             >
+294:               <ChevronLeft className="w-4 h-4" />
+295:               Todas las zonas
+296:             </button>
+297: 
+298:             {/* Imagen grande */}
+299:             {imagen && !imgError && (
+300:               <div className="relative w-full h-48 rounded-2xl overflow-hidden bg-slate-100">
+301:                 <Image
+302:                   src={imagen}
+303:                   alt={label}
+304:                   fill
+305:                   className="object-cover"
+306:                   sizes="(max-width: 768px) 100vw, 700px"
+307:                   onError={() => setImgError(true)}
+308:                 />
+309:                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+310:                 <div className="absolute bottom-3.5 left-4">
+311:                   <p className="text-xl font-bold text-white drop-shadow">{label}</p>
+312:                   {descZona && (
+313:                     <p className="text-xs text-white/75 max-w-sm line-clamp-2 mt-0.5">{descZona}</p>
+314:                   )}
+315:                 </div>
+316:               </div>
+317:             )}
+318: 
+319:             {/* Stats: 3 pills limpias */}
+320:             <div className="flex items-center gap-2 flex-wrap">
+321:               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
+322:                 <span className="w-2 h-2 rounded-full bg-green-500" />
+323:                 <span className="font-semibold text-slate-700">{libres}</span>
+324:                 <span className="text-slate-400">libre{libres !== 1 ? "s" : ""}</span>
+325:               </div>
+326:               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
+327:                 <span className="w-2 h-2 rounded-full bg-red-400" />
+328:                 <span className="font-semibold text-slate-700">{ocupados}</span>
+329:                 <span className="text-slate-400">ocupado{ocupados !== 1 ? "s" : ""}</span>
+330:               </div>
+331:               {zonaSeleccionada.isBlocked && (
+332:                 <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm text-orange-700">
+333:                   <span className="w-2 h-2 rounded-full bg-orange-400" />
+334:                   {zonaSeleccionada.eventName
+335:                     ? `Bloqueada: ${zonaSeleccionada.eventName}`
+336:                     : "Bloqueada por evento"}
+337:                 </div>
+338:               )}
+339:             </div>
+340: 
+341:             {/* Grid de asientos */}
+342:             <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+343:               <SeatGrid seats={zonaSeleccionada.seats} isBlocked={zonaSeleccionada.isBlocked} />
+344:             </div>
+345: 
+346:             <SeatLegend />
+347:           </div>
+348:         )}
+349:       </DialogContent>
+350:     </Dialog>
+351:   )
+352: }
+353: TSEOF
+354: ok "components/asientos-mapa-modal.tsx"
+355: 
+356: # ── TypeScript check ──────────────────────────────────────────────────────
+357: echo ""
+358: echo "🔨  TypeScript check..."
+359: pnpm exec tsc --noEmit --skipLibCheck 2>&1 | head -40 || true
+360: 
+361: echo ""
+362: echo "🔨  Build..."
+363: pnpm build
+364: 
+365: echo ""
+366: echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
+367: echo -e "\033[0;32m  ✅  v30 completado\033[0m"
+368: echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
+369: echo ""
+370: echo "  Archivos tocados:"
+371: echo "    components/seat-grid.tsx          → fondo blanco sólido, sombra nítida"
+372: echo "    components/asientos-mapa-modal.tsx → modal limpio, pills de stats,"
+373: echo "                                         botón volver como texto, bg-white"
+374: echo ""
 ```
