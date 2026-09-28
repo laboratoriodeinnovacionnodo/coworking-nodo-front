@@ -1,3 +1,17 @@
+export type RecepcionTurno = "MANANA" | "INTERMEDIO" | "TARDE"
+
+export const RECEPCION_OC_LABELS: Record<RecepcionTurno, string> = {
+  MANANA:     "Mañana",
+  INTERMEDIO: "Intermedio",
+  TARDE:      "Tarde",
+}
+
+export const RECEPCION_OC_EMOJI: Record<RecepcionTurno, string> = {
+  MANANA:     "☀️",
+  INTERMEDIO: "🌅",
+  TARDE:      "🌙",
+}
+
 export interface OcupacionArea {
   ocupacionId: number
   areaId:      number
@@ -14,6 +28,9 @@ export interface Ocupacion {
   cantidadPersonas: number
   organizador:      string
   telefono?:        string | null
+  gmail?:           string | null
+  recepcion?:       RecepcionTurno | null
+  receptor?:        string | null
   fechaDesde:       string
   fechaHasta:       string
   horaDesde:        string
@@ -33,6 +50,9 @@ export interface CreateOcupacionPayload {
   cantidadPersonas: number
   organizador:      string
   telefono?:        string
+  gmail?:           string
+  recepcion?:       RecepcionTurno
+  receptor?:        string
   fechaDesde:       string
   fechaHasta:       string
   horaDesde:        string

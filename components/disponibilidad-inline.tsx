@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
-import type { Ocupacion } from "@/types/ocupacion"
+import type { Ocupacion, RecepcionTurno } from "@/types/ocupacion"
+import { RECEPCION_OC_LABELS, RECEPCION_OC_EMOJI } from "@/types/ocupacion"
 import { useToast }       from "@/hooks/use-toast"
 import { Button }         from "@/components/ui/button"
 import { Badge }          from "@/components/ui/badge"
@@ -11,7 +12,7 @@ import {
   Loader2, MapPin, Clock, Users, Unlock,
   RefreshCw, Inbox, Link2, AlertCircle,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Pencil,
+  Pencil, Mail, User,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -23,34 +24,23 @@ const POR_PAGINA = 5
 
 function formatFecha(iso: string): string {
   const [y, m, d] = iso.split("T")[0].split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
-    weekday: "short", day: "numeric", month: "short",
-  })
+  return new Date(y, m - 1, d).toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })
 }
 
-function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number)
-  return h * 60 + m
-}
+function timeToMinutes(hhmm: string): number { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m }
 
 function estadoOcupacion(oc: Ocupacion): "vencida" | "en-curso" | "proxima" {
   const ar      = new Date(Date.now() - 3 * 60 * 60 * 1000)
   const minNow  = ar.getUTCHours() * 60 + ar.getUTCMinutes()
   const fechaHoy = ar.toISOString().split("T")[0]
-
   const ocDesde = oc.fechaDesde.split("T")[0]
   const ocHasta = oc.fechaHasta.split("T")[0]
-
   if (ocHasta < fechaHoy) return "vencida"
   if (ocDesde > fechaHoy) return "proxima"
   if (ocDesde < fechaHoy && ocHasta > fechaHoy) return "en-curso"
-
   if (ocDesde === fechaHoy && ocHasta === fechaHoy) {
-    const ini = timeToMinutes(oc.horaDesde)
-    const fin = timeToMinutes(oc.horaHasta)
-    if (minNow >= fin)  return "vencida"
-    if (minNow >= ini)  return "en-curso"
-    return "proxima"
+    const ini = timeToMinutes(oc.horaDesde); const fin = timeToMinutes(oc.horaHasta)
+    if (minNow >= fin) return "vencida"; if (minNow >= ini) return "en-curso"; return "proxima"
   }
   if (ocDesde === fechaHoy) return minNow >= timeToMinutes(oc.horaDesde) ? "en-curso" : "proxima"
   return minNow < timeToMinutes(oc.horaHasta) ? "en-curso" : "vencida"
@@ -67,13 +57,13 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const toastRef  = useRef(toast)
   useEffect(() => { toastRef.current = toast }, [toast])
 
-  const [ocupaciones,      setOcupaciones]      = useState<Ocupacion[]>([])
-  const [loading,          setLoading]          = useState(false)
-  const [liberando,        setLiberando]        = useState<number | null>(null)
-  const [expandedId,       setExpandedId]       = useState<number | null>(null)
-  const [pagina,           setPagina]           = useState(1)
-  const [editando,         setEditando]         = useState<Ocupacion | null>(null)
-  const [editModalOpen,    setEditModalOpen]    = useState(false)
+  const [ocupaciones,   setOcupaciones]   = useState<Ocupacion[]>([])
+  const [loading,       setLoading]       = useState(false)
+  const [liberando,     setLiberando]     = useState<number | null>(null)
+  const [expandedId,    setExpandedId]    = useState<number | null>(null)
+  const [pagina,        setPagina]        = useState(1)
+  const [editando,      setEditando]      = useState<Ocupacion | null>(null)
+  const [editModalOpen, setEditModalOpen] = useState(false)
 
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true)
@@ -82,17 +72,13 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
       const pendientes = todas.filter((o) => !o.liberadaAt)
       pendientes.sort((a, b) => {
         const orden = { "en-curso": 0, "proxima": 1, "vencida": 2 }
-        const ea = estadoOcupacion(a)
-        const eb = estadoOcupacion(b)
+        const ea = estadoOcupacion(a); const eb = estadoOcupacion(b)
         if (ea !== eb) return orden[ea] - orden[eb]
         return a.fechaDesde.localeCompare(b.fechaDesde)
       })
-      setOcupaciones(pendientes)
-      setPagina(1)
+      setOcupaciones(pendientes); setPagina(1)
     } catch {
-      if (!silencioso) {
-        toastRef.current({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
-      }
+      if (!silencioso) toastRef.current({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
     } finally {
       if (!silencioso) setLoading(false)
     }
@@ -105,27 +91,14 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
     try {
       await ocupacionesApi.liberar(oc.id)
       toastRef.current({ title: "✅ Zonas liberadas", description: `"${oc.titulo}" finalizada` })
-      await cargar(true)
-      onSuccess?.()
+      await cargar(true); onSuccess?.()
     } catch (err) {
-      toastRef.current({
-        variant: "destructive",
-        title: "Error al liberar",
-        description: err instanceof Error ? err.message : "Error desconocido",
-      })
-    } finally {
-      setLiberando(null)
-    }
+      toastRef.current({ variant: "destructive", title: "Error al liberar", description: err instanceof Error ? err.message : "Error desconocido" })
+    } finally { setLiberando(null) }
   }
 
-  const handleEditar = (oc: Ocupacion, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setEditando(oc)
-    setEditModalOpen(true)
-  }
-
-  const toggleExpand = (id: number) =>
-    setExpandedId((prev) => (prev === id ? null : id))
+  const handleEditar = (oc: Ocupacion, e: React.MouseEvent) => { e.stopPropagation(); setEditando(oc); setEditModalOpen(true) }
+  const toggleExpand = (id: number) => setExpandedId((prev) => (prev === id ? null : id))
 
   const totalPaginas   = Math.max(1, Math.ceil(ocupaciones.length / POR_PAGINA))
   const paginaActual   = Math.min(pagina, totalPaginas)
@@ -140,25 +113,16 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
           <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
             <MapPin className="w-3.5 h-3.5" />
             Zonas ocupadas
-            {ocupaciones.length > 0 && (
-              <span className="ml-1 text-xs font-normal normal-case">({ocupaciones.length})</span>
-            )}
+            {ocupaciones.length > 0 && <span className="ml-1 text-xs font-normal normal-case">({ocupaciones.length})</span>}
           </h3>
-          <Button
-            variant="ghost" size="sm"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => cargar()}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
-            Actualizar
+          <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => cargar()} disabled={loading}>
+            <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} /> Actualizar
           </Button>
         </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Cargando...</span>
+            <Loader2 className="w-4 h-4 animate-spin" /><span className="text-sm">Cargando...</span>
           </div>
         ) : ocupaciones.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
@@ -175,13 +139,8 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                 const expanded = expandedId === oc.id
 
                 return (
-                  <div
-                    key={oc.id}
-                    className={cn(
-                      "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
-                      estado === "vencida" && "opacity-70",
-                    )}
-                  >
+                  <div key={oc.id} className={cn("rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden", estado === "vencida" && "opacity-70")}>
+
                     {/* Fila principal */}
                     <button
                       type="button"
@@ -191,16 +150,15 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                       <div className="flex-1 min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-semibold text-sm truncate">{oc.titulo}</span>
-                          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 border", badge.className)}>
-                            {badge.label}
-                          </Badge>
-                          {estado === "vencida" && (
-                            <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 border", badge.className)}>{badge.label}</Badge>
+                          {estado === "vencida" && <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />}
+                          {/* Turno badge en fila principal si existe */}
+                          {oc.recepcion && (
+                            <span className="text-[10px] font-medium text-muted-foreground">
+                              {RECEPCION_OC_EMOJI[oc.recepcion as RecepcionTurno]} {RECEPCION_OC_LABELS[oc.recepcion as RecepcionTurno]}
+                            </span>
                           )}
-                          {/* ── Lápiz de edición en la fila principal ─── */}
-                          <button
-                            type="button"
-                            title="Editar ocupación"
+                          <button type="button" title="Editar ocupación"
                             className="ml-auto p-1 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors flex-shrink-0"
                             onClick={(e) => handleEditar(oc, e)}
                           >
@@ -212,20 +170,11 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                             {formatFecha(oc.fechaDesde)}
                             {oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0] && ` → ${formatFecha(oc.fechaHasta)}`}
                           </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {oc.horaDesde} – {oc.horaHasta}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            {oc.cantidadPersonas}
-                          </span>
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{oc.horaDesde} – {oc.horaHasta}</span>
+                          <span className="flex items-center gap-1"><Users className="w-3 h-3" />{oc.cantidadPersonas}</span>
                         </div>
                       </div>
-                      {expanded
-                        ? <ChevronUp   className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                        : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                      }
+                      {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" /> : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />}
                     </button>
 
                     {/* Detalle expandido */}
@@ -237,10 +186,35 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                             El horario ya pasó. Liberá las zonas para que queden disponibles.
                           </div>
                         )}
-                        <div className="space-y-1 pt-3">
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <MapPin className="w-3 h-3" /> Zonas:
-                          </p>
+
+                        {/* ── Datos de recepción ── */}
+                        {(oc.gmail || oc.recepcion || oc.receptor) && (
+                          <div className="pt-3 space-y-1.5 rounded-lg bg-primary/5 border border-primary/10 p-2.5">
+                            <p className="text-[10px] font-semibold text-primary/60 uppercase tracking-wide">Recepción</p>
+                            {oc.recepcion && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                <span>{RECEPCION_OC_EMOJI[oc.recepcion as RecepcionTurno]}</span>
+                                Turno: <span className="font-medium text-foreground">{RECEPCION_OC_LABELS[oc.recepcion as RecepcionTurno]}</span>
+                              </p>
+                            )}
+                            {oc.receptor && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                <User className="w-3 h-3" />
+                                Receptor: <span className="font-medium text-foreground">{oc.receptor}</span>
+                              </p>
+                            )}
+                            {oc.gmail && (
+                              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                <Mail className="w-3 h-3" />
+                                <a href={`mailto:${oc.gmail}`} className="font-medium text-primary hover:underline">{oc.gmail}</a>
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Zonas */}
+                        <div className="space-y-1 pt-1">
+                          <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="w-3 h-3" /> Zonas:</p>
                           <div className="flex flex-wrap gap-1.5">
                             {oc.areas?.length > 0
                               ? oc.areas.map((r) => (
@@ -252,33 +226,27 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                             }
                           </div>
                         </div>
-                        {oc.requerimiento && (
-                          <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
-                        )}
+
+                        {oc.requerimiento && <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>}
+
                         {oc.anexos?.length > 0 && (
                           <div className="space-y-1">
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Link2 className="w-3 h-3" /> Anexos:
-                            </p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1"><Link2 className="w-3 h-3" /> Anexos:</p>
                             {oc.anexos.map((url, i) => (
                               <a key={i} href={url} target="_blank" rel="noopener noreferrer"
                                 className="text-xs text-primary underline truncate block">{url}</a>
                             ))}
                           </div>
                         )}
+
                         <div className="pt-1 flex gap-2 flex-wrap">
-                          <Button
-                            size="sm" variant="outline"
-                            className="gap-1.5 text-xs"
-                            onClick={(e) => handleEditar(oc, e)}
-                          >
+                          <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={(e) => handleEditar(oc, e)}>
                             <Pencil className="w-3 h-3" /> Editar
                           </Button>
                           <Button
                             size="sm" variant="outline"
                             className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
-                            onClick={() => liberar(oc)}
-                            disabled={liberando === oc.id}
+                            onClick={() => liberar(oc)} disabled={liberando === oc.id}
                           >
                             {liberando === oc.id
                               ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
@@ -296,32 +264,15 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
             {/* Paginado */}
             {totalPaginas > 1 && (
               <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-muted-foreground">
-                  {inicio + 1}–{Math.min(inicio + POR_PAGINA, ocupaciones.length)} de {ocupaciones.length}
-                </p>
+                <p className="text-xs text-muted-foreground">{inicio + 1}–{Math.min(inicio + POR_PAGINA, ocupaciones.length)} de {ocupaciones.length}</p>
                 <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline" size="icon" className="h-7 w-7"
-                    onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                    disabled={paginaActual === 1}
-                  >
+                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setPagina((p) => Math.max(1, p - 1))} disabled={paginaActual === 1}>
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </Button>
                   {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
-                    <Button
-                      key={n}
-                      variant={n === paginaActual ? "default" : "outline"}
-                      size="icon" className="h-7 w-7 text-xs"
-                      onClick={() => setPagina(n)}
-                    >
-                      {n}
-                    </Button>
+                    <Button key={n} variant={n === paginaActual ? "default" : "outline"} size="icon" className="h-7 w-7 text-xs" onClick={() => setPagina(n)}>{n}</Button>
                   ))}
-                  <Button
-                    variant="outline" size="icon" className="h-7 w-7"
-                    onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                    disabled={paginaActual === totalPaginas}
-                  >
+                  <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))} disabled={paginaActual === totalPaginas}>
                     <ChevronRight className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -331,15 +282,11 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
         )}
       </div>
 
-      {/* Modal de edición */}
       <EditarOcupacionModal
         ocupacion={editando}
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
-        onSuccess={() => {
-          cargar(true)
-          onSuccess?.()
-        }}
+        onSuccess={() => { cargar(true); onSuccess?.() }}
       />
     </>
   )
