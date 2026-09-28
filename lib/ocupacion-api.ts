@@ -2,6 +2,8 @@ import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
 
+export type UpdateOcupacionPayload = Partial<CreateOcupacionPayload>
+
 export const ocupacionesApi = {
   getAll: async (): Promise<Ocupacion[]> => {
     const res = await fetch(`${BASE}/ocupaciones`, {
@@ -12,7 +14,6 @@ export const ocupacionesApi = {
     return res.json()
   },
 
-  // Solo activas desde hoy (usa el nuevo endpoint del backend)
   getActivas: async (): Promise<Ocupacion[]> => {
     const res = await fetch(`${BASE}/ocupaciones/activas`, {
       headers: { "Content-Type": "application/json" },
@@ -39,6 +40,19 @@ export const ocupacionesApi = {
     if (!res.ok) {
       const body = await res.text()
       throw new Error(`Error al crear ocupación: ${body}`)
+    }
+    return res.json()
+  },
+
+  update: async (id: number, data: UpdateOcupacionPayload): Promise<Ocupacion> => {
+    const res = await fetch(`${BASE}/ocupaciones/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
+    })
+    if (!res.ok) {
+      const body = await res.text()
+      throw new Error(`Error al actualizar ocupación: ${body}`)
     }
     return res.json()
   },

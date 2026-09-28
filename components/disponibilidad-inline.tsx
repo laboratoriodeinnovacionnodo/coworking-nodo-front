@@ -2,13 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
-import { reservasApi }    from "@/lib/api"
 import type { Ocupacion } from "@/types/ocupacion"
-import type { BackendReserva } from "@/types/seat"
 import { useToast }       from "@/hooks/use-toast"
 import { Button }         from "@/components/ui/button"
 import { Badge }          from "@/components/ui/badge"
-import { EditarReservaModal } from "@/components/editar-reserva-modal"
+import { EditarOcupacionModal } from "@/components/editar-ocupacion-modal"
 import {
   Loader2, MapPin, Clock, Users, Unlock,
   RefreshCw, Inbox, Link2, AlertCircle,
@@ -69,15 +67,13 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const toastRef  = useRef(toast)
   useEffect(() => { toastRef.current = toast }, [toast])
 
-  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
-  const [loading,     setLoading]     = useState(false)
-  const [liberando,   setLiberando]   = useState<number | null>(null)
-  const [expandedId,  setExpandedId]  = useState<number | null>(null)
-  const [pagina,      setPagina]      = useState(1)
-
-  // ── Edición de reservas ───────────────────────────────────────────────────
-  const [reservaEditando, setReservaEditando] = useState<BackendReserva | null>(null)
-  const [editModalOpen,   setEditModalOpen]   = useState(false)
+  const [ocupaciones,      setOcupaciones]      = useState<Ocupacion[]>([])
+  const [loading,          setLoading]          = useState(false)
+  const [liberando,        setLiberando]        = useState<number | null>(null)
+  const [expandedId,       setExpandedId]       = useState<number | null>(null)
+  const [pagina,           setPagina]           = useState(1)
+  const [editando,         setEditando]         = useState<Ocupacion | null>(null)
+  const [editModalOpen,    setEditModalOpen]    = useState(false)
 
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true)
@@ -122,27 +118,15 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
     }
   }
 
-  // Abre el modal de edición buscando la reserva activa del área
-  const handleEditarReserva = async (areaId: number, areaNombre: string) => {
-    try {
-      const todas   = await reservasApi.getAll()
-      const activa  = todas.find((r) => r.areaId === areaId && r.fin === null)
-      if (!activa) {
-        toastRef.current({ variant: "destructive", title: "No hay reserva activa en " + areaNombre })
-        return
-      }
-      // Enriquecer con info del área para mostrar en el modal
-      setReservaEditando({ ...activa, area: { id: areaId, nombre: areaNombre, estado: "OCUPADO", createdAt: "" } })
-      setEditModalOpen(true)
-    } catch {
-      toastRef.current({ variant: "destructive", title: "Error al cargar reserva" })
-    }
+  const handleEditar = (oc: Ocupacion, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditando(oc)
+    setEditModalOpen(true)
   }
 
   const toggleExpand = (id: number) =>
     setExpandedId((prev) => (prev === id ? null : id))
 
-  // ── Paginado ──────────────────────────────────────────────────────────────
   const totalPaginas   = Math.max(1, Math.ceil(ocupaciones.length / POR_PAGINA))
   const paginaActual   = Math.min(pagina, totalPaginas)
   const inicio         = (paginaActual - 1) * POR_PAGINA
@@ -157,9 +141,7 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
             <MapPin className="w-3.5 h-3.5" />
             Zonas ocupadas
             {ocupaciones.length > 0 && (
-              <span className="ml-1 text-xs font-normal normal-case">
-                ({ocupaciones.length})
-              </span>
+              <span className="ml-1 text-xs font-normal normal-case">({ocupaciones.length})</span>
             )}
           </h3>
           <Button
@@ -173,7 +155,6 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
           </Button>
         </div>
 
-        {/* Contenido */}
         {loading ? (
           <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -216,11 +197,20 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                           {estado === "vencida" && (
                             <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
                           )}
+                          {/* ── Lápiz de edición en la fila principal ─── */}
+                          <button
+                            type="button"
+                            title="Editar ocupación"
+                            className="ml-auto p-1 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors flex-shrink-0"
+                            onClick={(e) => handleEditar(oc, e)}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                         <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             {formatFecha(oc.fechaDesde)}
-                            {oc.fechaDesde !== oc.fechaHasta && ` → ${formatFecha(oc.fechaHasta)}`}
+                            {oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0] && ` → ${formatFecha(oc.fechaHasta)}`}
                           </span>
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
@@ -247,8 +237,6 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                             El horario ya pasó. Liberá las zonas para que queden disponibles.
                           </div>
                         )}
-
-                        {/* Áreas con lápiz de edición por cada una */}
                         <div className="space-y-1 pt-3">
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
                             <MapPin className="w-3 h-3" /> Zonas:
@@ -256,29 +244,14 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                           <div className="flex flex-wrap gap-1.5">
                             {oc.areas?.length > 0
                               ? oc.areas.map((r) => (
-                                  <div key={r.areaId} className="flex items-center gap-1">
-                                    <Badge variant="secondary" className="text-xs">
-                                      {r.area?.nombre ?? `Área ${r.areaId}`}
-                                    </Badge>
-                                    {/* ── Lápiz de edición ──────────────────── */}
-                                    <button
-                                      type="button"
-                                      title={`Editar reserva de ${r.area?.nombre ?? `Área ${r.areaId}`}`}
-                                      className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        handleEditarReserva(r.areaId, r.area?.nombre ?? `Área ${r.areaId}`)
-                                      }}
-                                    >
-                                      <Pencil className="w-3 h-3" />
-                                    </button>
-                                  </div>
+                                  <Badge key={r.areaId} variant="secondary" className="text-xs">
+                                    {r.area?.nombre ?? `Área ${r.areaId}`}
+                                  </Badge>
                                 ))
                               : <span className="text-xs text-muted-foreground">Sin zonas</span>
                             }
                           </div>
                         </div>
-
                         {oc.requerimiento && (
                           <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
                         )}
@@ -293,7 +266,14 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
                             ))}
                           </div>
                         )}
-                        <div className="pt-1">
+                        <div className="pt-1 flex gap-2 flex-wrap">
+                          <Button
+                            size="sm" variant="outline"
+                            className="gap-1.5 text-xs"
+                            onClick={(e) => handleEditar(oc, e)}
+                          >
+                            <Pencil className="w-3 h-3" /> Editar
+                          </Button>
                           <Button
                             size="sm" variant="outline"
                             className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
@@ -352,8 +332,8 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
       </div>
 
       {/* Modal de edición */}
-      <EditarReservaModal
-        reserva={reservaEditando}
+      <EditarOcupacionModal
+        ocupacion={editando}
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
         onSuccess={() => {
