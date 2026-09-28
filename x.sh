@@ -1,383 +1,148 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v32-front-fix-bloqueo-race-condition.sh  — coworking-front
-#
-#  Bug:  Las áreas quedan bloqueadas en la DB aunque no haya evento activo.
-#
-#  Root cause (dos problemas encadenados):
-#    1. El useEffect de sync-evento depende de toggleBlockAll como dep,
-#       que cambia de referencia y re-ejecuta el efecto con estado stale.
-#    2. El efecto no espera a que useEventoActivo termine de cargar
-#       (cargando:true → eventoActivo:null) → no dispara el unlock.
-#       Si el usuario navegó o refrescó mientras había evento, la DB quedó
-#       con todas las áreas OCUPADO y nadie las liberó.
-#
-#  Fix:
-#    · app/page.tsx  → useEffect usa useRef para toggleBlockAll (referencia
-#                      estable), y no actúa hasta que cargando === false.
+#  v28b-front-fix-use-seats.sh  — coworking-front
+#  Fix: use-seats.ts importaba convertBackendAreaToSeat desde @/lib/seat-utils
+#       pero esa función vive en @/lib/api
 # ============================================================================
 set -euo pipefail
 
-GREEN='\033[0;32m'; RESET='\033[0m'
-ok()   { echo -e "${GREEN}✅  $*${RESET}"; }
-fail() { echo -e "\033[0;31m❌  $*${RESET}"; exit 1; }
+[[ -f "package.json" && -d "hooks" ]] || { echo "❌  Corré desde la raíz de coworking-front"; exit 1; }
 
-[[ -f "package.json" && -d "app" ]] || fail "Corré desde la raíz de coworking-front"
-
-echo ""
-echo "════════════════════════════════════════════════════════════"
-echo "  v32 · coworking-front · fix bloqueo race condition"
-echo "════════════════════════════════════════════════════════════"
+echo "════════════════════════════════════════════════"
+echo "  v28b-front-fix-use-seats  |  coworking-front"
+echo "════════════════════════════════════════════════"
 echo ""
 
-# ── app/page.tsx ─────────────────────────────────────────────────────────────
-echo "📄  app/page.tsx"
-cat > app/page.tsx << 'TSEOF'
+echo "📝  Corrigiendo hooks/use-seats.ts..."
+cat > hooks/use-seats.ts << 'EOF'
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import { useRouter }             from "next/navigation"
-import { useAuth }               from "@/contexts/auth-context"
-import { useSeats }              from "@/hooks/use-seats"
-import { useEventoActivo }       from "@/hooks/use-evento-activo"
-import { AdminPanel }            from "@/components/admin-panel"
-import { AgendarModal }          from "@/components/agendar-modal"
-import { AsientosMapaModal }     from "@/components/asientos-mapa-modal"
-import { DisponibilidadInline }  from "@/components/disponibilidad-inline"
-import { CalendarioCoworking }   from "@/components/calendario-coworking"
-import { EventoActivoBanner }    from "@/components/evento-activo-banner"
-import { Button }                from "@/components/ui/button"
-import { Switch }                from "@/components/ui/switch"
-import { Label }                 from "@/components/ui/label"
-import { cn }                    from "@/lib/utils"
-import { useToast }              from "@/hooks/use-toast"
-import {
-  Loader2, RefreshCw, LogOut, Menu,
-  CalendarPlus, MapPin, LayoutGrid,
-} from "lucide-react"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-
-type Accion = "disponibilidad" | "asientos" | "agendar"
-
-const ACCIONES: { id: Accion; label: string; icon: React.ElementType; esModal: boolean }[] = [
-  { id: "disponibilidad", label: "Disponibilidad",  icon: MapPin,       esModal: false },
-  { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid,   esModal: true  },
-  { id: "agendar",        label: "Agendar",         icon: CalendarPlus, esModal: true  },
-]
+import { useState, useCallback, useRef } from "react"
+import type { Seat } from "@/types/seat"
+import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
+import type { Recepcion } from "@/components/seat-status-modal"
 
 const POLLING_MS = 30_000
 
-export default function CoworkingSeatsPage() {
-  const router  = useRouter()
-  const { admin, isAdmin, logout, loading: authLoading } = useAuth()
-  const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
-  const { eventoActivo, cargando: eventoCargando }       = useEventoActivo()
-  const { toast }              = useToast()
+export function useSeats() {
+  const { toast } = useToast()
+  const toastRef  = useRef(toast)
+  toastRef.current = toast
 
-  const [isAdminMode,    setIsAdminMode]    = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [asientosOpen,   setAsientosOpen]   = useState(false)
-  const [agendarOpen,    setAgendarOpen]    = useState(false)
+  const [seats,   setSeats]   = useState<Seat[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
 
-  // ── Ref del último evento que disparó bloqueo ─────────────────────────────
-  // Guardamos el ID (string) o null.
-  // Usamos ref para no incluirlo como dep del useEffect de sync.
-  const bloqueadoPorEventoRef = useRef<string | null>(null)
+  // ── fetchSeats ────────────────────────────────────────────────────────────
+  const fetchSeats = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const [areas, reservas] = await Promise.all([
+        areasApi.getAll(),
+        reservasApi.getAll(),
+      ])
+      setSeats(areas.map((area) => convertBackendAreaToSeat(area, reservas)))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al cargar áreas"
+      setError(msg)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-  // ── Ref estable de toggleBlockAll — evita que el useEffect de sync
-  //    se re-ejecute cada vez que toggleBlockAll cambia de referencia.
-  const toggleBlockAllRef = useRef(toggleBlockAll)
-  useEffect(() => { toggleBlockAllRef.current = toggleBlockAll }, [toggleBlockAll])
+  // ── updateSeatStatus ──────────────────────────────────────────────────────
+  const updateSeatStatus = useCallback(async (
+    seat: Seat,
+    newStatus: string,
+    userName?: string,
+    peopleCount?: number,
+    shareLimit?: number,
+    recepcion?: Recepcion,
+  ) => {
+    if (!seat.backendId) throw new Error("Asiento sin ID de backend")
 
-  // ── Auth guard ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!authLoading && !admin) router.push("/login")
-  }, [admin, authLoading, router])
+    try {
+      if (newStatus === "occupied" || newStatus === "for-share" || newStatus === "shared") {
+        if (!userName) throw new Error("Nombre de usuario requerido")
 
-  // ── Fetch inicial + polling ───────────────────────────────────────────────
-  useEffect(() => { fetchSeats() }, [fetchSeats])
+        const user = await (async () => {
+          try {
+            const res = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL ?? ""}/usuario`,
+              { headers: { "Content-Type": "application/json" } }
+            )
+            if (!res.ok) return null
+            const usuarios = await res.json()
+            return usuarios.find((u: { nombre: string; id: number }) => u.nombre === userName) ?? null
+          } catch { return null }
+        })()
 
-  useEffect(() => {
-    const id = setInterval(fetchSeats, POLLING_MS)
-    return () => clearInterval(id)
+        const usuarioId = user?.id ?? 1
+        const detalles  =
+          newStatus === "for-share"
+            ? `Para compartir (límite: ${shareLimit || 6}, personas: ${peopleCount})`
+            : `Ocupado por ${peopleCount} persona(s)`
+
+        await reservasApi.create({
+          nombre: userName,
+          detalles,
+          usuarioId,
+          areaId: seat.backendId,
+          ...(recepcion && { recepcion }),
+        })
+
+        if (newStatus === "for-share") {
+          const reservas    = await reservasApi.getAll()
+          const activeCount = reservas.filter((r) => r.areaId === seat.backendId && r.fin === null).length
+          await areasApi.cambiarEstado(seat.backendId, activeCount >= (shareLimit || 6) ? "shared" : newStatus)
+        } else {
+          await areasApi.cambiarEstado(seat.backendId, newStatus)
+        }
+
+        toastRef.current({ title: "Reserva creada", description: `${seat.id} asignado a ${userName}` })
+      } else {
+        await areasApi.cambiarEstado(seat.backendId, newStatus)
+        toastRef.current({ title: "Estado actualizado", description: `${seat.id} cambió de estado` })
+      }
+
+      await fetchSeats()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al actualizar"
+      setError(msg)
+      toastRef.current({ variant: "destructive", title: "Error al actualizar asiento", description: msg })
+      throw err
+    }
   }, [fetchSeats])
 
-  // ── Sync bloqueo por evento ───────────────────────────────────────────────
-  // REGLA: no actuar hasta que useEventoActivo haya resuelto su primera
-  // consulta (cargando === false). Esto evita que el estado inicial null
-  // dispare un toggleBlockAll(false) prematuro cuando todavía no sabemos
-  // si hay evento.
-  useEffect(() => {
-    if (eventoCargando) return          // aún no sabemos → esperar
-
-    const eventoId = eventoActivo?.id ?? null
-
-    // Sin cambio real → no hacer nada
-    if (eventoId === bloqueadoPorEventoRef.current) return
-
-    if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
-      // Nuevo evento detectado → bloquear
-      bloqueadoPorEventoRef.current = eventoId
-      toggleBlockAllRef.current(true).catch(() => {})
-
-    } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
-      // Evento terminó → liberar
-      bloqueadoPorEventoRef.current = null
-      toggleBlockAllRef.current(false).catch(() => {})
-
-    } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
-      // Cambio de evento (raro) → actualizar ref sin re-bloquear
-      bloqueadoPorEventoRef.current = eventoId
+  // ── toggleBlockAll ────────────────────────────────────────────────────────
+  const toggleBlockAll = useCallback(async (block: boolean) => {
+    try {
+      setLoading(true)
+      await areasApi.bloquearTodas(block)
+      toastRef.current({
+        title:       block ? "Coworking bloqueado" : "Coworking desbloqueado",
+        description: block ? "Todas las áreas están bloqueadas" : "Las áreas volvieron a su estado libre",
+      })
+      await fetchSeats()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al operar"
+      setError(msg)
+      toastRef.current({ variant: "destructive", title: "Error", description: msg })
+    } finally {
+      setLoading(false)
     }
+  }, [fetchSeats])
 
-  // Solo eventoActivo y eventoCargando como deps — toggleBlockAll va por ref.
-  }, [eventoActivo, eventoCargando])
-
-  const handleRefresh = useCallback(async () => {
-    await fetchSeats()
-    toast({ title: "Datos actualizados" })
-  }, [fetchSeats, toast])
-
-  const handleAccion = (a: Accion) => {
-    if (a === "asientos") { setAsientosOpen(true); return }
-    if (a === "agendar")  { setAgendarOpen(true);  return }
-  }
-
-  const bloqueadoPorEvento = eventoActivo !== null
-  const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
-  const isBlocked          = bloqueadoPorEvento || bloqueadoManual
-  const occupiedCount      = seats.filter((s) => s.status === "occupied").length
-  const availableCount     = seats.filter((s) => s.status === "available").length
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    )
-  }
-  if (!admin) return null
-
-  if (loading && seats.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="text-center space-y-3">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground text-sm">Cargando áreas...</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="min-h-screen bg-background pb-28">
-      <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
-
-        {/* ══ Header ════════════════════════════════════════════════ */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">
-              Coworking <span className="text-primary">NODO</span>
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              Gestión de asientos en tiempo real
-            </p>
-          </div>
-
-          {/* Controles desktop */}
-          <div className="hidden sm:flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="icon"
-              className="bg-white"
-              onClick={handleRefresh}
-              disabled={loading}
-              title="Actualizar"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            </Button>
-
-            {isAdmin && (
-              <div className="flex items-center gap-2 bg-white border border-border rounded-md px-3 h-9">
-                <Switch
-                  id="admin-mode"
-                  checked={isAdminMode}
-                  onCheckedChange={setIsAdminMode}
-                  className="scale-90"
-                />
-                <Label htmlFor="admin-mode" className="text-sm cursor-pointer whitespace-nowrap">
-                  Modo Admin
-                </Label>
-              </div>
-            )}
-
-            <Button
-              variant="outline"
-              size="icon"
-              className="bg-white text-muted-foreground hover:text-destructive"
-              onClick={logout}
-              title="Cerrar sesión"
-            >
-              <LogOut className="w-4 h-4" />
-            </Button>
-          </div>
-
-          {/* Controles mobile */}
-          <div className="flex sm:hidden items-center gap-2 self-end">
-            <Button variant="outline" size="icon" className="bg-white h-9 w-9"
-              onClick={handleRefresh} disabled={loading}>
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-            </Button>
-            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-              <SheetTrigger asChild>
-                <Button variant="outline" size="icon" className="bg-white h-9 w-9">
-                  <Menu className="w-4 h-4" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="right" className="w-72">
-                <div className="space-y-3 pt-4">
-                  <div className="pb-3 border-b">
-                    <p className="font-semibold">{admin.nombre ?? admin.email}</p>
-                    <p className="text-xs text-muted-foreground">{admin.email}</p>
-                  </div>
-                  <Button variant="outline" className="w-full justify-start gap-2"
-                    onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
-                    <RefreshCw className="w-4 h-4" /> Actualizar
-                  </Button>
-                  {isAdmin && (
-                    <div className="flex items-center gap-2 py-1">
-                      <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-                      <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
-                    </div>
-                  )}
-                  <Button variant="outline"
-                    className="w-full justify-start gap-2 text-destructive hover:text-destructive"
-                    onClick={logout}>
-                    <LogOut className="w-4 h-4" /> Cerrar sesión
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-
-        </div>
-
-        {/* Banner evento activo */}
-        {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
-
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
-          </div>
-          <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
-          </div>
-          <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
-            <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
-            <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
-          </div>
-        </div>
-
-        {/* Admin panel */}
-        {isAdminMode && isAdmin && !bloqueadoPorEvento && (
-          <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
-        )}
-        {isAdminMode && isAdmin && bloqueadoPorEvento && (
-          <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
-            El panel de administración está deshabilitado mientras haya un evento activo.
-            Las áreas se liberarán automáticamente cuando el evento termine.
-          </div>
-        )}
-
-        {/* ══ Card principal ════════════════════════════════════════ */}
-        <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
-
-          {/* Barra de acciones */}
-          <div className="border-b border-border px-4 pt-4 pb-0">
-            <div className="flex gap-1 overflow-x-auto scrollbar-none">
-              {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
-                const isActive = !esModal && id === "disponibilidad"
-                return (
-                  <button
-                    key={id}
-                    onClick={() => handleAccion(id)}
-                    className={cn(
-                      "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
-                      isActive
-                        ? "border-primary text-primary bg-primary/5"
-                        : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-                      esModal ? "hover:text-primary" : "",
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{label}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Contenido fijo: Disponibilidad + Calendario */}
-          <div className="p-4 md:p-6">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-              <div className="min-w-0">
-                <DisponibilidadInline onSuccess={fetchSeats} />
-              </div>
-              <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
-                <CalendarioCoworking />
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-      </div>
-
-      {/* Modales */}
-      <AsientosMapaModal
-        open={asientosOpen}
-        onOpenChange={setAsientosOpen}
-        seats={seats}
-        isBlocked={isBlocked && !isAdminMode}
-        eventoTitulo={eventoActivo?.titulo}
-      />
-      <AgendarModal
-        open={agendarOpen}
-        onOpenChange={setAgendarOpen}
-        onSuccess={fetchSeats}
-      />
-
-    </div>
-  )
+  return { seats, loading, error, fetchSeats, updateSeatStatus, toggleBlockAll, POLLING_MS }
 }
-TSEOF
-ok "app/page.tsx"
-
-# ── TypeScript check ──────────────────────────────────────────────────────────
-echo ""
-echo "🔨  TypeScript check..."
-pnpm exec tsc --noEmit --skipLibCheck 2>&1 | head -40 || true
+EOF
+echo "  ✅  hooks/use-seats.ts corregido"
 
 echo ""
-echo "🔨  Build..."
+echo "🔨  Build de verificación..."
 pnpm build
 
 echo ""
-echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
-echo -e "\033[0;32m  ✅  v32 completado\033[0m"
-echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
-echo ""
-echo "  Cambios en app/page.tsx:"
-echo "    · toggleBlockAllRef  → ref estable, no dep del useEffect"
-echo "    · Guard eventoCargando → espera que useEventoActivo resuelva"
-echo "    · admin.nombre ?? admin.email → evita blank en header mobile"
-echo ""
-echo "  ⚠️  Los asientos en la DB siguen OCUPADO."
-echo "  Para liberarlos ahora, usá el AdminPanel (Modo Admin → Desbloquear)"
-echo "  o ejecutá en la DB directamente:"
-echo "    UPDATE \"Area\" SET estado = 'LIBRE';"
-echo ""
+echo "✅  v28b completado"

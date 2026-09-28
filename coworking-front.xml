@@ -5615,7 +5615,7 @@ x.sh
 ```typescript
   1: "use client"
   2: 
-  3: import { useState, useEffect, useRef } from "react"
+  3: import { useState, useEffect, useRef, useCallback } from "react"
   4: import { useRouter }             from "next/navigation"
   5: import { useAuth }               from "@/contexts/auth-context"
   6: import { useSeats }              from "@/hooks/use-seats"
@@ -5633,7 +5633,7 @@ x.sh
  18: import { useToast }              from "@/hooks/use-toast"
  19: import {
  20:   Loader2, RefreshCw, LogOut, Menu,
- 21:   Armchair, CalendarPlus, MapPin, LayoutGrid,
+ 21:   CalendarPlus, MapPin, LayoutGrid,
  22: } from "lucide-react"
  23: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
  24: 
@@ -5651,7 +5651,7 @@ x.sh
  36:   const router  = useRouter()
  37:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
  38:   const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
- 39:   const { eventoActivo }       = useEventoActivo()
+ 39:   const { eventoActivo, cargando: eventoCargando }       = useEventoActivo()
  40:   const { toast }              = useToast()
  41: 
  42:   const [isAdminMode,    setIsAdminMode]    = useState(false)
@@ -5659,631 +5659,666 @@ x.sh
  44:   const [asientosOpen,   setAsientosOpen]   = useState(false)
  45:   const [agendarOpen,    setAgendarOpen]    = useState(false)
  46: 
- 47:   const bloqueadoPorEventoRef = useRef<string | null>(null)
- 48: 
- 49:   useEffect(() => {
- 50:     if (!authLoading && !admin) router.push("/login")
- 51:   }, [admin, authLoading, router])
- 52: 
- 53:   useEffect(() => { fetchSeats() }, [fetchSeats])
- 54: 
- 55:   useEffect(() => {
- 56:     const id = setInterval(fetchSeats, POLLING_MS)
- 57:     return () => clearInterval(id)
- 58:   }, [fetchSeats])
- 59: 
- 60:   useEffect(() => {
- 61:     const eventoId = eventoActivo?.id ?? null
- 62:     if (eventoId === bloqueadoPorEventoRef.current) return
- 63:     if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
- 64:       bloqueadoPorEventoRef.current = eventoId
- 65:       toggleBlockAll(true).catch(() => {})
- 66:     } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
- 67:       bloqueadoPorEventoRef.current = null
- 68:       toggleBlockAll(false).catch(() => {})
- 69:     } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
- 70:       bloqueadoPorEventoRef.current = eventoId
- 71:     }
- 72:   }, [eventoActivo, toggleBlockAll])
- 73: 
- 74:   const handleRefresh = async () => {
- 75:     await fetchSeats()
- 76:     toast({ title: "Datos actualizados" })
- 77:   }
- 78: 
- 79:   const handleAccion = (a: Accion) => {
- 80:     if (a === "asientos") { setAsientosOpen(true); return }
- 81:     if (a === "agendar")  { setAgendarOpen(true);  return }
- 82:   }
- 83: 
- 84:   const bloqueadoPorEvento = eventoActivo !== null
- 85:   const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
- 86:   const isBlocked          = bloqueadoPorEvento || bloqueadoManual
- 87:   const occupiedCount      = seats.filter((s) => s.status === "occupied").length
- 88:   const availableCount     = seats.filter((s) => s.status === "available").length
- 89: 
- 90:   if (authLoading) {
- 91:     return (
- 92:       <div className="min-h-screen flex items-center justify-center">
- 93:         <Loader2 className="w-8 h-8 animate-spin text-primary" />
- 94:       </div>
- 95:     )
- 96:   }
- 97:   if (!admin) return null
- 98: 
- 99:   if (loading && seats.length === 0) {
-100:     return (
-101:       <div className="min-h-screen flex items-center justify-center px-4">
-102:         <div className="text-center space-y-3">
-103:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
-104:           <p className="text-muted-foreground text-sm">Cargando áreas...</p>
-105:         </div>
-106:       </div>
-107:     )
-108:   }
-109: 
-110:   return (
-111:     <div className="min-h-screen bg-background pb-28">
-112:       <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
-113: 
-114:         {/* ══ Header — mismo estilo que /calendario ═══════════════════ */}
-115:         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+ 47:   // ── Ref del último evento que disparó bloqueo ─────────────────────────────
+ 48:   // Guardamos el ID (string) o null.
+ 49:   // Usamos ref para no incluirlo como dep del useEffect de sync.
+ 50:   const bloqueadoPorEventoRef = useRef<string | null>(null)
+ 51: 
+ 52:   // ── Ref estable de toggleBlockAll — evita que el useEffect de sync
+ 53:   //    se re-ejecute cada vez que toggleBlockAll cambia de referencia.
+ 54:   const toggleBlockAllRef = useRef(toggleBlockAll)
+ 55:   useEffect(() => { toggleBlockAllRef.current = toggleBlockAll }, [toggleBlockAll])
+ 56: 
+ 57:   // ── Auth guard ────────────────────────────────────────────────────────────
+ 58:   useEffect(() => {
+ 59:     if (!authLoading && !admin) router.push("/login")
+ 60:   }, [admin, authLoading, router])
+ 61: 
+ 62:   // ── Fetch inicial + polling ───────────────────────────────────────────────
+ 63:   useEffect(() => { fetchSeats() }, [fetchSeats])
+ 64: 
+ 65:   useEffect(() => {
+ 66:     const id = setInterval(fetchSeats, POLLING_MS)
+ 67:     return () => clearInterval(id)
+ 68:   }, [fetchSeats])
+ 69: 
+ 70:   // ── Sync bloqueo por evento ───────────────────────────────────────────────
+ 71:   // REGLA: no actuar hasta que useEventoActivo haya resuelto su primera
+ 72:   // consulta (cargando === false). Esto evita que el estado inicial null
+ 73:   // dispare un toggleBlockAll(false) prematuro cuando todavía no sabemos
+ 74:   // si hay evento.
+ 75:   useEffect(() => {
+ 76:     if (eventoCargando) return          // aún no sabemos → esperar
+ 77: 
+ 78:     const eventoId = eventoActivo?.id ?? null
+ 79: 
+ 80:     // Sin cambio real → no hacer nada
+ 81:     if (eventoId === bloqueadoPorEventoRef.current) return
+ 82: 
+ 83:     if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
+ 84:       // Nuevo evento detectado → bloquear
+ 85:       bloqueadoPorEventoRef.current = eventoId
+ 86:       toggleBlockAllRef.current(true).catch(() => {})
+ 87: 
+ 88:     } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
+ 89:       // Evento terminó → liberar
+ 90:       bloqueadoPorEventoRef.current = null
+ 91:       toggleBlockAllRef.current(false).catch(() => {})
+ 92: 
+ 93:     } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
+ 94:       // Cambio de evento (raro) → actualizar ref sin re-bloquear
+ 95:       bloqueadoPorEventoRef.current = eventoId
+ 96:     }
+ 97: 
+ 98:   // Solo eventoActivo y eventoCargando como deps — toggleBlockAll va por ref.
+ 99:   }, [eventoActivo, eventoCargando])
+100: 
+101:   const handleRefresh = useCallback(async () => {
+102:     await fetchSeats()
+103:     toast({ title: "Datos actualizados" })
+104:   }, [fetchSeats, toast])
+105: 
+106:   const handleAccion = (a: Accion) => {
+107:     if (a === "asientos") { setAsientosOpen(true); return }
+108:     if (a === "agendar")  { setAgendarOpen(true);  return }
+109:   }
+110: 
+111:   const bloqueadoPorEvento = eventoActivo !== null
+112:   const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
+113:   const isBlocked          = bloqueadoPorEvento || bloqueadoManual
+114:   const occupiedCount      = seats.filter((s) => s.status === "occupied").length
+115:   const availableCount     = seats.filter((s) => s.status === "available").length
 116: 
-117:           {/* Título */}
-118:           <div>
-119:             <h1 className="text-3xl font-bold text-foreground">
-120:               Coworking <span className="text-primary">NODO</span>
-121:             </h1>
-122:             <p className="text-muted-foreground mt-1 text-sm">
-123:               Gestión de asientos en tiempo real
-124:             </p>
-125:           </div>
-126: 
-127:           {/* Controles desktop */}
-128:           <div className="hidden sm:flex items-center gap-2 flex-wrap">
-129:             <Button
-130:               variant="outline"
-131:               size="icon"
-132:               className="bg-white"
-133:               onClick={handleRefresh}
-134:               disabled={loading}
-135:               title="Actualizar"
-136:             >
-137:               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-138:             </Button>
-139: 
-140:             {isAdmin && (
-141:               <div className="flex items-center gap-2 bg-white border border-border rounded-md px-3 h-9">
-142:                 <Switch
-143:                   id="admin-mode"
-144:                   checked={isAdminMode}
-145:                   onCheckedChange={setIsAdminMode}
-146:                   className="scale-90"
-147:                 />
-148:                 <Label htmlFor="admin-mode" className="text-sm cursor-pointer whitespace-nowrap">
-149:                   Modo Admin
-150:                 </Label>
-151:               </div>
-152:             )}
-153: 
-154:             <Button
-155:               variant="outline"
-156:               size="icon"
-157:               className="bg-white text-muted-foreground hover:text-destructive"
-158:               onClick={logout}
-159:               title="Cerrar sesión"
-160:             >
-161:               <LogOut className="w-4 h-4" />
-162:             </Button>
-163:           </div>
-164: 
-165:           {/* Controles mobile */}
-166:           <div className="flex sm:hidden items-center gap-2 self-end">
-167:             <Button variant="outline" size="icon" className="bg-white h-9 w-9"
-168:               onClick={handleRefresh} disabled={loading}>
-169:               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-170:             </Button>
-171:             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-172:               <SheetTrigger asChild>
-173:                 <Button variant="outline" size="icon" className="bg-white h-9 w-9">
-174:                   <Menu className="w-4 h-4" />
-175:                 </Button>
-176:               </SheetTrigger>
-177:               <SheetContent side="right" className="w-72">
-178:                 <div className="space-y-3 pt-4">
-179:                   <div className="pb-3 border-b">
-180:                     <p className="font-semibold">{admin.nombre}</p>
-181:                     <p className="text-xs text-muted-foreground">{admin.email}</p>
-182:                   </div>
-183:                   <Button variant="outline" className="w-full justify-start gap-2"
-184:                     onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
-185:                     <RefreshCw className="w-4 h-4" /> Actualizar
-186:                   </Button>
-187:                   {isAdmin && (
-188:                     <div className="flex items-center gap-2 py-1">
-189:                       <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
-190:                       <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
-191:                     </div>
-192:                   )}
-193:                   <Button variant="outline"
-194:                     className="w-full justify-start gap-2 text-destructive hover:text-destructive"
-195:                     onClick={logout}>
-196:                     <LogOut className="w-4 h-4" /> Cerrar sesión
-197:                   </Button>
-198:                 </div>
-199:               </SheetContent>
-200:             </Sheet>
-201:           </div>
-202: 
-203:         </div>
-204: 
-205:         {/* Banner evento activo */}
-206:         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
-207: 
-208:         {/* Stats */}
-209:         <div className="grid grid-cols-3 gap-3">
-210:           <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
-211:             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
-212:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
-213:           </div>
-214:           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
-215:             <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
-216:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
-217:           </div>
-218:           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
-219:             <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
-220:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
-221:           </div>
-222:         </div>
-223: 
-224:         {/* Admin panel */}
-225:         {isAdminMode && isAdmin && !bloqueadoPorEvento && (
-226:           <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
-227:         )}
-228:         {isAdminMode && isAdmin && bloqueadoPorEvento && (
-229:           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
-230:             El panel de administración está deshabilitado mientras haya un evento activo.
-231:             Las áreas se liberarán automáticamente cuando el evento termine.
-232:           </div>
-233:         )}
-234: 
-235:         {/* ══ Card principal ═══════════════════════════════════════ */}
-236:         <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
-237: 
-238:           {/* Barra de acciones */}
-239:           <div className="border-b border-border px-4 pt-4 pb-0">
-240:             <div className="flex gap-1 overflow-x-auto scrollbar-none">
-241:               {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
-242:                 const isActive = !esModal && id === "disponibilidad"
-243:                 return (
-244:                   <button
-245:                     key={id}
-246:                     onClick={() => handleAccion(id)}
-247:                     className={cn(
-248:                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
-249:                       isActive
-250:                         ? "border-primary text-primary bg-primary/5"
-251:                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
-252:                       esModal ? "hover:text-primary" : "",
-253:                     )}
-254:                   >
-255:                     <Icon className="w-4 h-4" />
-256:                     <span>{label}</span>
-257:                   </button>
-258:                 )
-259:               })}
-260:             </div>
-261:           </div>
-262: 
-263:           {/* Contenido fijo: Disponibilidad + Calendario */}
-264:           <div className="p-4 md:p-6">
-265:             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
-266:               <div className="min-w-0">
-267:                 <DisponibilidadInline onSuccess={fetchSeats} />
-268:               </div>
-269:               <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
-270:                 <CalendarioCoworking />
-271:               </div>
-272:             </div>
-273:           </div>
-274: 
-275:         </div>
-276: 
-277:       </div>
-278: 
-279:       {/* Modales */}
-280:       <AsientosMapaModal
-281:         open={asientosOpen}
-282:         onOpenChange={setAsientosOpen}
-283:         seats={seats}
-284:         isBlocked={isBlocked && !isAdminMode}
-285:         eventoTitulo={eventoActivo?.titulo}
-286:       />
-287:       <AgendarModal
-288:         open={agendarOpen}
-289:         onOpenChange={setAgendarOpen}
-290:         onSuccess={fetchSeats}
-291:       />
-292: 
-293:     </div>
-294:   )
-295: }
+117:   if (authLoading) {
+118:     return (
+119:       <div className="min-h-screen flex items-center justify-center">
+120:         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+121:       </div>
+122:     )
+123:   }
+124:   if (!admin) return null
+125: 
+126:   if (loading && seats.length === 0) {
+127:     return (
+128:       <div className="min-h-screen flex items-center justify-center px-4">
+129:         <div className="text-center space-y-3">
+130:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+131:           <p className="text-muted-foreground text-sm">Cargando áreas...</p>
+132:         </div>
+133:       </div>
+134:     )
+135:   }
+136: 
+137:   return (
+138:     <div className="min-h-screen bg-background pb-28">
+139:       <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
+140: 
+141:         {/* ══ Header ════════════════════════════════════════════════ */}
+142:         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+143: 
+144:           <div>
+145:             <h1 className="text-3xl font-bold text-foreground">
+146:               Coworking <span className="text-primary">NODO</span>
+147:             </h1>
+148:             <p className="text-muted-foreground mt-1 text-sm">
+149:               Gestión de asientos en tiempo real
+150:             </p>
+151:           </div>
+152: 
+153:           {/* Controles desktop */}
+154:           <div className="hidden sm:flex items-center gap-2 flex-wrap">
+155:             <Button
+156:               variant="outline"
+157:               size="icon"
+158:               className="bg-white"
+159:               onClick={handleRefresh}
+160:               disabled={loading}
+161:               title="Actualizar"
+162:             >
+163:               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+164:             </Button>
+165: 
+166:             {isAdmin && (
+167:               <div className="flex items-center gap-2 bg-white border border-border rounded-md px-3 h-9">
+168:                 <Switch
+169:                   id="admin-mode"
+170:                   checked={isAdminMode}
+171:                   onCheckedChange={setIsAdminMode}
+172:                   className="scale-90"
+173:                 />
+174:                 <Label htmlFor="admin-mode" className="text-sm cursor-pointer whitespace-nowrap">
+175:                   Modo Admin
+176:                 </Label>
+177:               </div>
+178:             )}
+179: 
+180:             <Button
+181:               variant="outline"
+182:               size="icon"
+183:               className="bg-white text-muted-foreground hover:text-destructive"
+184:               onClick={logout}
+185:               title="Cerrar sesión"
+186:             >
+187:               <LogOut className="w-4 h-4" />
+188:             </Button>
+189:           </div>
+190: 
+191:           {/* Controles mobile */}
+192:           <div className="flex sm:hidden items-center gap-2 self-end">
+193:             <Button variant="outline" size="icon" className="bg-white h-9 w-9"
+194:               onClick={handleRefresh} disabled={loading}>
+195:               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+196:             </Button>
+197:             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+198:               <SheetTrigger asChild>
+199:                 <Button variant="outline" size="icon" className="bg-white h-9 w-9">
+200:                   <Menu className="w-4 h-4" />
+201:                 </Button>
+202:               </SheetTrigger>
+203:               <SheetContent side="right" className="w-72">
+204:                 <div className="space-y-3 pt-4">
+205:                   <div className="pb-3 border-b">
+206:                     <p className="font-semibold">{admin.nombre ?? admin.email}</p>
+207:                     <p className="text-xs text-muted-foreground">{admin.email}</p>
+208:                   </div>
+209:                   <Button variant="outline" className="w-full justify-start gap-2"
+210:                     onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
+211:                     <RefreshCw className="w-4 h-4" /> Actualizar
+212:                   </Button>
+213:                   {isAdmin && (
+214:                     <div className="flex items-center gap-2 py-1">
+215:                       <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+216:                       <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
+217:                     </div>
+218:                   )}
+219:                   <Button variant="outline"
+220:                     className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+221:                     onClick={logout}>
+222:                     <LogOut className="w-4 h-4" /> Cerrar sesión
+223:                   </Button>
+224:                 </div>
+225:               </SheetContent>
+226:             </Sheet>
+227:           </div>
+228: 
+229:         </div>
+230: 
+231:         {/* Banner evento activo */}
+232:         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
+233: 
+234:         {/* Stats */}
+235:         <div className="grid grid-cols-3 gap-3">
+236:           <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
+237:             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
+238:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
+239:           </div>
+240:           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
+241:             <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
+242:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
+243:           </div>
+244:           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
+245:             <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
+246:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
+247:           </div>
+248:         </div>
+249: 
+250:         {/* Admin panel */}
+251:         {isAdminMode && isAdmin && !bloqueadoPorEvento && (
+252:           <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
+253:         )}
+254:         {isAdminMode && isAdmin && bloqueadoPorEvento && (
+255:           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
+256:             El panel de administración está deshabilitado mientras haya un evento activo.
+257:             Las áreas se liberarán automáticamente cuando el evento termine.
+258:           </div>
+259:         )}
+260: 
+261:         {/* ══ Card principal ════════════════════════════════════════ */}
+262:         <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+263: 
+264:           {/* Barra de acciones */}
+265:           <div className="border-b border-border px-4 pt-4 pb-0">
+266:             <div className="flex gap-1 overflow-x-auto scrollbar-none">
+267:               {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
+268:                 const isActive = !esModal && id === "disponibilidad"
+269:                 return (
+270:                   <button
+271:                     key={id}
+272:                     onClick={() => handleAccion(id)}
+273:                     className={cn(
+274:                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
+275:                       isActive
+276:                         ? "border-primary text-primary bg-primary/5"
+277:                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+278:                       esModal ? "hover:text-primary" : "",
+279:                     )}
+280:                   >
+281:                     <Icon className="w-4 h-4" />
+282:                     <span>{label}</span>
+283:                   </button>
+284:                 )
+285:               })}
+286:             </div>
+287:           </div>
+288: 
+289:           {/* Contenido fijo: Disponibilidad + Calendario */}
+290:           <div className="p-4 md:p-6">
+291:             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+292:               <div className="min-w-0">
+293:                 <DisponibilidadInline onSuccess={fetchSeats} />
+294:               </div>
+295:               <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+296:                 <CalendarioCoworking />
+297:               </div>
+298:             </div>
+299:           </div>
+300: 
+301:         </div>
+302: 
+303:       </div>
+304: 
+305:       {/* Modales */}
+306:       <AsientosMapaModal
+307:         open={asientosOpen}
+308:         onOpenChange={setAsientosOpen}
+309:         seats={seats}
+310:         isBlocked={isBlocked && !isAdminMode}
+311:         eventoTitulo={eventoActivo?.titulo}
+312:       />
+313:       <AgendarModal
+314:         open={agendarOpen}
+315:         onOpenChange={setAgendarOpen}
+316:         onSuccess={fetchSeats}
+317:       />
+318: 
+319:     </div>
+320:   )
+321: }
 ```
 
 ## File: x.sh
 ```bash
   1: #!/usr/bin/env bash
   2: # ============================================================================
-  3: #  v30-coworking-front-seat-modal-ui.sh  — coworking-front
-  4: #  - Cards de asientos: fondo blanco sólido, sin blur, sombra nítida
-  5: #  - Modal asientos: UI de botones mejorada, layout más limpio
-  6: # ============================================================================
-  7: set -euo pipefail
-  8: 
-  9: GREEN='\033[0;32m'; RESET='\033[0m'
- 10: ok()   { echo -e "${GREEN}✅  $*${RESET}"; }
- 11: fail() { echo -e "\033[0;31m❌  $*${RESET}"; exit 1; }
- 12: 
- 13: [[ -f "package.json" && -d "app" ]] || fail "Corré desde la raíz de coworking-front"
- 14: 
- 15: echo ""
- 16: echo "════════════════════════════════════════════════════════════"
- 17: echo "  v30 · coworking-front · cards nítidas + modal mejorado"
- 18: echo "════════════════════════════════════════════════════════════"
- 19: echo ""
+  3: #  v32-front-fix-bloqueo-race-condition.sh  — coworking-front
+  4: #
+  5: #  Bug:  Las áreas quedan bloqueadas en la DB aunque no haya evento activo.
+  6: #
+  7: #  Root cause (dos problemas encadenados):
+  8: #    1. El useEffect de sync-evento depende de toggleBlockAll como dep,
+  9: #       que cambia de referencia y re-ejecuta el efecto con estado stale.
+ 10: #    2. El efecto no espera a que useEventoActivo termine de cargar
+ 11: #       (cargando:true → eventoActivo:null) → no dispara el unlock.
+ 12: #       Si el usuario navegó o refrescó mientras había evento, la DB quedó
+ 13: #       con todas las áreas OCUPADO y nadie las liberó.
+ 14: #
+ 15: #  Fix:
+ 16: #    · app/page.tsx  → useEffect usa useRef para toggleBlockAll (referencia
+ 17: #                      estable), y no actúa hasta que cargando === false.
+ 18: # ============================================================================
+ 19: set -euo pipefail
  20: 
- 21: # ── components/seat-grid.tsx ─────────────────────────────────────────────
- 22: # Cards: fondo blanco sólido, borde gris muy suave, sombra pequeña nítida
- 23: echo "📄  components/seat-grid.tsx"
- 24: cat > components/seat-grid.tsx << 'TSEOF'
- 25: "use client"
+ 21: GREEN='\033[0;32m'; RESET='\033[0m'
+ 22: ok()   { echo -e "${GREEN}✅  $*${RESET}"; }
+ 23: fail() { echo -e "\033[0;31m❌  $*${RESET}"; exit 1; }
+ 24: 
+ 25: [[ -f "package.json" && -d "app" ]] || fail "Corré desde la raíz de coworking-front"
  26: 
- 27: import type { Seat } from "@/types/seat"
- 28: import { seatStatusDot, seatStatusBadge, seatStatusLabel } from "@/lib/seat-utils"
- 29: import { cn } from "@/lib/utils"
- 30: 
- 31: interface SeatGridProps {
- 32:   seats:      Seat[]
- 33:   isBlocked?: boolean
- 34: }
- 35: 
- 36: export function SeatGrid({ seats, isBlocked }: SeatGridProps) {
- 37:   const seatsByRow = seats.reduce(
- 38:     (acc, seat) => {
- 39:       if (!acc[seat.row]) acc[seat.row] = []
- 40:       acc[seat.row].push(seat)
- 41:       return acc
- 42:     },
- 43:     {} as Record<string, Seat[]>,
- 44:   )
- 45: 
- 46:   const rows = Object.keys(seatsByRow).sort()
- 47: 
- 48:   return (
- 49:     <div className="space-y-4">
- 50:       {rows.map((row) => (
- 51:         <div key={row} className="flex items-start gap-3">
- 52:           {/* Letra de fila */}
- 53:           <div className="w-5 text-xs font-semibold text-slate-400 pt-3 flex-shrink-0 select-none">
- 54:             {row}
- 55:           </div>
- 56: 
- 57:           {/* Cards */}
- 58:           <div className="flex gap-2.5 flex-wrap flex-1">
- 59:             {seatsByRow[row]
- 60:               .sort((a, b) => a.number - b.number)
- 61:               .map((seat) => (
- 62:                 <div
- 63:                   key={seat.id}
- 64:                   title={`${seat.id} — ${seatStatusLabel[seat.status]}`}
- 65:                   className={cn(
- 66:                     // fondo blanco sólido, sin blur
- 67:                     "bg-white border border-slate-200 rounded-xl",
- 68:                     "shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
- 69:                     "flex flex-col items-center gap-1 px-2 py-2.5",
- 70:                     "w-[52px] select-none transition-shadow hover:shadow-[0_2px_6px_rgba(0,0,0,0.12)]",
- 71:                     isBlocked && "opacity-40 cursor-not-allowed pointer-events-none",
- 72:                   )}
- 73:                 >
- 74:                   {/* Punto de color */}
- 75:                   <span className={cn("w-2.5 h-2.5 rounded-full", seatStatusDot[seat.status])} />
- 76:                   {/* Número */}
- 77:                   <span className="text-[11px] font-bold text-slate-800 leading-none">
- 78:                     {seat.number}
- 79:                   </span>
- 80:                   {/* Badge */}
- 81:                   <span className={cn(
- 82:                     "text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-none whitespace-nowrap",
- 83:                     seatStatusBadge[seat.status],
- 84:                   )}>
- 85:                     {seatStatusLabel[seat.status]}
- 86:                   </span>
- 87:                 </div>
- 88:               ))}
- 89:           </div>
- 90:         </div>
- 91:       ))}
- 92:     </div>
- 93:   )
- 94: }
- 95: TSEOF
- 96: ok "components/seat-grid.tsx"
- 97: 
- 98: # ── components/asientos-mapa-modal.tsx ───────────────────────────────────
- 99: echo "📄  components/asientos-mapa-modal.tsx"
-100: cat > components/asientos-mapa-modal.tsx << 'TSEOF'
-101: "use client"
-102: 
-103: import { useState, useEffect } from "react"
-104: import Image from "next/image"
-105: import {
-106:   Dialog,
-107:   DialogContent,
-108:   DialogHeader,
-109:   DialogTitle,
-110:   DialogDescription,
-111: } from "@/components/ui/dialog"
-112: import { Badge }      from "@/components/ui/badge"
-113: import { Button }     from "@/components/ui/button"
-114: import { SeatGrid }   from "@/components/seat-grid"
-115: import { SeatLegend } from "@/components/seat-legend"
-116: import type { Seat }  from "@/types/seat"
-117: import { getAreaImage, getAreaLabel } from "@/lib/area-images"
-118: import { cn }         from "@/lib/utils"
-119: import { Armchair, ImageIcon, ChevronLeft, CheckCircle2, XCircle } from "lucide-react"
-120: 
-121: interface ZonaGroup {
-122:   letra:     string
-123:   seats:     Seat[]
-124:   isBlocked: boolean
-125:   eventName?: string
-126: }
+ 27: echo ""
+ 28: echo "════════════════════════════════════════════════════════════"
+ 29: echo "  v32 · coworking-front · fix bloqueo race condition"
+ 30: echo "════════════════════════════════════════════════════════════"
+ 31: echo ""
+ 32: 
+ 33: # ── app/page.tsx ─────────────────────────────────────────────────────────────
+ 34: echo "📄  app/page.tsx"
+ 35: cat > app/page.tsx << 'TSEOF'
+ 36: "use client"
+ 37: 
+ 38: import { useState, useEffect, useRef, useCallback } from "react"
+ 39: import { useRouter }             from "next/navigation"
+ 40: import { useAuth }               from "@/contexts/auth-context"
+ 41: import { useSeats }              from "@/hooks/use-seats"
+ 42: import { useEventoActivo }       from "@/hooks/use-evento-activo"
+ 43: import { AdminPanel }            from "@/components/admin-panel"
+ 44: import { AgendarModal }          from "@/components/agendar-modal"
+ 45: import { AsientosMapaModal }     from "@/components/asientos-mapa-modal"
+ 46: import { DisponibilidadInline }  from "@/components/disponibilidad-inline"
+ 47: import { CalendarioCoworking }   from "@/components/calendario-coworking"
+ 48: import { EventoActivoBanner }    from "@/components/evento-activo-banner"
+ 49: import { Button }                from "@/components/ui/button"
+ 50: import { Switch }                from "@/components/ui/switch"
+ 51: import { Label }                 from "@/components/ui/label"
+ 52: import { cn }                    from "@/lib/utils"
+ 53: import { useToast }              from "@/hooks/use-toast"
+ 54: import {
+ 55:   Loader2, RefreshCw, LogOut, Menu,
+ 56:   CalendarPlus, MapPin, LayoutGrid,
+ 57: } from "lucide-react"
+ 58: import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+ 59: 
+ 60: type Accion = "disponibilidad" | "asientos" | "agendar"
+ 61: 
+ 62: const ACCIONES: { id: Accion; label: string; icon: React.ElementType; esModal: boolean }[] = [
+ 63:   { id: "disponibilidad", label: "Disponibilidad",  icon: MapPin,       esModal: false },
+ 64:   { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid,   esModal: true  },
+ 65:   { id: "agendar",        label: "Agendar",         icon: CalendarPlus, esModal: true  },
+ 66: ]
+ 67: 
+ 68: const POLLING_MS = 30_000
+ 69: 
+ 70: export default function CoworkingSeatsPage() {
+ 71:   const router  = useRouter()
+ 72:   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
+ 73:   const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
+ 74:   const { eventoActivo, cargando: eventoCargando }       = useEventoActivo()
+ 75:   const { toast }              = useToast()
+ 76: 
+ 77:   const [isAdminMode,    setIsAdminMode]    = useState(false)
+ 78:   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+ 79:   const [asientosOpen,   setAsientosOpen]   = useState(false)
+ 80:   const [agendarOpen,    setAgendarOpen]    = useState(false)
+ 81: 
+ 82:   // ── Ref del último evento que disparó bloqueo ─────────────────────────────
+ 83:   // Guardamos el ID (string) o null.
+ 84:   // Usamos ref para no incluirlo como dep del useEffect de sync.
+ 85:   const bloqueadoPorEventoRef = useRef<string | null>(null)
+ 86: 
+ 87:   // ── Ref estable de toggleBlockAll — evita que el useEffect de sync
+ 88:   //    se re-ejecute cada vez que toggleBlockAll cambia de referencia.
+ 89:   const toggleBlockAllRef = useRef(toggleBlockAll)
+ 90:   useEffect(() => { toggleBlockAllRef.current = toggleBlockAll }, [toggleBlockAll])
+ 91: 
+ 92:   // ── Auth guard ────────────────────────────────────────────────────────────
+ 93:   useEffect(() => {
+ 94:     if (!authLoading && !admin) router.push("/login")
+ 95:   }, [admin, authLoading, router])
+ 96: 
+ 97:   // ── Fetch inicial + polling ───────────────────────────────────────────────
+ 98:   useEffect(() => { fetchSeats() }, [fetchSeats])
+ 99: 
+100:   useEffect(() => {
+101:     const id = setInterval(fetchSeats, POLLING_MS)
+102:     return () => clearInterval(id)
+103:   }, [fetchSeats])
+104: 
+105:   // ── Sync bloqueo por evento ───────────────────────────────────────────────
+106:   // REGLA: no actuar hasta que useEventoActivo haya resuelto su primera
+107:   // consulta (cargando === false). Esto evita que el estado inicial null
+108:   // dispare un toggleBlockAll(false) prematuro cuando todavía no sabemos
+109:   // si hay evento.
+110:   useEffect(() => {
+111:     if (eventoCargando) return          // aún no sabemos → esperar
+112: 
+113:     const eventoId = eventoActivo?.id ?? null
+114: 
+115:     // Sin cambio real → no hacer nada
+116:     if (eventoId === bloqueadoPorEventoRef.current) return
+117: 
+118:     if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
+119:       // Nuevo evento detectado → bloquear
+120:       bloqueadoPorEventoRef.current = eventoId
+121:       toggleBlockAllRef.current(true).catch(() => {})
+122: 
+123:     } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
+124:       // Evento terminó → liberar
+125:       bloqueadoPorEventoRef.current = null
+126:       toggleBlockAllRef.current(false).catch(() => {})
 127: 
-128: interface AsientosMapaModalProps {
-129:   open:          boolean
-130:   onOpenChange:  (open: boolean) => void
-131:   seats:         Seat[]
-132:   isBlocked?:    boolean
-133:   eventoTitulo?: string
-134: }
+128:     } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
+129:       // Cambio de evento (raro) → actualizar ref sin re-bloquear
+130:       bloqueadoPorEventoRef.current = eventoId
+131:     }
+132: 
+133:   // Solo eventoActivo y eventoCargando como deps — toggleBlockAll va por ref.
+134:   }, [eventoActivo, eventoCargando])
 135: 
-136: function agruparPorZona(seats: Seat[], isBlocked: boolean, eventoTitulo?: string): ZonaGroup[] {
-137:   const map = new Map<string, Seat[]>()
-138:   for (const seat of seats) {
-139:     const letra = seat.zone ?? "A"
-140:     if (!map.has(letra)) map.set(letra, [])
-141:     map.get(letra)!.push(seat)
-142:   }
-143:   return Array.from(map.entries())
-144:     .sort(([a], [b]) => a.localeCompare(b))
-145:     .map(([letra, s]) => ({
-146:       letra,
-147:       seats:     s,
-148:       isBlocked,
-149:       eventName: isBlocked ? eventoTitulo : undefined,
-150:     }))
-151: }
-152: 
-153: export function AsientosMapaModal({
-154:   open,
-155:   onOpenChange,
-156:   seats,
-157:   isBlocked = false,
-158:   eventoTitulo,
-159: }: AsientosMapaModalProps) {
+136:   const handleRefresh = useCallback(async () => {
+137:     await fetchSeats()
+138:     toast({ title: "Datos actualizados" })
+139:   }, [fetchSeats, toast])
+140: 
+141:   const handleAccion = (a: Accion) => {
+142:     if (a === "asientos") { setAsientosOpen(true); return }
+143:     if (a === "agendar")  { setAgendarOpen(true);  return }
+144:   }
+145: 
+146:   const bloqueadoPorEvento = eventoActivo !== null
+147:   const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
+148:   const isBlocked          = bloqueadoPorEvento || bloqueadoManual
+149:   const occupiedCount      = seats.filter((s) => s.status === "occupied").length
+150:   const availableCount     = seats.filter((s) => s.status === "available").length
+151: 
+152:   if (authLoading) {
+153:     return (
+154:       <div className="min-h-screen flex items-center justify-center">
+155:         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+156:       </div>
+157:     )
+158:   }
+159:   if (!admin) return null
 160: 
-161:   const [zonaSeleccionada, setZonaSeleccionada] = useState<ZonaGroup | null>(null)
-162:   const [imgError,         setImgError]         = useState(false)
-163: 
-164:   useEffect(() => {
-165:     if (!open) { setZonaSeleccionada(null); setImgError(false) }
-166:   }, [open])
-167: 
-168:   const zonas    = agruparPorZona(seats, isBlocked, eventoTitulo)
-169:   const libres   = zonaSeleccionada?.seats.filter((s) => s.status === "available").length ?? 0
-170:   const ocupados = zonaSeleccionada?.seats.filter((s) => s.status === "occupied").length  ?? 0
-171:   const imagen   = zonaSeleccionada ? getAreaImage(zonaSeleccionada.letra) : null
-172:   const label    = zonaSeleccionada ? getAreaLabel(zonaSeleccionada.letra) : ""
-173:   const descZona = zonaSeleccionada?.seats[0]?.amenities?.[0] ?? null
-174: 
-175:   return (
-176:     <Dialog open={open} onOpenChange={onOpenChange}>
-177:       <DialogContent className="max-w-3xl w-full max-h-[90vh] overflow-y-auto bg-white">
-178:         <DialogHeader>
-179:           <DialogTitle className="flex items-center gap-2 text-lg font-bold text-slate-900">
-180:             <Armchair className="w-5 h-5 text-primary" />
-181:             {zonaSeleccionada ? label : "Asientos / Mapa"}
-182:           </DialogTitle>
-183:           <DialogDescription className="text-slate-400 text-sm">
-184:             {zonaSeleccionada
-185:               ? `${libres} libre${libres !== 1 ? "s" : ""} · ${ocupados} ocupado${ocupados !== 1 ? "s" : ""}`
-186:               : "Seleccioná una zona para ver el estado de sus asientos"}
-187:           </DialogDescription>
-188:         </DialogHeader>
-189: 
-190:         {/* ── Vista: grilla de zonas ───────────────────────────────── */}
-191:         {!zonaSeleccionada && (
-192:           <div className="space-y-4 py-1">
-193: 
-194:             <SeatLegend />
-195: 
-196:             {isBlocked && eventoTitulo && (
-197:               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm">
-198:                 <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
-199:                 <span><span className="font-semibold">Evento activo:</span> {eventoTitulo}</span>
-200:               </div>
-201:             )}
-202: 
-203:             <div className="grid grid-cols-2 gap-3">
-204:               {zonas.map((zona) => {
-205:                 const img   = getAreaImage(zona.letra)
-206:                 const lbl   = getAreaLabel(zona.letra)
-207:                 const lib   = zona.seats.filter((s) => s.status === "available").length
-208:                 const ocu   = zona.seats.filter((s) => s.status === "occupied").length
-209:                 const total = zona.seats.length
-210:                 const pct   = total > 0 ? Math.round((ocu / total) * 100) : 0
-211: 
-212:                 return (
-213:                   <button
-214:                     key={zona.letra}
-215:                     type="button"
-216:                     onClick={() => { setImgError(false); setZonaSeleccionada(zona) }}
-217:                     className="group text-left rounded-2xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(0,0,0,0.07)] hover:border-primary/40 hover:shadow-[0_4px_12px_rgba(0,0,0,0.10)] transition-all overflow-hidden"
-218:                   >
-219:                     {/* Imagen */}
-220:                     <div className="relative w-full h-36 bg-slate-100 overflow-hidden">
-221:                       {img ? (
-222:                         <Image
-223:                           src={img}
-224:                           alt={lbl}
-225:                           fill
-226:                           className="object-cover group-hover:scale-[1.03] transition-transform duration-300"
-227:                           sizes="(max-width: 640px) 100vw, 50vw"
-228:                         />
-229:                       ) : (
-230:                         <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-slate-300">
-231:                           <ImageIcon className="w-7 h-7" />
-232:                           <span className="text-xs">Sin imagen</span>
-233:                         </div>
-234:                       )}
-235:                       {/* Label sobre imagen */}
-236:                       <div className="absolute top-2.5 left-3">
-237:                         <span className="text-base font-bold text-white drop-shadow-sm">{lbl}</span>
-238:                       </div>
-239:                       {/* Badge estado */}
-240:                       <div className="absolute top-2.5 right-2.5">
-241:                         {zona.isBlocked ? (
-242:                           <span className="text-[10px] font-semibold bg-orange-500 text-white px-2 py-0.5 rounded-full">Bloqueada</span>
-243:                         ) : ocu === total && total > 0 ? (
-244:                           <span className="text-[10px] font-semibold bg-red-500 text-white px-2 py-0.5 rounded-full">Llena</span>
-245:                         ) : lib === total ? (
-246:                           <span className="text-[10px] font-semibold bg-green-500 text-white px-2 py-0.5 rounded-full">Libre</span>
-247:                         ) : (
-248:                           <span className="text-[10px] font-semibold bg-yellow-500 text-white px-2 py-0.5 rounded-full">Parcial</span>
-249:                         )}
-250:                       </div>
-251:                     </div>
-252: 
-253:                     {/* Info */}
-254:                     <div className="px-3 py-2.5 space-y-2">
-255:                       {/* Barra */}
-256:                       <div className="w-full h-1.5 rounded-full bg-slate-100 overflow-hidden">
-257:                         <div
-258:                           className={cn(
-259:                             "h-full rounded-full transition-all",
-260:                             pct === 100 ? "bg-red-400" : pct > 50 ? "bg-yellow-400" : "bg-green-400"
-261:                           )}
-262:                           style={{ width: `${pct}%` }}
-263:                         />
-264:                       </div>
-265:                       {/* Contadores */}
-266:                       <div className="flex items-center gap-3 text-xs text-slate-500">
-267:                         <span className="flex items-center gap-1">
-268:                           <span className="w-2 h-2 rounded-full bg-green-500" />
-269:                           {lib} libres
-270:                         </span>
-271:                         <span className="flex items-center gap-1">
-272:                           <span className="w-2 h-2 rounded-full bg-red-400" />
-273:                           {ocu} ocupados
-274:                         </span>
-275:                       </div>
-276:                     </div>
-277:                   </button>
-278:                 )
-279:               })}
-280:             </div>
-281:           </div>
-282:         )}
-283: 
-284:         {/* ── Vista: detalle de zona ───────────────────────────────── */}
-285:         {zonaSeleccionada && (
-286:           <div className="space-y-4 py-1">
-287: 
-288:             {/* Botón volver */}
-289:             <button
-290:               type="button"
-291:               onClick={() => { setZonaSeleccionada(null); setImgError(false) }}
-292:               className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-700 transition-colors -ml-0.5"
-293:             >
-294:               <ChevronLeft className="w-4 h-4" />
-295:               Todas las zonas
-296:             </button>
-297: 
-298:             {/* Imagen grande */}
-299:             {imagen && !imgError && (
-300:               <div className="relative w-full h-48 rounded-2xl overflow-hidden bg-slate-100">
-301:                 <Image
-302:                   src={imagen}
-303:                   alt={label}
-304:                   fill
-305:                   className="object-cover"
-306:                   sizes="(max-width: 768px) 100vw, 700px"
-307:                   onError={() => setImgError(true)}
-308:                 />
-309:                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-310:                 <div className="absolute bottom-3.5 left-4">
-311:                   <p className="text-xl font-bold text-white drop-shadow">{label}</p>
-312:                   {descZona && (
-313:                     <p className="text-xs text-white/75 max-w-sm line-clamp-2 mt-0.5">{descZona}</p>
-314:                   )}
-315:                 </div>
-316:               </div>
-317:             )}
-318: 
-319:             {/* Stats: 3 pills limpias */}
-320:             <div className="flex items-center gap-2 flex-wrap">
-321:               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
-322:                 <span className="w-2 h-2 rounded-full bg-green-500" />
-323:                 <span className="font-semibold text-slate-700">{libres}</span>
-324:                 <span className="text-slate-400">libre{libres !== 1 ? "s" : ""}</span>
-325:               </div>
-326:               <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-sm">
-327:                 <span className="w-2 h-2 rounded-full bg-red-400" />
-328:                 <span className="font-semibold text-slate-700">{ocupados}</span>
-329:                 <span className="text-slate-400">ocupado{ocupados !== 1 ? "s" : ""}</span>
-330:               </div>
-331:               {zonaSeleccionada.isBlocked && (
-332:                 <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm text-orange-700">
-333:                   <span className="w-2 h-2 rounded-full bg-orange-400" />
-334:                   {zonaSeleccionada.eventName
-335:                     ? `Bloqueada: ${zonaSeleccionada.eventName}`
-336:                     : "Bloqueada por evento"}
-337:                 </div>
-338:               )}
-339:             </div>
-340: 
-341:             {/* Grid de asientos */}
-342:             <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-343:               <SeatGrid seats={zonaSeleccionada.seats} isBlocked={zonaSeleccionada.isBlocked} />
-344:             </div>
-345: 
-346:             <SeatLegend />
-347:           </div>
-348:         )}
-349:       </DialogContent>
-350:     </Dialog>
-351:   )
-352: }
-353: TSEOF
-354: ok "components/asientos-mapa-modal.tsx"
-355: 
-356: # ── TypeScript check ──────────────────────────────────────────────────────
-357: echo ""
-358: echo "🔨  TypeScript check..."
-359: pnpm exec tsc --noEmit --skipLibCheck 2>&1 | head -40 || true
-360: 
+161:   if (loading && seats.length === 0) {
+162:     return (
+163:       <div className="min-h-screen flex items-center justify-center px-4">
+164:         <div className="text-center space-y-3">
+165:           <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+166:           <p className="text-muted-foreground text-sm">Cargando áreas...</p>
+167:         </div>
+168:       </div>
+169:     )
+170:   }
+171: 
+172:   return (
+173:     <div className="min-h-screen bg-background pb-28">
+174:       <div className="max-w-screen-2xl mx-auto px-4 md:px-8 py-6 md:py-8 space-y-6">
+175: 
+176:         {/* ══ Header ════════════════════════════════════════════════ */}
+177:         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+178: 
+179:           <div>
+180:             <h1 className="text-3xl font-bold text-foreground">
+181:               Coworking <span className="text-primary">NODO</span>
+182:             </h1>
+183:             <p className="text-muted-foreground mt-1 text-sm">
+184:               Gestión de asientos en tiempo real
+185:             </p>
+186:           </div>
+187: 
+188:           {/* Controles desktop */}
+189:           <div className="hidden sm:flex items-center gap-2 flex-wrap">
+190:             <Button
+191:               variant="outline"
+192:               size="icon"
+193:               className="bg-white"
+194:               onClick={handleRefresh}
+195:               disabled={loading}
+196:               title="Actualizar"
+197:             >
+198:               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+199:             </Button>
+200: 
+201:             {isAdmin && (
+202:               <div className="flex items-center gap-2 bg-white border border-border rounded-md px-3 h-9">
+203:                 <Switch
+204:                   id="admin-mode"
+205:                   checked={isAdminMode}
+206:                   onCheckedChange={setIsAdminMode}
+207:                   className="scale-90"
+208:                 />
+209:                 <Label htmlFor="admin-mode" className="text-sm cursor-pointer whitespace-nowrap">
+210:                   Modo Admin
+211:                 </Label>
+212:               </div>
+213:             )}
+214: 
+215:             <Button
+216:               variant="outline"
+217:               size="icon"
+218:               className="bg-white text-muted-foreground hover:text-destructive"
+219:               onClick={logout}
+220:               title="Cerrar sesión"
+221:             >
+222:               <LogOut className="w-4 h-4" />
+223:             </Button>
+224:           </div>
+225: 
+226:           {/* Controles mobile */}
+227:           <div className="flex sm:hidden items-center gap-2 self-end">
+228:             <Button variant="outline" size="icon" className="bg-white h-9 w-9"
+229:               onClick={handleRefresh} disabled={loading}>
+230:               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+231:             </Button>
+232:             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+233:               <SheetTrigger asChild>
+234:                 <Button variant="outline" size="icon" className="bg-white h-9 w-9">
+235:                   <Menu className="w-4 h-4" />
+236:                 </Button>
+237:               </SheetTrigger>
+238:               <SheetContent side="right" className="w-72">
+239:                 <div className="space-y-3 pt-4">
+240:                   <div className="pb-3 border-b">
+241:                     <p className="font-semibold">{admin.nombre ?? admin.email}</p>
+242:                     <p className="text-xs text-muted-foreground">{admin.email}</p>
+243:                   </div>
+244:                   <Button variant="outline" className="w-full justify-start gap-2"
+245:                     onClick={() => { handleRefresh(); setMobileMenuOpen(false) }}>
+246:                     <RefreshCw className="w-4 h-4" /> Actualizar
+247:                   </Button>
+248:                   {isAdmin && (
+249:                     <div className="flex items-center gap-2 py-1">
+250:                       <Switch id="admin-mode-mobile" checked={isAdminMode} onCheckedChange={setIsAdminMode} />
+251:                       <Label htmlFor="admin-mode-mobile" className="cursor-pointer">Modo Admin</Label>
+252:                     </div>
+253:                   )}
+254:                   <Button variant="outline"
+255:                     className="w-full justify-start gap-2 text-destructive hover:text-destructive"
+256:                     onClick={logout}>
+257:                     <LogOut className="w-4 h-4" /> Cerrar sesión
+258:                   </Button>
+259:                 </div>
+260:               </SheetContent>
+261:             </Sheet>
+262:           </div>
+263: 
+264:         </div>
+265: 
+266:         {/* Banner evento activo */}
+267:         {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
+268: 
+269:         {/* Stats */}
+270:         <div className="grid grid-cols-3 gap-3">
+271:           <div className="bg-white rounded-xl border border-border p-3 md:p-4 text-center shadow-sm">
+272:             <p className="text-xl md:text-2xl font-bold text-foreground">{seats.length}</p>
+273:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Total</p>
+274:           </div>
+275:           <div className="bg-white rounded-xl border border-green-100 p-3 md:p-4 text-center shadow-sm">
+276:             <p className="text-xl md:text-2xl font-bold text-green-500">{availableCount}</p>
+277:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Libres</p>
+278:           </div>
+279:           <div className="bg-white rounded-xl border border-red-100 p-3 md:p-4 text-center shadow-sm">
+280:             <p className="text-xl md:text-2xl font-bold text-red-500">{occupiedCount}</p>
+281:             <p className="text-[10px] md:text-xs text-muted-foreground mt-0.5">Ocupados</p>
+282:           </div>
+283:         </div>
+284: 
+285:         {/* Admin panel */}
+286:         {isAdminMode && isAdmin && !bloqueadoPorEvento && (
+287:           <AdminPanel isBlocked={bloqueadoManual} onToggleBlock={toggleBlockAll} />
+288:         )}
+289:         {isAdminMode && isAdmin && bloqueadoPorEvento && (
+290:           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
+291:             El panel de administración está deshabilitado mientras haya un evento activo.
+292:             Las áreas se liberarán automáticamente cuando el evento termine.
+293:           </div>
+294:         )}
+295: 
+296:         {/* ══ Card principal ════════════════════════════════════════ */}
+297:         <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+298: 
+299:           {/* Barra de acciones */}
+300:           <div className="border-b border-border px-4 pt-4 pb-0">
+301:             <div className="flex gap-1 overflow-x-auto scrollbar-none">
+302:               {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
+303:                 const isActive = !esModal && id === "disponibilidad"
+304:                 return (
+305:                   <button
+306:                     key={id}
+307:                     onClick={() => handleAccion(id)}
+308:                     className={cn(
+309:                       "flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors whitespace-nowrap flex-shrink-0",
+310:                       isActive
+311:                         ? "border-primary text-primary bg-primary/5"
+312:                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40",
+313:                       esModal ? "hover:text-primary" : "",
+314:                     )}
+315:                   >
+316:                     <Icon className="w-4 h-4" />
+317:                     <span>{label}</span>
+318:                   </button>
+319:                 )
+320:               })}
+321:             </div>
+322:           </div>
+323: 
+324:           {/* Contenido fijo: Disponibilidad + Calendario */}
+325:           <div className="p-4 md:p-6">
+326:             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
+327:               <div className="min-w-0">
+328:                 <DisponibilidadInline onSuccess={fetchSeats} />
+329:               </div>
+330:               <div className="min-w-0 border-t lg:border-t-0 lg:border-l border-border pt-6 lg:pt-0 lg:pl-8">
+331:                 <CalendarioCoworking />
+332:               </div>
+333:             </div>
+334:           </div>
+335: 
+336:         </div>
+337: 
+338:       </div>
+339: 
+340:       {/* Modales */}
+341:       <AsientosMapaModal
+342:         open={asientosOpen}
+343:         onOpenChange={setAsientosOpen}
+344:         seats={seats}
+345:         isBlocked={isBlocked && !isAdminMode}
+346:         eventoTitulo={eventoActivo?.titulo}
+347:       />
+348:       <AgendarModal
+349:         open={agendarOpen}
+350:         onOpenChange={setAgendarOpen}
+351:         onSuccess={fetchSeats}
+352:       />
+353: 
+354:     </div>
+355:   )
+356: }
+357: TSEOF
+358: ok "app/page.tsx"
+359: 
+360: # ── TypeScript check ──────────────────────────────────────────────────────────
 361: echo ""
-362: echo "🔨  Build..."
-363: pnpm build
+362: echo "🔨  TypeScript check..."
+363: pnpm exec tsc --noEmit --skipLibCheck 2>&1 | head -40 || true
 364: 
 365: echo ""
-366: echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
-367: echo -e "\033[0;32m  ✅  v30 completado\033[0m"
-368: echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
+366: echo "🔨  Build..."
+367: pnpm build
+368: 
 369: echo ""
-370: echo "  Archivos tocados:"
-371: echo "    components/seat-grid.tsx          → fondo blanco sólido, sombra nítida"
-372: echo "    components/asientos-mapa-modal.tsx → modal limpio, pills de stats,"
-373: echo "                                         botón volver como texto, bg-white"
-374: echo ""
+370: echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
+371: echo -e "\033[0;32m  ✅  v32 completado\033[0m"
+372: echo -e "\033[0;32m════════════════════════════════════════════════════════════\033[0m"
+373: echo ""
+374: echo "  Cambios en app/page.tsx:"
+375: echo "    · toggleBlockAllRef  → ref estable, no dep del useEffect"
+376: echo "    · Guard eventoCargando → espera que useEventoActivo resuelva"
+377: echo "    · admin.nombre ?? admin.email → evita blank en header mobile"
+378: echo ""
+379: echo "  ⚠️  Los asientos en la DB siguen OCUPADO."
+380: echo "  Para liberarlos ahora, usá el AdminPanel (Modo Admin → Desbloquear)"
+381: echo "  o ejecutá en la DB directamente:"
+382: echo "    UPDATE \"Area\" SET estado = 'LIBRE';"
+383: echo ""
 ```

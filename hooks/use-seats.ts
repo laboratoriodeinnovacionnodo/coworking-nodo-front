@@ -1,23 +1,23 @@
 "use client"
 
-import { useState, useCallback, useRef, useEffect } from "react"
-import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
+import { useState, useCallback, useRef } from "react"
 import type { Seat } from "@/types/seat"
+import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
+import type { Recepcion } from "@/components/seat-status-modal"
 
-// Polling cada 30s — suficiente para datos en tiempo real sin saturar la DB
 const POLLING_MS = 30_000
 
 export function useSeats() {
-  const { toast }    = useToast()
-  const toastRef     = useRef(toast)
-  useEffect(() => { toastRef.current = toast }, [toast])
+  const { toast } = useToast()
+  const toastRef  = useRef(toast)
+  toastRef.current = toast
 
   const [seats,   setSeats]   = useState<Seat[]>([])
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
-  // ── fetchSeats: estable, no se recrea entre renders ──────────────────────
+  // ── fetchSeats ────────────────────────────────────────────────────────────
   const fetchSeats = useCallback(async () => {
     try {
       setLoading(true)
@@ -33,15 +33,16 @@ export function useSeats() {
     } finally {
       setLoading(false)
     }
-  }, []) // sin deps → referencia estable entre renders
+  }, [])
 
-  // ── updateSeatStatus ─────────────────────────────────────────────────────
+  // ── updateSeatStatus ──────────────────────────────────────────────────────
   const updateSeatStatus = useCallback(async (
     seat: Seat,
     newStatus: string,
     userName?: string,
     peopleCount?: number,
     shareLimit?: number,
+    recepcion?: Recepcion,
   ) => {
     if (!seat.backendId) throw new Error("Asiento sin ID de backend")
 
@@ -49,7 +50,6 @@ export function useSeats() {
       if (newStatus === "occupied" || newStatus === "for-share" || newStatus === "shared") {
         if (!userName) throw new Error("Nombre de usuario requerido")
 
-        // Buscar usuario por nombre
         const user = await (async () => {
           try {
             const res = await fetch(
@@ -68,7 +68,13 @@ export function useSeats() {
             ? `Para compartir (límite: ${shareLimit || 6}, personas: ${peopleCount})`
             : `Ocupado por ${peopleCount} persona(s)`
 
-        await reservasApi.create({ nombre: userName, detalles, usuarioId, areaId: seat.backendId })
+        await reservasApi.create({
+          nombre: userName,
+          detalles,
+          usuarioId,
+          areaId: seat.backendId,
+          ...(recepcion && { recepcion }),
+        })
 
         if (newStatus === "for-share") {
           const reservas    = await reservasApi.getAll()
@@ -93,7 +99,7 @@ export function useSeats() {
     }
   }, [fetchSeats])
 
-  // ── toggleBlockAll ───────────────────────────────────────────────────────
+  // ── toggleBlockAll ────────────────────────────────────────────────────────
   const toggleBlockAll = useCallback(async (block: boolean) => {
     try {
       setLoading(true)

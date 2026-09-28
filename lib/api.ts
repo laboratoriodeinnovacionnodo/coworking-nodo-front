@@ -76,7 +76,7 @@ export const areasApi = {
   },
   bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
     const estado = bloquear ? "OCUPADO" : "LIBRE"
-    const areas = await areasApi.getAll()
+    const areas  = await areasApi.getAll()
     const results = await Promise.all(
       areas.map((area) =>
         fetch(`${API_BASE_URL}/areas/${area.id}/estado/${estado}`, { method: "PATCH" }).then((r) => {
@@ -93,6 +93,14 @@ export const areasApi = {
   },
 }
 
+// ── Payload tipado para actualizar reservas ───────────────────────────────────
+export interface UpdateReservaPayload {
+  nombre?:    string
+  detalles?:  string
+  areaId?:    number
+  recepcion?: "MANANA" | "INTERMEDIO" | "TARDE"
+}
+
 export const reservasApi = {
   getAll: async (): Promise<BackendReserva[]> => {
     const res = await fetch(`${API_BASE_URL}/reservas`, { headers: { "Content-Type": "application/json" } })
@@ -104,18 +112,24 @@ export const reservasApi = {
     if (!res.ok) throw new Error("Error al obtener reserva")
     return res.json()
   },
-  create: async (data: { nombre: string; detalles?: string; usuarioId: number; areaId: number }): Promise<BackendReserva> => {
+  create: async (data: {
+    nombre:     string
+    detalles?:  string
+    usuarioId:  number
+    areaId:     number
+    recepcion?: "MANANA" | "INTERMEDIO" | "TARDE"
+  }): Promise<BackendReserva> => {
     const res = await fetch(`${API_BASE_URL}/reservas`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
     })
     if (!res.ok) { const e = await res.text(); throw new Error(`Error al crear reserva: ${e}`) }
     return res.json()
   },
-  update: async (id: number, data: Partial<BackendReserva>): Promise<BackendReserva> => {
+  update: async (id: number, data: UpdateReservaPayload): Promise<BackendReserva> => {
     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
     })
-    if (!res.ok) throw new Error("Error al actualizar reserva")
+    if (!res.ok) { const e = await res.text(); throw new Error(`Error al actualizar reserva: ${e}`) }
     return res.json()
   },
   completar: async (id: number): Promise<BackendReserva> => {
@@ -169,6 +183,7 @@ export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendRes
     number:      numero,
     status:      (reverseStatusMap[area.estado] || "available") as "available" | "occupied",
     userName:    activeReservas[0]?.nombre,
+    reservaId:   activeReservas[0]?.id,
     occupiedAt:  activeReservas[0]?.inicio ? new Date(activeReservas[0].inicio) : undefined,
     peopleCount: activeReservas.length,
     zone:        letra,

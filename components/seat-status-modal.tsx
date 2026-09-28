@@ -17,6 +17,15 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 
+// ── Tipos de recepción alineados con el enum del backend ─────────────────────
+export type Recepcion = "MANANA" | "INTERMEDIO" | "TARDE"
+
+const recepcionLabels: Record<Recepcion, string> = {
+  MANANA:     "Mañana",
+  INTERMEDIO: "Intermedio",
+  TARDE:      "Tarde",
+}
+
 interface SeatStatusModalProps {
   seat: Seat | null
   open: boolean
@@ -27,15 +36,17 @@ interface SeatStatusModalProps {
     userName?: string,
     shareLimit?: number,
     peopleCount?: number,
+    recepcion?: Recepcion,
   ) => void
   isAdmin?: boolean
 }
 
 export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin = false }: SeatStatusModalProps) {
-  const [userName, setUserName] = useState("")
+  const [userName,      setUserName]      = useState("")
   const [selectedStatus, setSelectedStatus] = useState<SeatStatus>("occupied")
-  const [shareLimit, setShareLimit] = useState("2")
-  const [peopleCount, setPeopleCount] = useState("1")
+  const [shareLimit,    setShareLimit]    = useState("2")
+  const [peopleCount,   setPeopleCount]   = useState("1")
+  const [recepcion,     setRecepcion]     = useState<Recepcion>("MANANA")
 
   if (!seat) return null
 
@@ -43,11 +54,12 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
     if (userName.trim()) {
       const limit = selectedStatus === "for-share" ? Number.parseInt(shareLimit) : undefined
       const count = Number.parseInt(peopleCount)
-      onUpdateStatus(seat.id, selectedStatus, userName, limit, count)
+      onUpdateStatus(seat.id, selectedStatus, userName, limit, count, recepcion)
       setUserName("")
       setSelectedStatus("occupied")
       setShareLimit("2")
       setPeopleCount("1")
+      setRecepcion("MANANA")
       onClose()
     }
   }
@@ -166,9 +178,12 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
             </Button>
           )}
 
+          {/* ── Formulario de registro (solo usuarios, área disponible) ──────── */}
           {!isAdmin && canOccupySeat(seat.status) && (
             <div className="space-y-4 p-3 md:p-4 bg-card border rounded-lg">
               <h3 className="font-semibold text-sm md:text-base">Crear Reserva</h3>
+
+              {/* Nombre */}
               <div className="space-y-2">
                 <Label htmlFor="userName" className="text-xs md:text-sm">Tu nombre</Label>
                 <Input
@@ -179,6 +194,8 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                   className="text-sm"
                 />
               </div>
+
+              {/* Número de personas */}
               <div className="space-y-2">
                 <Label htmlFor="peopleCount" className="text-xs md:text-sm">Número de personas</Label>
                 <Input
@@ -191,6 +208,25 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                   className="text-sm"
                 />
               </div>
+
+              {/* ── NUEVO: Turno de recepción ────────────────────────────────── */}
+              <div className="space-y-2">
+                <Label htmlFor="recepcion" className="text-xs md:text-sm">Turno de recepción</Label>
+                <Select value={recepcion} onValueChange={(value) => setRecepcion(value as Recepcion)}>
+                  <SelectTrigger id="recepcion" className="text-sm">
+                    <SelectValue placeholder="Seleccioná un turno" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(recepcionLabels) as Recepcion[]).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {recepcionLabels[key]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Estado del área */}
               <div className="space-y-2">
                 <Label htmlFor="assignStatus" className="text-xs md:text-sm">Estado del área</Label>
                 <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as SeatStatus)}>
@@ -207,6 +243,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                   </SelectContent>
                 </Select>
               </div>
+
               {selectedStatus === "for-share" && (
                 <div className="space-y-2">
                   <Label htmlFor="shareLimit" className="text-xs md:text-sm">Límite de personas</Label>
@@ -221,6 +258,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                   />
                 </div>
               )}
+
               <Button onClick={handleOccupySeat} className="w-full text-sm" disabled={!userName.trim()}>
                 Asignar asiento
               </Button>

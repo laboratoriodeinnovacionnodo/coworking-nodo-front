@@ -2,14 +2,18 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
+import { reservasApi }    from "@/lib/api"
 import type { Ocupacion } from "@/types/ocupacion"
-import { useToast } from "@/hooks/use-toast"
-import { Button } from "@/components/ui/button"
-import { Badge }  from "@/components/ui/badge"
+import type { BackendReserva } from "@/types/seat"
+import { useToast }       from "@/hooks/use-toast"
+import { Button }         from "@/components/ui/button"
+import { Badge }          from "@/components/ui/badge"
+import { EditarReservaModal } from "@/components/editar-reserva-modal"
 import {
   Loader2, MapPin, Clock, Users, Unlock,
-  RefreshCw, Inbox, Link2, ChevronDown, ChevronUp,
-  CalendarDays, AlertCircle, ChevronLeft, ChevronRight,
+  RefreshCw, Inbox, Link2, AlertCircle,
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Pencil,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -71,6 +75,10 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const [expandedId,  setExpandedId]  = useState<number | null>(null)
   const [pagina,      setPagina]      = useState(1)
 
+  // ── Edición de reservas ───────────────────────────────────────────────────
+  const [reservaEditando, setReservaEditando] = useState<BackendReserva | null>(null)
+  const [editModalOpen,   setEditModalOpen]   = useState(false)
+
   const cargar = useCallback(async (silencioso = false) => {
     if (!silencioso) setLoading(true)
     try {
@@ -84,7 +92,7 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
         return a.fechaDesde.localeCompare(b.fechaDesde)
       })
       setOcupaciones(pendientes)
-      setPagina(1) // resetear paginado al recargar
+      setPagina(1)
     } catch {
       if (!silencioso) {
         toastRef.current({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
@@ -114,6 +122,23 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
     }
   }
 
+  // Abre el modal de edición buscando la reserva activa del área
+  const handleEditarReserva = async (areaId: number, areaNombre: string) => {
+    try {
+      const todas   = await reservasApi.getAll()
+      const activa  = todas.find((r) => r.areaId === areaId && r.fin === null)
+      if (!activa) {
+        toastRef.current({ variant: "destructive", title: "No hay reserva activa en " + areaNombre })
+        return
+      }
+      // Enriquecer con info del área para mostrar en el modal
+      setReservaEditando({ ...activa, area: { id: areaId, nombre: areaNombre, estado: "OCUPADO", createdAt: "" } })
+      setEditModalOpen(true)
+    } catch {
+      toastRef.current({ variant: "destructive", title: "Error al cargar reserva" })
+    }
+  }
+
   const toggleExpand = (id: number) =>
     setExpandedId((prev) => (prev === id ? null : id))
 
@@ -124,193 +149,218 @@ export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
   const ocupacionesPag = ocupaciones.slice(inicio, inicio + POR_PAGINA)
 
   return (
-    <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
-          <MapPin className="w-3.5 h-3.5" />
-          Zonas ocupadas
-          {ocupaciones.length > 0 && (
-            <span className="ml-1 text-xs font-normal normal-case">
-              ({ocupaciones.length})
-            </span>
-          )}
-        </h3>
-        <Button
-          variant="ghost" size="sm"
-          className="h-7 gap-1.5 text-xs"
-          onClick={() => cargar()}
-          disabled={loading}
-        >
-          <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
-          Actualizar
-        </Button>
+    <>
+      <div className="space-y-3">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
+            <MapPin className="w-3.5 h-3.5" />
+            Zonas ocupadas
+            {ocupaciones.length > 0 && (
+              <span className="ml-1 text-xs font-normal normal-case">
+                ({ocupaciones.length})
+              </span>
+            )}
+          </h3>
+          <Button
+            variant="ghost" size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => cargar()}
+            disabled={loading}
+          >
+            <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
+            Actualizar
+          </Button>
+        </div>
+
+        {/* Contenido */}
+        {loading ? (
+          <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="text-sm">Cargando...</span>
+          </div>
+        ) : ocupaciones.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+            <Inbox className="w-8 h-8 opacity-30" />
+            <p className="text-sm font-medium">Sin zonas ocupadas</p>
+            <p className="text-xs opacity-60">Todos los espacios están disponibles</p>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {ocupacionesPag.map((oc) => {
+                const estado   = estadoOcupacion(oc)
+                const badge    = ESTADO_BADGE[estado]
+                const expanded = expandedId === oc.id
+
+                return (
+                  <div
+                    key={oc.id}
+                    className={cn(
+                      "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
+                      estado === "vencida" && "opacity-70",
+                    )}
+                  >
+                    {/* Fila principal */}
+                    <button
+                      type="button"
+                      className="w-full text-left px-4 py-3 flex items-start justify-between gap-2 hover:bg-muted/30 transition-colors"
+                      onClick={() => toggleExpand(oc.id)}
+                    >
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm truncate">{oc.titulo}</span>
+                          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 border", badge.className)}>
+                            {badge.label}
+                          </Badge>
+                          {estado === "vencida" && (
+                            <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            {formatFecha(oc.fechaDesde)}
+                            {oc.fechaDesde !== oc.fechaHasta && ` → ${formatFecha(oc.fechaHasta)}`}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {oc.horaDesde} – {oc.horaHasta}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            {oc.cantidadPersonas}
+                          </span>
+                        </div>
+                      </div>
+                      {expanded
+                        ? <ChevronUp   className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                        : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                      }
+                    </button>
+
+                    {/* Detalle expandido */}
+                    {expanded && (
+                      <div className="px-4 pb-4 pt-0 space-y-3 border-t bg-muted/10">
+                        {estado === "vencida" && (
+                          <div className="flex items-center gap-2 pt-3 text-xs text-red-600">
+                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                            El horario ya pasó. Liberá las zonas para que queden disponibles.
+                          </div>
+                        )}
+
+                        {/* Áreas con lápiz de edición por cada una */}
+                        <div className="space-y-1 pt-3">
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <MapPin className="w-3 h-3" /> Zonas:
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {oc.areas?.length > 0
+                              ? oc.areas.map((r) => (
+                                  <div key={r.areaId} className="flex items-center gap-1">
+                                    <Badge variant="secondary" className="text-xs">
+                                      {r.area?.nombre ?? `Área ${r.areaId}`}
+                                    </Badge>
+                                    {/* ── Lápiz de edición ──────────────────── */}
+                                    <button
+                                      type="button"
+                                      title={`Editar reserva de ${r.area?.nombre ?? `Área ${r.areaId}`}`}
+                                      className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleEditarReserva(r.areaId, r.area?.nombre ?? `Área ${r.areaId}`)
+                                      }}
+                                    >
+                                      <Pencil className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))
+                              : <span className="text-xs text-muted-foreground">Sin zonas</span>
+                            }
+                          </div>
+                        </div>
+
+                        {oc.requerimiento && (
+                          <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
+                        )}
+                        {oc.anexos?.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Link2 className="w-3 h-3" /> Anexos:
+                            </p>
+                            {oc.anexos.map((url, i) => (
+                              <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                                className="text-xs text-primary underline truncate block">{url}</a>
+                            ))}
+                          </div>
+                        )}
+                        <div className="pt-1">
+                          <Button
+                            size="sm" variant="outline"
+                            className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
+                            onClick={() => liberar(oc)}
+                            disabled={liberando === oc.id}
+                          >
+                            {liberando === oc.id
+                              ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
+                              : <><Unlock className="w-3 h-3" /> Liberar áreas</>
+                            }
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Paginado */}
+            {totalPaginas > 1 && (
+              <div className="flex items-center justify-between pt-1">
+                <p className="text-xs text-muted-foreground">
+                  {inicio + 1}–{Math.min(inicio + POR_PAGINA, ocupaciones.length)} de {ocupaciones.length}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline" size="icon" className="h-7 w-7"
+                    onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                    disabled={paginaActual === 1}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </Button>
+                  {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
+                    <Button
+                      key={n}
+                      variant={n === paginaActual ? "default" : "outline"}
+                      size="icon" className="h-7 w-7 text-xs"
+                      onClick={() => setPagina(n)}
+                    >
+                      {n}
+                    </Button>
+                  ))}
+                  <Button
+                    variant="outline" size="icon" className="h-7 w-7"
+                    onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                    disabled={paginaActual === totalPaginas}
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Contenido */}
-      {loading ? (
-        <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          <span className="text-sm">Cargando...</span>
-        </div>
-      ) : ocupaciones.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-          <Inbox className="w-8 h-8 opacity-30" />
-          <p className="text-sm font-medium">Sin zonas ocupadas</p>
-          <p className="text-xs opacity-60">Todos los espacios están disponibles</p>
-        </div>
-      ) : (
-        <>
-          <div className="space-y-2">
-            {ocupacionesPag.map((oc) => {
-              const estado   = estadoOcupacion(oc)
-              const badge    = ESTADO_BADGE[estado]
-              const expanded = expandedId === oc.id
-
-              return (
-                <div
-                  key={oc.id}
-                  className={cn(
-                    "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
-                    estado === "vencida" && "opacity-70",
-                  )}
-                >
-                  {/* Fila principal */}
-                  <button
-                    type="button"
-                    className="w-full text-left px-4 py-3 flex items-start justify-between gap-2 hover:bg-muted/30 transition-colors"
-                    onClick={() => toggleExpand(oc.id)}
-                  >
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-sm truncate">{oc.titulo}</span>
-                        <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 border", badge.className)}>
-                          {badge.label}
-                        </Badge>
-                        {estado === "vencida" && (
-                          <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <CalendarDays className="w-3 h-3" />
-                          {formatFecha(oc.fechaDesde)}
-                          {oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0] &&
-                            ` → ${formatFecha(oc.fechaHasta)}`}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {oc.horaDesde} – {oc.horaHasta}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Users className="w-3 h-3" />
-                          {oc.cantidadPersonas}
-                        </span>
-                      </div>
-                    </div>
-                    {expanded
-                      ? <ChevronUp   className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                      : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                    }
-                  </button>
-
-                  {/* Detalle expandido */}
-                  {expanded && (
-                    <div className="px-4 pb-4 pt-0 space-y-3 border-t bg-muted/10">
-                      {estado === "vencida" && (
-                        <div className="flex items-center gap-2 pt-3 text-xs text-red-600">
-                          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                          El horario ya pasó. Liberá las zonas para que queden disponibles.
-                        </div>
-                      )}
-                      <div className="space-y-1 pt-3">
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> Zonas:
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {oc.areas?.length > 0
-                            ? oc.areas.map((r) => (
-                                <Badge key={r.areaId} variant="secondary" className="text-xs">
-                                  {r.area?.nombre ?? `Área ${r.areaId}`}
-                                </Badge>
-                              ))
-                            : <span className="text-xs text-muted-foreground">Sin zonas</span>
-                          }
-                        </div>
-                      </div>
-                      {oc.requerimiento && (
-                        <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
-                      )}
-                      {oc.anexos?.length > 0 && (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Link2 className="w-3 h-3" /> Anexos:
-                          </p>
-                          {oc.anexos.map((url, i) => (
-                            <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                              className="text-xs text-primary underline truncate block">{url}</a>
-                          ))}
-                        </div>
-                      )}
-                      <div className="pt-1">
-                        <Button
-                          size="sm" variant="outline"
-                          className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
-                          onClick={() => liberar(oc)}
-                          disabled={liberando === oc.id}
-                        >
-                          {liberando === oc.id
-                            ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
-                            : <><Unlock className="w-3 h-3" /> Liberar áreas</>
-                          }
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Paginado — solo si hay más de una página */}
-          {totalPaginas > 1 && (
-            <div className="flex items-center justify-between pt-1">
-              <p className="text-xs text-muted-foreground">
-                {inicio + 1}–{Math.min(inicio + POR_PAGINA, ocupaciones.length)} de {ocupaciones.length}
-              </p>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline" size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                  disabled={paginaActual === 1}
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
-                  <Button
-                    key={n}
-                    variant={n === paginaActual ? "default" : "outline"}
-                    size="icon"
-                    className="h-7 w-7 text-xs"
-                    onClick={() => setPagina(n)}
-                  >
-                    {n}
-                  </Button>
-                ))}
-                <Button
-                  variant="outline" size="icon"
-                  className="h-7 w-7"
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                  disabled={paginaActual === totalPaginas}
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
+      {/* Modal de edición */}
+      <EditarReservaModal
+        reserva={reservaEditando}
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+        onSuccess={() => {
+          cargar(true)
+          onSuccess?.()
+        }}
+      />
+    </>
   )
 }
