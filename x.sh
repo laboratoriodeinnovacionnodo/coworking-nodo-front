@@ -1,599 +1,853 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  v29-front-editar-ocupacion.sh  — coworking-front
+#  v31-front-gmail-reserva.sh  — coworking-front
 #
-#  - components/editar-ocupacion-modal.tsx  (nuevo — mismo form que agendar
-#    pero en modo edición, precargado con la Ocupacion)
-#  - lib/ocupacion-api.ts                  (agrega update())
-#  - components/disponibilidad-inline.tsx  (lápiz abre modal de edición)
+#  - types/seat.ts               → agrega gmail a BackendReserva y Seat
+#  - lib/api.ts                  → gmail en create/update payload +
+#                                   convertBackendAreaToSeat lo propaga
+#  - components/seat-status-modal.tsx → orden del form:
+#                                   1. Gmail   ← nuevo, arriba
+#                                   2. Nombre
+#                                   3. Personas
+#                                   4. Estado
+#                                   5. Receptor  ← abajo
+#                                   6. Turno     ← abajo
+#                                   + muestra gmail en info de reserva activa
+#  - components/editar-reserva-modal.tsx → campo gmail
+#  - hooks/use-seats.ts          → pasa gmail al create
 # ============================================================================
 set -euo pipefail
 
 [[ -f "package.json" && -d "components" ]] || { echo "❌  Corré desde la raíz de coworking-front"; exit 1; }
 
 echo "════════════════════════════════════════════════════════"
-echo "  v29-front-editar-ocupacion  |  coworking-front"
+echo "  v31-front-gmail-reserva  |  coworking-front"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
-# ── 1. lib/ocupacion-api.ts — agregar update() ────────────────────────────────
-echo "📝  Actualizando lib/ocupacion-api.ts..."
-cat > lib/ocupacion-api.ts << 'EOF'
-import type { Ocupacion, CreateOcupacionPayload } from "@/types/ocupacion"
+# ── 1. types/seat.ts ──────────────────────────────────────────────────────────
+echo "📝  Actualizando types/seat.ts..."
+cat > types/seat.ts << 'EOF'
+export type SeatStatus = "available" | "occupied"
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+export type Recepcion = "MANANA" | "INTERMEDIO" | "TARDE"
 
-export type UpdateOcupacionPayload = Partial<CreateOcupacionPayload>
+export const RECEPCION_LABELS: Record<Recepcion, string> = {
+  MANANA:     "Mañana",
+  INTERMEDIO: "Intermedio",
+  TARDE:      "Tarde",
+}
 
-export const ocupacionesApi = {
-  getAll: async (): Promise<Ocupacion[]> => {
-    const res = await fetch(`${BASE}/ocupaciones`, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-    })
-    if (!res.ok) throw new Error(`Error al obtener ocupaciones: ${res.status}`)
-    return res.json()
-  },
+export interface Seat {
+  id:           string
+  backendId?:   number
+  row:          string
+  number:       number
+  status:       SeatStatus
+  userName?:    string
+  gmail?:       string
+  reservaId?:   number
+  recepcion?:   Recepcion
+  receptor?:    string
+  occupiedAt?:  Date
+  peopleCount?: number
+  shareLimit?:  number
+  sharedUsers?: string[]
+  capacity?:    number
+  zone?:        string
+  amenities?:   string[]
+  image?:       string
+  mapPdfUrl?:   string
+}
 
-  getActivas: async (): Promise<Ocupacion[]> => {
-    const res = await fetch(`${BASE}/ocupaciones/activas`, {
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-    })
-    if (!res.ok) throw new Error(`Error al obtener ocupaciones activas: ${res.status}`)
-    return res.json()
-  },
+export interface SeatArea {
+  id:         string
+  name:       string
+  seats:      Seat[]
+  isBlocked:  boolean
+  eventName?: string
+}
 
-  getById: async (id: number): Promise<Ocupacion> => {
-    const res = await fetch(`${BASE}/ocupaciones/${id}`, {
-      headers: { "Content-Type": "application/json" },
-    })
-    if (!res.ok) throw new Error(`Error al obtener ocupación ${id}`)
-    return res.json()
-  },
+export interface BackendUsuario {
+  id:        number
+  nombre:    string
+  email:     string
+  reservas?: BackendReserva[]
+  createdAt: string
+}
 
-  create: async (data: CreateOcupacionPayload): Promise<Ocupacion> => {
-    const res = await fetch(`${BASE}/ocupaciones`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(data),
-    })
-    if (!res.ok) {
-      const body = await res.text()
-      throw new Error(`Error al crear ocupación: ${body}`)
-    }
-    return res.json()
-  },
+export interface BackendAdmin {
+  id:        number
+  nombre?:   string
+  email:     string
+  password:  string
+  createdAt: string
+}
 
-  update: async (id: number, data: UpdateOcupacionPayload): Promise<Ocupacion> => {
-    const res = await fetch(`${BASE}/ocupaciones/${id}`, {
-      method:  "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(data),
-    })
-    if (!res.ok) {
-      const body = await res.text()
-      throw new Error(`Error al actualizar ocupación: ${body}`)
-    }
-    return res.json()
-  },
+export interface BackendArea {
+  id:          number
+  nombre:      string
+  descripcion: string | null
+  estado:      "LIBRE" | "OCUPADO"
+  reservas?:   BackendReserva[]
+  createdAt:   string
+}
 
-  liberar: async (id: number): Promise<Ocupacion> => {
-    const res = await fetch(`${BASE}/ocupaciones/${id}/liberar`, { method: "PATCH" })
-    if (!res.ok) throw new Error(`Error al liberar ocupación ${id}`)
-    return res.json()
-  },
-
-  delete: async (id: number): Promise<void> => {
-    const res = await fetch(`${BASE}/ocupaciones/${id}`, { method: "DELETE" })
-    if (!res.ok) throw new Error(`Error al eliminar ocupación ${id}`)
-  },
+export interface BackendReserva {
+  id:         number
+  nombre:     string
+  gmail?:     string | null
+  detalles?:  string | null
+  usuario?:   BackendUsuario
+  usuarioId:  number
+  area?:      BackendArea
+  areaId:     number
+  inicio:     string
+  fin?:       string | null
+  createdAt:  string
+  recepcion?: Recepcion
+  receptor?:  string | null
 }
 EOF
-echo "  ✅  lib/ocupacion-api.ts listo"
+echo "  ✅  types/seat.ts listo"
 
-# ── 2. components/editar-ocupacion-modal.tsx (NUEVO) ─────────────────────────
-echo "📝  Creando editar-ocupacion-modal.tsx..."
-cat > components/editar-ocupacion-modal.tsx << 'EOF'
+# ── 2. lib/api.ts ─────────────────────────────────────────────────────────────
+echo "📝  Actualizando lib/api.ts..."
+cat > lib/api.ts << 'EOF'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+
+import type { BackendArea, BackendReserva, BackendUsuario, BackendAdmin, Recepcion } from "@/types/seat"
+
+const statusMap: Record<string, string> = {
+  available: "LIBRE",
+  occupied:  "OCUPADO",
+}
+
+const reverseStatusMap: Record<string, string> = {
+  LIBRE:   "available",
+  OCUPADO: "occupied",
+}
+
+export const usuariosApi = {
+  getAll: async (): Promise<BackendUsuario[]> => {
+    const res = await fetch(`${API_BASE_URL}/usuario`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error("Error al obtener usuarios")
+    return res.json()
+  },
+  getById: async (id: number): Promise<BackendUsuario> => {
+    const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error("Error al obtener usuario")
+    return res.json()
+  },
+  create: async (data: { nombre: string; email: string }): Promise<BackendUsuario> => {
+    const res = await fetch(`${API_BASE_URL}/usuario`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error("Error al crear usuario")
+    return res.json()
+  },
+  update: async (id: number, data: Partial<{ nombre: string; email: string }>): Promise<BackendUsuario> => {
+    const res = await fetch(`${API_BASE_URL}/usuario/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error("Error al actualizar usuario")
+    return res.json()
+  },
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { method: "DELETE" })
+    if (!res.ok) throw new Error("Error al eliminar usuario")
+  },
+}
+
+export const areasApi = {
+  getAll: async (): Promise<BackendArea[]> => {
+    const res = await fetch(`${API_BASE_URL}/areas`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res.json()
+  },
+  getById: async (id: number): Promise<BackendArea> => {
+    const res = await fetch(`${API_BASE_URL}/areas/${id}`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error("Error al obtener área")
+    return res.json()
+  },
+  create: async (data: { nombre: string; descripcion?: string; estado?: string }): Promise<BackendArea> => {
+    const res = await fetch(`${API_BASE_URL}/areas`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error("Error al crear área")
+    return res.json()
+  },
+  update: async (id: number, data: Partial<BackendArea>): Promise<BackendArea> => {
+    const res = await fetch(`${API_BASE_URL}/areas/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error("Error al actualizar área")
+    return res.json()
+  },
+  cambiarEstado: async (id: number, estado: string): Promise<BackendArea> => {
+    const backendEstado = statusMap[estado] || estado
+    const res = await fetch(`${API_BASE_URL}/areas/${id}/estado/${backendEstado}`, { method: "PATCH" })
+    if (!res.ok) throw new Error("Error al cambiar estado")
+    return res.json()
+  },
+  bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
+    const estado = bloquear ? "OCUPADO" : "LIBRE"
+    const areas  = await areasApi.getAll()
+    return Promise.all(
+      areas.map((area) =>
+        fetch(`${API_BASE_URL}/areas/${area.id}/estado/${estado}`, { method: "PATCH" }).then((r) => {
+          if (!r.ok) throw new Error(`Error al actualizar área ${area.id}`)
+          return r.json()
+        }),
+      ),
+    )
+  },
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE_URL}/areas/${id}`, { method: "DELETE" })
+    if (!res.ok) throw new Error("Error al eliminar área")
+  },
+}
+
+export interface UpdateReservaPayload {
+  nombre?:    string
+  gmail?:     string
+  detalles?:  string
+  areaId?:    number
+  recepcion?: Recepcion
+  receptor?:  string
+}
+
+export const reservasApi = {
+  getAll: async (): Promise<BackendReserva[]> => {
+    const res = await fetch(`${API_BASE_URL}/reservas`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error("Error al obtener reservas")
+    return res.json()
+  },
+  getById: async (id: number): Promise<BackendReserva> => {
+    const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error("Error al obtener reserva")
+    return res.json()
+  },
+  create: async (data: {
+    nombre:     string
+    gmail?:     string
+    detalles?:  string
+    usuarioId:  number
+    areaId:     number
+    recepcion?: Recepcion
+    receptor?:  string
+  }): Promise<BackendReserva> => {
+    const res = await fetch(`${API_BASE_URL}/reservas`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) { const e = await res.text(); throw new Error(`Error al crear reserva: ${e}`) }
+    return res.json()
+  },
+  update: async (id: number, data: UpdateReservaPayload): Promise<BackendReserva> => {
+    const res = await fetch(`${API_BASE_URL}/reservas/${id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) { const e = await res.text(); throw new Error(`Error al actualizar reserva: ${e}`) }
+    return res.json()
+  },
+  completar: async (id: number): Promise<BackendReserva> => {
+    const res = await fetch(`${API_BASE_URL}/reservas/${id}/completar`, { method: "PATCH" })
+    if (!res.ok) throw new Error("Error al completar reserva")
+    return res.json()
+  },
+  delete: async (id: number): Promise<void> => {
+    const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { method: "DELETE" })
+    if (!res.ok) throw new Error("Error al eliminar reserva")
+  },
+}
+
+export const adminsApi = {
+  login: async (email: string, password: string): Promise<BackendAdmin> => {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }),
+    })
+    if (!res.ok) { const e = await res.text(); throw new Error(e || "Credenciales inválidas") }
+    return res.json()
+  },
+  getAll: async (): Promise<BackendAdmin[]> => {
+    const res = await fetch(`${API_BASE_URL}/admin`, { headers: { "Content-Type": "application/json" } })
+    if (!res.ok) throw new Error("Error al obtener administradores")
+    return res.json()
+  },
+  create: async (data: { nombre: string; email: string; password: string }): Promise<BackendAdmin> => {
+    const res = await fetch(`${API_BASE_URL}/admin`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error("Error al crear administrador")
+    return res.json()
+  },
+}
+
+export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendReserva[]) => {
+  const activeReservas = reservas.filter((r) => r.areaId === area.id && r.fin === null)
+  const active         = activeReservas[0]
+
+  const match  = area.nombre.match(/^([A-Za-z]+)(\d+)$/)
+  const letra  = match ? match[1].toUpperCase() : "A"
+  const numero = match ? parseInt(match[2]) : area.id
+
+  return {
+    id:          area.nombre,
+    backendId:   area.id,
+    row:         letra,
+    number:      numero,
+    status:      ({ LIBRE: "available", OCUPADO: "occupied" }[area.estado] ?? "available") as "available" | "occupied",
+    userName:    active?.nombre,
+    gmail:       active?.gmail ?? undefined,
+    reservaId:   active?.id,
+    recepcion:   active?.recepcion,
+    receptor:    active?.receptor ?? undefined,
+    occupiedAt:  active?.inicio ? new Date(active.inicio) : undefined,
+    peopleCount: activeReservas.length,
+    zone:        letra,
+    amenities:   area.descripcion ? [area.descripcion] : [],
+    mapPdfUrl:   "/coworking-map.pdf",
+  }
+}
+
+export { statusMap, reverseStatusMap }
+EOF
+echo "  ✅  lib/api.ts listo"
+
+# ── 3. components/seat-status-modal.tsx ──────────────────────────────────────
+echo "📝  Actualizando seat-status-modal.tsx..."
+cat > components/seat-status-modal.tsx << 'EOF'
 "use client"
 
-import { useState, useCallback, useEffect, useMemo } from "react"
-import { ocupacionesApi }                    from "@/lib/ocupacion-api"
-import { areasApi }                          from "@/lib/api"
-import { getEventosActivosCoworking, type EventoCalendario } from "@/lib/eventos-api"
-import type { Ocupacion }                    from "@/types/ocupacion"
-import type { BackendArea }                  from "@/types/seat"
-import { useToast }                          from "@/hooks/use-toast"
-import { Button }                            from "@/components/ui/button"
-import { Input }                             from "@/components/ui/input"
-import { Label }                             from "@/components/ui/label"
-import { Textarea }                          from "@/components/ui/textarea"
-import { Badge }                             from "@/components/ui/badge"
+import { useState } from "react"
+import type { Seat, SeatStatus, Recepcion } from "@/types/seat"
+import { RECEPCION_LABELS }                 from "@/types/seat"
+import { seatStatusLabels, canOccupySeat }  from "@/lib/seat-utils"
 import {
-  Dialog, DialogContent, DialogHeader,
-  DialogTitle, DialogFooter, DialogDescription,
+  Dialog, DialogContent, DialogDescription,
+  DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
+import { Button }    from "@/components/ui/button"
+import { Input }     from "@/components/ui/input"
+import { Label }     from "@/components/ui/label"
 import {
-  CalendarDays, Clock, Users, User, Phone, FileText,
-  Link2, Plus, Loader2, MapPin, X, CheckSquare, AlertTriangle, Pencil,
-} from "lucide-react"
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import { Sun, Sunset, Moon, Mail } from "lucide-react"
 
-interface EditarOcupacionModalProps {
-  ocupacion:    Ocupacion | null
-  open:         boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess?:   () => void
+const RECEPCION_ICONS: Record<Recepcion, React.ElementType> = {
+  MANANA:     Sun,
+  INTERMEDIO: Sunset,
+  TARDE:      Moon,
 }
 
-function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number)
-  return h * 60 + m
+const RECEPCION_BADGE: Record<Recepcion, string> = {
+  MANANA:     "bg-yellow-100 text-yellow-700 border-yellow-200",
+  INTERMEDIO: "bg-orange-100 text-orange-700 border-orange-200",
+  TARDE:      "bg-indigo-100 text-indigo-700 border-indigo-200",
 }
 
-function rangoFechasSolapa(aD: string, aH: string, bD: string, bH: string): boolean {
-  return aD <= bH && aH >= bD
+interface SeatStatusModalProps {
+  seat: Seat | null
+  open: boolean
+  onClose: () => void
+  onUpdateStatus: (
+    seatId:       string,
+    status:       SeatStatus,
+    userName?:    string,
+    shareLimit?:  number,
+    peopleCount?: number,
+    recepcion?:   Recepcion,
+    receptor?:    string,
+    gmail?:       string,
+  ) => void
+  isAdmin?: boolean
 }
 
-function rangoHorarioSolapa(hDA: string, hHA: string, hDB: string, hHB: string): boolean {
-  return timeToMinutes(hDA) < timeToMinutes(hHB) && timeToMinutes(hHA) > timeToMinutes(hDB)
-}
+export function SeatStatusModal({
+  seat, open, onClose, onUpdateStatus, isAdmin = false,
+}: SeatStatusModalProps) {
+  const [userName,       setUserName]       = useState("")
+  const [gmail,          setGmail]          = useState("")
+  const [receptor,       setReceptor]       = useState("")
+  const [selectedStatus, setSelectedStatus] = useState<SeatStatus>("occupied")
+  const [shareLimit,     setShareLimit]     = useState("2")
+  const [peopleCount,    setPeopleCount]    = useState("1")
+  const [recepcion,      setRecepcion]      = useState<Recepcion>("MANANA")
 
-export function EditarOcupacionModal({
-  ocupacion,
-  open,
-  onOpenChange,
-  onSuccess,
-}: EditarOcupacionModalProps) {
-  const { toast } = useToast()
+  if (!seat) return null
 
-  // ── Estado del formulario ─────────────────────────────────────────────────
-  const [form, setForm] = useState({
-    titulo:           "",
-    requerimiento:    "",
-    cantidadPersonas: 1,
-    organizador:      "",
-    telefono:         "",
-    fechaDesde:       "",
-    fechaHasta:       "",
-    horaDesde:        "",
-    horaHasta:        "",
-    edadMin:          "",
-    edadMax:          "",
-  })
-  const [anexos,            setAnexos]            = useState<string[]>([])
-  const [newAnexo,          setNewAnexo]          = useState("")
-  const [areaIds,           setAreaIds]           = useState<number[]>([])
-  const [areas,             setAreas]             = useState<BackendArea[]>([])
-  const [ocupaciones,       setOcupaciones]       = useState<Ocupacion[]>([])
-  const [eventosCalendario, setEventosCalendario] = useState<EventoCalendario[]>([])
-  const [loading,           setLoading]           = useState(false)
-  const [loadAreas,         setLoadAreas]         = useState(false)
-  const [loadingEventos,    setLoadingEventos]    = useState(false)
-
-  // ── Precargar datos cuando abre ───────────────────────────────────────────
-  useEffect(() => {
-    if (!open || !ocupacion) return
-
-    setForm({
-      titulo:           ocupacion.titulo,
-      requerimiento:    ocupacion.requerimiento,
-      cantidadPersonas: ocupacion.cantidadPersonas,
-      organizador:      ocupacion.organizador,
-      telefono:         ocupacion.telefono ?? "",
-      fechaDesde:       ocupacion.fechaDesde.split("T")[0],
-      fechaHasta:       ocupacion.fechaHasta.split("T")[0],
-      horaDesde:        ocupacion.horaDesde,
-      horaHasta:        ocupacion.horaHasta,
-      edadMin:          ocupacion.edadMin != null ? String(ocupacion.edadMin) : "",
-      edadMax:          ocupacion.edadMax != null ? String(ocupacion.edadMax) : "",
-    })
-    setAnexos(ocupacion.anexos ?? [])
-    setAreaIds(ocupacion.areas.map((r) => r.areaId))
-
-    setLoadAreas(true)
-    Promise.all([areasApi.getAll(), ocupacionesApi.getActivas()])
-      .then(([a, o]) => {
-        setAreas(a)
-        // Excluir la ocupación actual del listado de conflictos
-        setOcupaciones(o.filter((oc) => oc.id !== ocupacion.id))
-      })
-      .catch(() => toast({ variant: "destructive", title: "Error al cargar áreas" }))
-      .finally(() => setLoadAreas(false))
-  }, [open, ocupacion, toast])
-
-  // ── Conflictos con eventos del calendario ─────────────────────────────────
-  useEffect(() => {
-    if (!open || !form.fechaDesde || !form.fechaHasta) { setEventosCalendario([]); return }
-    if (form.fechaDesde > form.fechaHasta) return
-    setLoadingEventos(true)
-    getEventosActivosCoworking(form.fechaDesde, form.fechaHasta)
-      .then(setEventosCalendario)
-      .catch(() => setEventosCalendario([]))
-      .finally(() => setLoadingEventos(false))
-  }, [open, form.fechaDesde, form.fechaHasta])
-
-  // ── Calcular áreas en conflicto ───────────────────────────────────────────
-  const { areaIds: areasConConflicto, eventosBloqueantes } = useMemo(() => {
-    const result: Set<number> = new Set()
-    const bloqueantes: EventoCalendario[] = []
-    if (!form.fechaDesde || !form.fechaHasta || !form.horaDesde || !form.horaHasta) {
-      return { areaIds: result, eventosBloqueantes: bloqueantes }
-    }
-    if (timeToMinutes(form.horaDesde) >= timeToMinutes(form.horaHasta)) {
-      return { areaIds: result, eventosBloqueantes: bloqueantes }
-    }
-    for (const oc of ocupaciones) {
-      const ocD = oc.fechaDesde.split("T")[0]
-      const ocH = oc.fechaHasta.split("T")[0]
-      if (!rangoFechasSolapa(form.fechaDesde, form.fechaHasta, ocD, ocH)) continue
-      if (!rangoHorarioSolapa(form.horaDesde, form.horaHasta, oc.horaDesde, oc.horaHasta)) continue
-      oc.areas.forEach((r) => result.add(r.areaId))
-    }
-    for (const ev of eventosCalendario) {
-      const evD = ev.fechaDesde.split("T")[0]
-      const evH = ev.fechaHasta.split("T")[0]
-      if (!rangoFechasSolapa(form.fechaDesde, form.fechaHasta, evD, evH)) continue
-      if (!rangoHorarioSolapa(form.horaDesde, form.horaHasta, ev.horaDesde, ev.horaHasta)) continue
-      areas.forEach((a) => result.add(a.id))
-      bloqueantes.push(ev)
-    }
-    return { areaIds: result, eventosBloqueantes: bloqueantes }
-  }, [ocupaciones, eventosCalendario, areas, form.fechaDesde, form.fechaHasta, form.horaDesde, form.horaHasta])
-
-  // Quitar áreas seleccionadas que entren en conflicto
-  useEffect(() => {
-    if (areasConConflicto.size === 0) return
-    setAreaIds((prev) => prev.filter((id) => !areasConConflicto.has(id)))
-  }, [areasConConflicto])
-
-  const handleClose = useCallback(() => { onOpenChange(false) }, [onOpenChange])
-
-  const toggleArea = (id: number) => {
-    if (areasConConflicto.has(id)) return
-    setAreaIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
+  const handleOccupySeat = () => {
+    if (!userName.trim()) return
+    const limit = selectedStatus === "for-share" ? Number.parseInt(shareLimit) : undefined
+    const count = Number.parseInt(peopleCount)
+    onUpdateStatus(
+      seat.id, selectedStatus, userName, limit, count,
+      recepcion,
+      receptor.trim() || undefined,
+      gmail.trim()    || undefined,
+    )
+    setUserName(""); setGmail(""); setReceptor("")
+    setSelectedStatus("occupied"); setShareLimit("2")
+    setPeopleCount("1"); setRecepcion("MANANA")
+    onClose()
   }
 
-  const addAnexo = () => {
-    const url = newAnexo.trim()
-    if (!url) return
-    setAnexos((prev) => [...prev, url])
-    setNewAnexo("")
-  }
+  const handleFreeSeat    = () => { onUpdateStatus(seat.id, "available"); onClose() }
+  const handleAdminUpdate = () => { onUpdateStatus(seat.id, selectedStatus); onClose() }
 
-  function parsearErrorBackend(err: unknown): string {
-    if (!(err instanceof Error)) return "Error desconocido"
-    try {
-      const body = JSON.parse(err.message.replace(/^Error al actualizar ocupación: /, ""))
-      if (typeof body?.message === "string") return body.message
-      if (Array.isArray(body?.message)) return body.message.join(", ")
-    } catch { /* mensaje plano */ }
-    const msg = err.message
-    if (msg.includes("Conflicto de horario")) {
-      const match = msg.match(/las áreas \[([^\]]+)\].+ocupación "([^"]+)"/)
-      if (match) return `Las zonas ${match[1]} ya están reservadas para "${match[2]}" en ese horario.`
-    }
-    return msg
-  }
-
-  const handleGuardar = async () => {
-    if (!ocupacion) return
-    if (!form.titulo.trim())        { toast({ variant: "destructive", title: "Falta el título" });        return }
-    if (!form.organizador.trim())   { toast({ variant: "destructive", title: "Falta el organizador" });   return }
-    if (!form.requerimiento.trim()) { toast({ variant: "destructive", title: "Falta el requerimiento" }); return }
-    if (!form.fechaDesde)           { toast({ variant: "destructive", title: "Falta la fecha desde" });   return }
-    if (!form.fechaHasta)           { toast({ variant: "destructive", title: "Falta la fecha hasta" });   return }
-    if (!form.horaDesde)            { toast({ variant: "destructive", title: "Falta la hora desde" });    return }
-    if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" });    return }
-    if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área" }); return }
-
-    setLoading(true)
-    try {
-      await ocupacionesApi.update(ocupacion.id, {
-        titulo:           form.titulo.trim(),
-        requerimiento:    form.requerimiento.trim(),
-        cantidadPersonas: Number(form.cantidadPersonas),
-        organizador:      form.organizador.trim(),
-        fechaDesde:       form.fechaDesde,
-        fechaHasta:       form.fechaHasta,
-        horaDesde:        form.horaDesde,
-        horaHasta:        form.horaHasta,
-        anexos,
-        areaIds,
-        ...(form.telefono.trim() && { telefono: form.telefono.trim() }),
-        ...(form.edadMin         && { edadMin: Number(form.edadMin) }),
-        ...(form.edadMax         && { edadMax: Number(form.edadMax) }),
-      })
-      toast({ title: "✅ Ocupación actualizada", description: `"${form.titulo}" guardada correctamente` })
-      handleClose()
-      onSuccess?.()
-    } catch (err) {
-      toast({ variant: "destructive", title: "No se pudo guardar", description: parsearErrorBackend(err) })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const fechasCompletas       = form.fechaDesde && form.fechaHasta && form.horaDesde && form.horaHasta
-  const hayConflictoOcupacion = areasConConflicto.size > 0 && eventosBloqueantes.length === 0 && fechasCompletas
-  const hayConflictoEvento    = eventosBloqueantes.length > 0 && fechasCompletas
-
-  if (!ocupacion) return null
+  const turnoActivo = seat.recepcion as Recepcion | undefined
+  const TurnoIcon   = turnoActivo ? RECEPCION_ICONS[turnoActivo] : null
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-4 md:p-6 rounded-lg md:rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            <Pencil className="w-5 h-5 text-primary" />
-            Editar Ocupación
-          </DialogTitle>
+          <DialogTitle className="text-xl md:text-2xl">{seat.id}</DialogTitle>
           <DialogDescription>
-            Modificá los datos de la ocupación activa
+            {seat.zone && <span className="block text-sm md:text-base font-medium">{seat.zone}</span>}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 md:space-y-6">
+          {seat.image && (
+            <div className="w-full h-40 md:h-48 rounded-lg overflow-hidden bg-muted">
+              <img src={seat.image || "/placeholder.svg"} alt={seat.id} className="w-full h-full object-cover" />
+            </div>
+          )}
 
-          {/* Título */}
-          <div className="space-y-1.5">
-            <Label htmlFor="eo-titulo" className="flex items-center gap-1.5 text-sm font-medium">
-              <FileText className="w-3.5 h-3.5" /> Título *
-            </Label>
-            <Input
-              id="eo-titulo"
-              placeholder="Nombre del evento o actividad"
-              value={form.titulo}
-              onChange={(e) => setForm((f) => ({ ...f, titulo: e.target.value }))}
-            />
+          {/* Estado general */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 p-3 md:p-4 bg-muted/50 rounded-lg">
+            <div>
+              <div className="text-xs md:text-sm text-muted-foreground">Estado</div>
+              <div className="text-sm md:text-base font-semibold">{seatStatusLabels[seat.status]}</div>
+            </div>
+            {seat.capacity && (
+              <div>
+                <div className="text-xs md:text-sm text-muted-foreground">Capacidad</div>
+                <div className="text-sm md:text-base font-semibold">{seat.capacity} personas</div>
+              </div>
+            )}
+            {seat.zone && (
+              <div className="col-span-1 sm:col-span-2">
+                <div className="text-xs md:text-sm text-muted-foreground">Zona</div>
+                <div className="text-sm md:text-base font-semibold">{seat.zone}</div>
+              </div>
+            )}
           </div>
 
-          {/* Organizador + Teléfono */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-organizador" className="flex items-center gap-1.5 text-sm font-medium">
-                <User className="w-3.5 h-3.5" /> Organizador *
-              </Label>
-              <Input
-                id="eo-organizador"
-                placeholder="Nombre completo"
-                value={form.organizador}
-                onChange={(e) => setForm((f) => ({ ...f, organizador: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-telefono" className="flex items-center gap-1.5 text-sm font-medium">
-                <Phone className="w-3.5 h-3.5" /> Teléfono (opcional)
-              </Label>
-              <Input
-                id="eo-telefono"
-                type="tel"
-                placeholder="Ej: +54 383 000-0000"
-                value={form.telefono}
-                onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          {/* Requerimiento */}
-          <div className="space-y-1.5">
-            <Label htmlFor="eo-req" className="flex items-center gap-1.5 text-sm font-medium">
-              <FileText className="w-3.5 h-3.5" /> Descripción / Requerimientos *
-            </Label>
-            <Textarea
-              id="eo-req"
-              placeholder="Describí la actividad y sus necesidades..."
-              rows={3}
-              value={form.requerimiento}
-              onChange={(e) => setForm((f) => ({ ...f, requerimiento: e.target.value }))}
-            />
-          </div>
-
-          {/* Cantidad de personas */}
-          <div className="space-y-1.5">
-            <Label htmlFor="eo-personas" className="flex items-center gap-1.5 text-sm font-medium">
-              <Users className="w-3.5 h-3.5" /> Cantidad estimada de personas *
-            </Label>
-            <Input
-              id="eo-personas"
-              type="number"
-              min={1}
-              value={form.cantidadPersonas}
-              onChange={(e) => setForm((f) => ({ ...f, cantidadPersonas: Number(e.target.value) }))}
-            />
-          </div>
-
-          {/* Fechas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-fdesde" className="flex items-center gap-1.5 text-sm font-medium">
-                <CalendarDays className="w-3.5 h-3.5" /> Fecha desde *
-              </Label>
-              <Input
-                id="eo-fdesde"
-                type="date"
-                value={form.fechaDesde}
-                onChange={(e) => setForm((f) => ({ ...f, fechaDesde: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-fhasta" className="flex items-center gap-1.5 text-sm font-medium">
-                <CalendarDays className="w-3.5 h-3.5" /> Fecha hasta *
-              </Label>
-              <Input
-                id="eo-fhasta"
-                type="date"
-                value={form.fechaHasta}
-                onChange={(e) => setForm((f) => ({ ...f, fechaHasta: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          {/* Horas */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-hdesde" className="flex items-center gap-1.5 text-sm font-medium">
-                <Clock className="w-3.5 h-3.5" /> Hora desde *
-              </Label>
-              <Input
-                id="eo-hdesde"
-                type="time"
-                value={form.horaDesde}
-                onChange={(e) => setForm((f) => ({ ...f, horaDesde: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-hhasta" className="flex items-center gap-1.5 text-sm font-medium">
-                <Clock className="w-3.5 h-3.5" /> Hora hasta *
-              </Label>
-              <Input
-                id="eo-hhasta"
-                type="time"
-                value={form.horaHasta}
-                onChange={(e) => setForm((f) => ({ ...f, horaHasta: e.target.value }))}
-              />
-            </div>
-          </div>
-
-          {/* Alerta: evento del calendario bloquea todo */}
-          {hayConflictoEvento && (
-            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" />
-              <div className="space-y-1">
-                <p className="font-medium">El coworking no está disponible en ese horario</p>
-                {eventosBloqueantes.map((ev) => (
-                  <p key={ev.id} className="text-xs text-orange-700">
-                    Evento: <span className="font-semibold">"{ev.titulo}"</span>
-                    {" "}· {ev.fechaDesde.split("T")[0]} {ev.horaDesde}–{ev.horaHasta}
-                  </p>
+          {seat.amenities && seat.amenities.length > 0 && (
+            <div>
+              <h3 className="font-semibold text-sm md:text-base mb-2">Comodidades</h3>
+              <div className="flex flex-wrap gap-2">
+                {seat.amenities.map((amenity, idx) => (
+                  <div key={idx} className="px-3 py-1 bg-primary/10 rounded-full text-xs md:text-sm">{amenity}</div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Áreas */}
-          <div className="space-y-1.5">
-            <Label className="flex items-center gap-1.5 text-sm font-medium">
-              <MapPin className="w-3.5 h-3.5" /> Áreas *
-              {loadingEventos && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground ml-1" />}
-            </Label>
+          {/* ── Info de reserva activa ── */}
+          {seat.status !== "available" && seat.status !== "out-of-service" && (
+            <div className="p-3 md:p-4 bg-primary/5 rounded-lg border border-primary/20 space-y-3">
+              <h3 className="font-semibold text-sm md:text-base">Información de Reserva</h3>
 
-            {loadAreas ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> Cargando áreas...
-              </div>
-            ) : (
-              <>
-                {hayConflictoOcupacion && (
-                  <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/8 border border-destructive/20 text-destructive text-xs">
-                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    <span>Algunas zonas ya están ocupadas en ese horario.</span>
+              {/* Badge turno */}
+              {turnoActivo && TurnoIcon && (
+                <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold ${RECEPCION_BADGE[turnoActivo]}`}>
+                  <TurnoIcon className="w-3.5 h-3.5" />
+                  Turno {RECEPCION_LABELS[turnoActivo]}
+                </div>
+              )}
+
+              <div className="space-y-2 text-sm md:text-base">
+                {seat.userName && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Reservado por:</span>
+                    <span className="font-medium">{seat.userName}</span>
                   </div>
                 )}
-                <div className="flex flex-wrap gap-2">
-                  {areas.map((area) => {
-                    const bloqueada = areasConConflicto.has(area.id)
-                    const sel       = areaIds.includes(area.id)
-                    return (
-                      <button
-                        key={area.id}
-                        type="button"
-                        disabled={bloqueada}
-                        onClick={() => toggleArea(area.id)}
-                        className={[
-                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors",
-                          bloqueada
-                            ? "bg-muted text-muted-foreground border-muted-foreground/20 cursor-not-allowed line-through opacity-50"
-                            : sel
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-background border-border text-foreground hover:bg-muted cursor-pointer",
-                        ].join(" ")}
-                      >
-                        {sel && !bloqueada && <CheckSquare className="w-3.5 h-3.5" />}
-                        {area.nombre}
-                        {bloqueada && (
-                          <Badge variant="destructive" className="text-[9px] px-1 py-0 ml-0.5">
-                            {hayConflictoEvento ? "Evento" : "Ocupada"}
-                          </Badge>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-                {areaIds.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{areaIds.length} área(s) seleccionada(s)</p>
+                {seat.gmail && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gmail:</span>
+                    <span className="font-medium">{seat.gmail}</span>
+                  </div>
                 )}
-              </>
-            )}
-          </div>
-
-          {/* Edad mín/máx */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-emin" className="text-sm font-medium">Edad mínima (opcional)</Label>
-              <Input
-                id="eo-emin"
-                type="number"
-                min={0}
-                placeholder="0"
-                value={form.edadMin}
-                onChange={(e) => setForm((f) => ({ ...f, edadMin: e.target.value }))}
-              />
+                {seat.receptor && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Recibido por:</span>
+                    <span className="font-medium">{seat.receptor}</span>
+                  </div>
+                )}
+                {seat.occupiedAt && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Desde:</span>
+                    <span className="font-medium">
+                      {seat.occupiedAt.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="eo-emax" className="text-sm font-medium">Edad máxima (opcional)</Label>
-              <Input
-                id="eo-emax"
-                type="number"
-                min={0}
-                placeholder="99"
-                value={form.edadMax}
-                onChange={(e) => setForm((f) => ({ ...f, edadMax: e.target.value }))}
-              />
-            </div>
-          </div>
+          )}
 
-          {/* Anexos */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium flex items-center gap-1.5">
-              <Link2 className="w-3.5 h-3.5" /> Anexos / enlaces (opcional)
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://..."
-                value={newAnexo}
-                onChange={(e) => setNewAnexo(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAnexo() } }}
-              />
-              <Button type="button" variant="outline" size="icon" onClick={addAnexo}>
-                <Plus className="w-4 h-4" />
+          {seat.mapPdfUrl && (
+            <Button variant="outline" className="w-full bg-transparent text-xs md:text-sm" asChild>
+              <a href={seat.mapPdfUrl} target="_blank" rel="noopener noreferrer">
+                Ver Mapa Completo del Coworking (PDF)
+              </a>
+            </Button>
+          )}
+
+          {/* ── Formulario nueva reserva ── */}
+          {!isAdmin && canOccupySeat(seat.status) && (
+            <div className="space-y-4 p-3 md:p-4 bg-card border rounded-lg">
+              <h3 className="font-semibold text-sm md:text-base">Crear Reserva</h3>
+
+              {/* 1. Gmail — arriba */}
+              <div className="space-y-2">
+                <Label htmlFor="gmail" className="text-xs md:text-sm flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" />
+                  Gmail <span className="text-muted-foreground font-normal">(opcional)</span>
+                </Label>
+                <Input
+                  id="gmail"
+                  type="email"
+                  placeholder="cliente@gmail.com"
+                  value={gmail}
+                  onChange={(e) => setGmail(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* 2. Nombre del cliente */}
+              <div className="space-y-2">
+                <Label htmlFor="userName" className="text-xs md:text-sm">Nombre del cliente</Label>
+                <Input
+                  id="userName"
+                  placeholder="Ingresá el nombre"
+                  value={userName}
+                  onChange={(e) => setUserName(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* 3. Número de personas */}
+              <div className="space-y-2">
+                <Label htmlFor="peopleCount" className="text-xs md:text-sm">Número de personas</Label>
+                <Input
+                  id="peopleCount"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={peopleCount}
+                  onChange={(e) => setPeopleCount(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* 4. Estado del área */}
+              <div className="space-y-2">
+                <Label htmlFor="assignStatus" className="text-xs md:text-sm">Estado del área</Label>
+                <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as SeatStatus)}>
+                  <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="available">{seatStatusLabels["available"]}</SelectItem>
+                    <SelectItem value="occupied">{seatStatusLabels["occupied"]}</SelectItem>
+                    <SelectItem value="out-of-service">{seatStatusLabels["out-of-service"]}</SelectItem>
+                    <SelectItem value="cleaning">{seatStatusLabels["cleaning"]}</SelectItem>
+                    <SelectItem value="for-share">{seatStatusLabels["for-share"]}</SelectItem>
+                    <SelectItem value="shared">{seatStatusLabels["shared"]}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {selectedStatus === "for-share" && (
+                <div className="space-y-2">
+                  <Label htmlFor="shareLimit" className="text-xs md:text-sm">Límite de personas</Label>
+                  <Input
+                    id="shareLimit"
+                    type="number"
+                    min="2"
+                    max="10"
+                    value={shareLimit}
+                    onChange={(e) => setShareLimit(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+              )}
+
+              {/* 5. Nombre del receptor — abajo */}
+              <div className="space-y-2">
+                <Label htmlFor="receptor" className="text-xs md:text-sm">
+                  Nombre del receptor <span className="text-muted-foreground font-normal">(opcional)</span>
+                </Label>
+                <Input
+                  id="receptor"
+                  placeholder="¿Quién lo recibe en recepción?"
+                  value={receptor}
+                  onChange={(e) => setReceptor(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* 6. Turno de recepción — abajo */}
+              <div className="space-y-2">
+                <Label htmlFor="recepcion" className="text-xs md:text-sm">Turno de recepción</Label>
+                <Select value={recepcion} onValueChange={(v) => setRecepcion(v as Recepcion)}>
+                  <SelectTrigger id="recepcion" className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(RECEPCION_LABELS) as Recepcion[]).map((key) => {
+                      const Icon = RECEPCION_ICONS[key]
+                      return (
+                        <SelectItem key={key} value={key}>
+                          <span className="flex items-center gap-2">
+                            <Icon className="w-3.5 h-3.5" />
+                            {RECEPCION_LABELS[key]}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button onClick={handleOccupySeat} className="w-full text-sm" disabled={!userName.trim()}>
+                Asignar asiento
               </Button>
             </div>
-            {anexos.map((url, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm">
-                <Link2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                <span className="truncate flex-1 text-primary">{url}</span>
-                <button
-                  type="button"
-                  onClick={() => setAnexos((prev) => prev.filter((_, j) => j !== i))}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+          )}
+
+          {!isAdmin && seat.status !== "available" && seat.status !== "out-of-service" && (
+            <Button onClick={handleFreeSeat} variant="destructive" className="w-full text-sm">
+              Liberar asiento
+            </Button>
+          )}
+
+          {isAdmin && (
+            <div className="space-y-4 p-3 md:p-4 bg-card border rounded-lg">
+              <h3 className="font-semibold text-sm md:text-base">Modo Administrador</h3>
+              <div className="space-y-2">
+                <Label htmlFor="status" className="text-xs md:text-sm">Cambiar estado del área</Label>
+                <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as SeatStatus)}>
+                  <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(seatStatusLabels).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            ))}
+              <Button onClick={handleAdminUpdate} className="w-full text-sm">Actualizar estado</Button>
+            </div>
+          )}
+
+          {(seat.status === "available" || seat.status === "for-share") && !isAdmin && (
+            <div className="p-3 md:p-4 bg-primary/10 border border-primary/30 rounded-lg text-center">
+              <p className="font-semibold text-sm md:text-base mb-1">Este espacio está disponible</p>
+              <p className="text-xs md:text-sm text-muted-foreground">
+                Acércate a recepción para ocupar este lugar o completa el formulario arriba.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
+          <Button variant="outline" onClick={onClose} className="text-sm bg-transparent">Cerrar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+EOF
+echo "  ✅  seat-status-modal.tsx listo"
+
+# ── 4. components/editar-reserva-modal.tsx ────────────────────────────────────
+echo "📝  Actualizando editar-reserva-modal.tsx..."
+cat > components/editar-reserva-modal.tsx << 'EOF'
+"use client"
+
+import { useState, useEffect } from "react"
+import {
+  Dialog, DialogContent, DialogHeader,
+  DialogTitle, DialogFooter, DialogDescription,
+} from "@/components/ui/dialog"
+import { Button }   from "@/components/ui/button"
+import { Input }    from "@/components/ui/input"
+import { Label }    from "@/components/ui/label"
+import {
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import { Loader2, Sun, Sunset, Moon, Mail } from "lucide-react"
+import { reservasApi }               from "@/lib/api"
+import { useToast }                  from "@/hooks/use-toast"
+import type { BackendReserva, Recepcion } from "@/types/seat"
+import { RECEPCION_LABELS }              from "@/types/seat"
+
+const RECEPCION_ICONS: Record<Recepcion, React.ElementType> = {
+  MANANA:     Sun,
+  INTERMEDIO: Sunset,
+  TARDE:      Moon,
+}
+
+interface EditarReservaModalProps {
+  reserva:      BackendReserva | null
+  open:         boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess?:   () => void
+}
+
+export function EditarReservaModal({
+  reserva, open, onOpenChange, onSuccess,
+}: EditarReservaModalProps) {
+  const { toast } = useToast()
+
+  const [nombre,    setNombre]    = useState("")
+  const [gmail,     setGmail]     = useState("")
+  const [receptor,  setReceptor]  = useState("")
+  const [detalles,  setDetalles]  = useState("")
+  const [recepcion, setRecepcion] = useState<Recepcion>("MANANA")
+  const [guardando, setGuardando] = useState(false)
+
+  useEffect(() => {
+    if (reserva) {
+      setNombre(reserva.nombre ?? "")
+      setGmail(reserva.gmail ?? "")
+      setReceptor(reserva.receptor ?? "")
+      setDetalles(reserva.detalles ?? "")
+      setRecepcion((reserva.recepcion as Recepcion) ?? "MANANA")
+    }
+  }, [reserva])
+
+  const handleGuardar = async () => {
+    if (!reserva) return
+    if (!nombre.trim()) {
+      toast({ variant: "destructive", title: "El nombre es obligatorio" })
+      return
+    }
+    setGuardando(true)
+    try {
+      await reservasApi.update(reserva.id, {
+        nombre:    nombre.trim(),
+        gmail:     gmail.trim()    || undefined,
+        receptor:  receptor.trim() || undefined,
+        detalles:  detalles.trim() || undefined,
+        recepcion,
+      })
+      toast({ title: "✅ Reserva actualizada", description: `${reserva.area?.nombre ?? "Área"} editada correctamente` })
+      onOpenChange(false)
+      onSuccess?.()
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: err instanceof Error ? err.message : "Error al guardar" })
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  if (!reserva) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-xl p-5">
+        <DialogHeader>
+          <DialogTitle className="text-lg">Editar reserva</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            {reserva.area?.nombre ?? `Reserva #${reserva.id}`}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+
+          {/* Gmail — arriba */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-gmail" className="text-sm flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5" />
+              Gmail <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Input
+              id="er-gmail"
+              type="email"
+              value={gmail}
+              onChange={(e) => setGmail(e.target.value)}
+              placeholder="cliente@gmail.com"
+              className="text-sm"
+            />
+          </div>
+
+          {/* Nombre del cliente */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-nombre" className="text-sm">Nombre del cliente</Label>
+            <Input
+              id="er-nombre"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              placeholder="Nombre del cliente"
+              className="text-sm"
+            />
+          </div>
+
+          {/* Detalles */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-detalles" className="text-sm">
+              Detalles <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Input
+              id="er-detalles"
+              value={detalles}
+              onChange={(e) => setDetalles(e.target.value)}
+              placeholder="Información adicional"
+              className="text-sm"
+            />
+          </div>
+
+          {/* Receptor — abajo */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-receptor" className="text-sm">
+              Nombre del receptor <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Input
+              id="er-receptor"
+              value={receptor}
+              onChange={(e) => setReceptor(e.target.value)}
+              placeholder="¿Quién lo recibe en recepción?"
+              className="text-sm"
+            />
+          </div>
+
+          {/* Turno — abajo */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-recepcion" className="text-sm">Turno de recepción</Label>
+            <Select value={recepcion} onValueChange={(v) => setRecepcion(v as Recepcion)}>
+              <SelectTrigger id="er-recepcion" className="text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(RECEPCION_LABELS) as Recepcion[]).map((key) => {
+                  const Icon = RECEPCION_ICONS[key]
+                  return (
+                    <SelectItem key={key} value={key}>
+                      <span className="flex items-center gap-2">
+                        <Icon className="w-3.5 h-3.5" />
+                        {RECEPCION_LABELS[key]}
+                      </span>
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
           </div>
 
         </div>
 
-        <DialogFooter className="gap-2 pt-2">
-          <Button variant="outline" onClick={handleClose} disabled={loading}>
+        <DialogFooter className="gap-2 flex-col-reverse sm:flex-row">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={guardando} className="text-sm bg-transparent">
             Cancelar
           </Button>
-          <Button onClick={handleGuardar} disabled={loading} className="gap-2">
-            {loading
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</>
-              : "Guardar cambios"
-            }
+          <Button onClick={handleGuardar} disabled={guardando || !nombre.trim()} className="text-sm gap-1.5">
+            {guardando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {guardando ? "Guardando..." : "Guardar cambios"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -601,364 +855,135 @@ export function EditarOcupacionModal({
   )
 }
 EOF
-echo "  ✅  editar-ocupacion-modal.tsx creado"
+echo "  ✅  editar-reserva-modal.tsx listo"
 
-# ── 3. components/disponibilidad-inline.tsx — lápiz abre editar-ocupacion ─────
-echo "📝  Actualizando disponibilidad-inline.tsx..."
-cat > components/disponibilidad-inline.tsx << 'EOF'
+# ── 5. hooks/use-seats.ts ─────────────────────────────────────────────────────
+echo "📝  Actualizando hooks/use-seats.ts..."
+cat > hooks/use-seats.ts << 'EOF'
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
-import { ocupacionesApi } from "@/lib/ocupacion-api"
-import type { Ocupacion } from "@/types/ocupacion"
-import { useToast }       from "@/hooks/use-toast"
-import { Button }         from "@/components/ui/button"
-import { Badge }          from "@/components/ui/badge"
-import { EditarOcupacionModal } from "@/components/editar-ocupacion-modal"
-import {
-  Loader2, MapPin, Clock, Users, Unlock,
-  RefreshCw, Inbox, Link2, AlertCircle,
-  ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
-  Pencil,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
+import { useState, useCallback, useRef } from "react"
+import type { Seat, Recepcion } from "@/types/seat"
+import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
+import { useToast } from "@/hooks/use-toast"
 
-interface DisponibilidadInlineProps {
-  onSuccess?: () => void
-}
+const POLLING_MS = 30_000
 
-const POR_PAGINA = 5
-
-function formatFecha(iso: string): string {
-  const [y, m, d] = iso.split("T")[0].split("-").map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
-    weekday: "short", day: "numeric", month: "short",
-  })
-}
-
-function timeToMinutes(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number)
-  return h * 60 + m
-}
-
-function estadoOcupacion(oc: Ocupacion): "vencida" | "en-curso" | "proxima" {
-  const ar      = new Date(Date.now() - 3 * 60 * 60 * 1000)
-  const minNow  = ar.getUTCHours() * 60 + ar.getUTCMinutes()
-  const fechaHoy = ar.toISOString().split("T")[0]
-
-  const ocDesde = oc.fechaDesde.split("T")[0]
-  const ocHasta = oc.fechaHasta.split("T")[0]
-
-  if (ocHasta < fechaHoy) return "vencida"
-  if (ocDesde > fechaHoy) return "proxima"
-  if (ocDesde < fechaHoy && ocHasta > fechaHoy) return "en-curso"
-
-  if (ocDesde === fechaHoy && ocHasta === fechaHoy) {
-    const ini = timeToMinutes(oc.horaDesde)
-    const fin = timeToMinutes(oc.horaHasta)
-    if (minNow >= fin)  return "vencida"
-    if (minNow >= ini)  return "en-curso"
-    return "proxima"
-  }
-  if (ocDesde === fechaHoy) return minNow >= timeToMinutes(oc.horaDesde) ? "en-curso" : "proxima"
-  return minNow < timeToMinutes(oc.horaHasta) ? "en-curso" : "vencida"
-}
-
-const ESTADO_BADGE: Record<string, { label: string; className: string }> = {
-  "en-curso": { label: "En curso", className: "bg-blue-100 text-blue-700 border-blue-200" },
-  "proxima":  { label: "Próxima",  className: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  "vencida":  { label: "Vencida",  className: "bg-red-100 text-red-700 border-red-200" },
-}
-
-export function DisponibilidadInline({ onSuccess }: DisponibilidadInlineProps) {
+export function useSeats() {
   const { toast } = useToast()
   const toastRef  = useRef(toast)
-  useEffect(() => { toastRef.current = toast }, [toast])
+  toastRef.current = toast
 
-  const [ocupaciones,      setOcupaciones]      = useState<Ocupacion[]>([])
-  const [loading,          setLoading]          = useState(false)
-  const [liberando,        setLiberando]        = useState<number | null>(null)
-  const [expandedId,       setExpandedId]       = useState<number | null>(null)
-  const [pagina,           setPagina]           = useState(1)
-  const [editando,         setEditando]         = useState<Ocupacion | null>(null)
-  const [editModalOpen,    setEditModalOpen]    = useState(false)
+  const [seats,   setSeats]   = useState<Seat[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
 
-  const cargar = useCallback(async (silencioso = false) => {
-    if (!silencioso) setLoading(true)
+  const fetchSeats = useCallback(async () => {
     try {
-      const todas = await ocupacionesApi.getAll()
-      const pendientes = todas.filter((o) => !o.liberadaAt)
-      pendientes.sort((a, b) => {
-        const orden = { "en-curso": 0, "proxima": 1, "vencida": 2 }
-        const ea = estadoOcupacion(a)
-        const eb = estadoOcupacion(b)
-        if (ea !== eb) return orden[ea] - orden[eb]
-        return a.fechaDesde.localeCompare(b.fechaDesde)
-      })
-      setOcupaciones(pendientes)
-      setPagina(1)
-    } catch {
-      if (!silencioso) {
-        toastRef.current({ variant: "destructive", title: "Error", description: "No se pudieron cargar las ocupaciones" })
-      }
+      setLoading(true)
+      setError(null)
+      const [areas, reservas] = await Promise.all([areasApi.getAll(), reservasApi.getAll()])
+      setSeats(areas.map((area) => convertBackendAreaToSeat(area, reservas)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al cargar áreas")
     } finally {
-      if (!silencioso) setLoading(false)
+      setLoading(false)
     }
   }, [])
 
-  useEffect(() => { cargar() }, [cargar])
+  const updateSeatStatus = useCallback(async (
+    seat:         Seat,
+    newStatus:    string,
+    userName?:    string,
+    peopleCount?: number,
+    shareLimit?:  number,
+    recepcion?:   Recepcion,
+    receptor?:    string,
+    gmail?:       string,
+  ) => {
+    if (!seat.backendId) throw new Error("Asiento sin ID de backend")
 
-  const liberar = async (oc: Ocupacion) => {
-    setLiberando(oc.id)
     try {
-      await ocupacionesApi.liberar(oc.id)
-      toastRef.current({ title: "✅ Zonas liberadas", description: `"${oc.titulo}" finalizada` })
-      await cargar(true)
-      onSuccess?.()
+      if (newStatus === "occupied" || newStatus === "for-share" || newStatus === "shared") {
+        if (!userName) throw new Error("Nombre de usuario requerido")
+
+        const user = await (async () => {
+          try {
+            const res = await fetch(
+              `${process.env.NEXT_PUBLIC_API_URL ?? ""}/usuario`,
+              { headers: { "Content-Type": "application/json" } }
+            )
+            if (!res.ok) return null
+            const usuarios = await res.json()
+            return usuarios.find((u: { nombre: string; id: number }) => u.nombre === userName) ?? null
+          } catch { return null }
+        })()
+
+        const usuarioId = user?.id ?? 1
+        const detalles  =
+          newStatus === "for-share"
+            ? `Para compartir (límite: ${shareLimit || 6}, personas: ${peopleCount})`
+            : `Ocupado por ${peopleCount} persona(s)`
+
+        await reservasApi.create({
+          nombre: userName,
+          detalles,
+          usuarioId,
+          areaId: seat.backendId,
+          ...(recepcion && { recepcion }),
+          ...(receptor  && { receptor }),
+          ...(gmail     && { gmail }),
+        })
+
+        if (newStatus === "for-share") {
+          const reservas    = await reservasApi.getAll()
+          const activeCount = reservas.filter((r) => r.areaId === seat.backendId && r.fin === null).length
+          await areasApi.cambiarEstado(seat.backendId, activeCount >= (shareLimit || 6) ? "shared" : newStatus)
+        } else {
+          await areasApi.cambiarEstado(seat.backendId, newStatus)
+        }
+
+        toastRef.current({ title: "Reserva creada", description: `${seat.id} asignado a ${userName}` })
+      } else {
+        await areasApi.cambiarEstado(seat.backendId, newStatus)
+        toastRef.current({ title: "Estado actualizado", description: `${seat.id} cambió de estado` })
+      }
+
+      await fetchSeats()
     } catch (err) {
-      toastRef.current({
-        variant: "destructive",
-        title: "Error al liberar",
-        description: err instanceof Error ? err.message : "Error desconocido",
-      })
-    } finally {
-      setLiberando(null)
+      const msg = err instanceof Error ? err.message : "Error al actualizar"
+      setError(msg)
+      toastRef.current({ variant: "destructive", title: "Error al actualizar asiento", description: msg })
+      throw err
     }
-  }
+  }, [fetchSeats])
 
-  const handleEditar = (oc: Ocupacion, e: React.MouseEvent) => {
-    e.stopPropagation()
-    setEditando(oc)
-    setEditModalOpen(true)
-  }
+  const toggleBlockAll = useCallback(async (block: boolean) => {
+    try {
+      setLoading(true)
+      await areasApi.bloquearTodas(block)
+      toastRef.current({
+        title:       block ? "Coworking bloqueado" : "Coworking desbloqueado",
+        description: block ? "Todas las áreas están bloqueadas" : "Las áreas volvieron a su estado libre",
+      })
+      await fetchSeats()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al operar"
+      setError(msg)
+      toastRef.current({ variant: "destructive", title: "Error", description: msg })
+    } finally {
+      setLoading(false)
+    }
+  }, [fetchSeats])
 
-  const toggleExpand = (id: number) =>
-    setExpandedId((prev) => (prev === id ? null : id))
-
-  const totalPaginas   = Math.max(1, Math.ceil(ocupaciones.length / POR_PAGINA))
-  const paginaActual   = Math.min(pagina, totalPaginas)
-  const inicio         = (paginaActual - 1) * POR_PAGINA
-  const ocupacionesPag = ocupaciones.slice(inicio, inicio + POR_PAGINA)
-
-  return (
-    <>
-      <div className="space-y-3">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
-            <MapPin className="w-3.5 h-3.5" />
-            Zonas ocupadas
-            {ocupaciones.length > 0 && (
-              <span className="ml-1 text-xs font-normal normal-case">({ocupaciones.length})</span>
-            )}
-          </h3>
-          <Button
-            variant="ghost" size="sm"
-            className="h-7 gap-1.5 text-xs"
-            onClick={() => cargar()}
-            disabled={loading}
-          >
-            <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} />
-            Actualizar
-          </Button>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-sm">Cargando...</span>
-          </div>
-        ) : ocupaciones.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-            <Inbox className="w-8 h-8 opacity-30" />
-            <p className="text-sm font-medium">Sin zonas ocupadas</p>
-            <p className="text-xs opacity-60">Todos los espacios están disponibles</p>
-          </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              {ocupacionesPag.map((oc) => {
-                const estado   = estadoOcupacion(oc)
-                const badge    = ESTADO_BADGE[estado]
-                const expanded = expandedId === oc.id
-
-                return (
-                  <div
-                    key={oc.id}
-                    className={cn(
-                      "rounded-xl border bg-card text-card-foreground shadow-sm overflow-hidden",
-                      estado === "vencida" && "opacity-70",
-                    )}
-                  >
-                    {/* Fila principal */}
-                    <button
-                      type="button"
-                      className="w-full text-left px-4 py-3 flex items-start justify-between gap-2 hover:bg-muted/30 transition-colors"
-                      onClick={() => toggleExpand(oc.id)}
-                    >
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm truncate">{oc.titulo}</span>
-                          <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 border", badge.className)}>
-                            {badge.label}
-                          </Badge>
-                          {estado === "vencida" && (
-                            <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-                          )}
-                          {/* ── Lápiz de edición en la fila principal ─── */}
-                          <button
-                            type="button"
-                            title="Editar ocupación"
-                            className="ml-auto p-1 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors flex-shrink-0"
-                            onClick={(e) => handleEditar(oc, e)}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            {formatFecha(oc.fechaDesde)}
-                            {oc.fechaDesde.split("T")[0] !== oc.fechaHasta.split("T")[0] && ` → ${formatFecha(oc.fechaHasta)}`}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {oc.horaDesde} – {oc.horaHasta}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            {oc.cantidadPersonas}
-                          </span>
-                        </div>
-                      </div>
-                      {expanded
-                        ? <ChevronUp   className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                        : <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-                      }
-                    </button>
-
-                    {/* Detalle expandido */}
-                    {expanded && (
-                      <div className="px-4 pb-4 pt-0 space-y-3 border-t bg-muted/10">
-                        {estado === "vencida" && (
-                          <div className="flex items-center gap-2 pt-3 text-xs text-red-600">
-                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                            El horario ya pasó. Liberá las zonas para que queden disponibles.
-                          </div>
-                        )}
-                        <div className="space-y-1 pt-3">
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <MapPin className="w-3 h-3" /> Zonas:
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {oc.areas?.length > 0
-                              ? oc.areas.map((r) => (
-                                  <Badge key={r.areaId} variant="secondary" className="text-xs">
-                                    {r.area?.nombre ?? `Área ${r.areaId}`}
-                                  </Badge>
-                                ))
-                              : <span className="text-xs text-muted-foreground">Sin zonas</span>
-                            }
-                          </div>
-                        </div>
-                        {oc.requerimiento && (
-                          <p className="text-xs text-muted-foreground border-t pt-2">{oc.requerimiento}</p>
-                        )}
-                        {oc.anexos?.length > 0 && (
-                          <div className="space-y-1">
-                            <p className="text-xs text-muted-foreground flex items-center gap-1">
-                              <Link2 className="w-3 h-3" /> Anexos:
-                            </p>
-                            {oc.anexos.map((url, i) => (
-                              <a key={i} href={url} target="_blank" rel="noopener noreferrer"
-                                className="text-xs text-primary underline truncate block">{url}</a>
-                            ))}
-                          </div>
-                        )}
-                        <div className="pt-1 flex gap-2 flex-wrap">
-                          <Button
-                            size="sm" variant="outline"
-                            className="gap-1.5 text-xs"
-                            onClick={(e) => handleEditar(oc, e)}
-                          >
-                            <Pencil className="w-3 h-3" /> Editar
-                          </Button>
-                          <Button
-                            size="sm" variant="outline"
-                            className="gap-1.5 text-xs border-destructive/30 text-destructive hover:bg-destructive hover:text-white"
-                            onClick={() => liberar(oc)}
-                            disabled={liberando === oc.id}
-                          >
-                            {liberando === oc.id
-                              ? <><Loader2 className="w-3 h-3 animate-spin" /> Liberando...</>
-                              : <><Unlock className="w-3 h-3" /> Liberar áreas</>
-                            }
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Paginado */}
-            {totalPaginas > 1 && (
-              <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-muted-foreground">
-                  {inicio + 1}–{Math.min(inicio + POR_PAGINA, ocupaciones.length)} de {ocupaciones.length}
-                </p>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="outline" size="icon" className="h-7 w-7"
-                    onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                    disabled={paginaActual === 1}
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                  </Button>
-                  {Array.from({ length: totalPaginas }, (_, i) => i + 1).map((n) => (
-                    <Button
-                      key={n}
-                      variant={n === paginaActual ? "default" : "outline"}
-                      size="icon" className="h-7 w-7 text-xs"
-                      onClick={() => setPagina(n)}
-                    >
-                      {n}
-                    </Button>
-                  ))}
-                  <Button
-                    variant="outline" size="icon" className="h-7 w-7"
-                    onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                    disabled={paginaActual === totalPaginas}
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Modal de edición */}
-      <EditarOcupacionModal
-        ocupacion={editando}
-        open={editModalOpen}
-        onOpenChange={setEditModalOpen}
-        onSuccess={() => {
-          cargar(true)
-          onSuccess?.()
-        }}
-      />
-    </>
-  )
+  return { seats, loading, error, fetchSeats, updateSeatStatus, toggleBlockAll, POLLING_MS }
 }
 EOF
-echo "  ✅  disponibilidad-inline.tsx actualizado"
+echo "  ✅  hooks/use-seats.ts listo"
 
-# ── Build ─────────────────────────────────────────────────────────────────────
 echo ""
 echo "🔨  Build de verificación..."
 pnpm build
 
 echo ""
-echo "✅  v29-front-editar-ocupacion completado"
+echo "✅  v31-front-gmail-reserva completado"

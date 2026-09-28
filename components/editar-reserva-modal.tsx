@@ -2,35 +2,26 @@
 
 import { useState, useEffect } from "react"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
+  Dialog, DialogContent, DialogHeader,
+  DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog"
 import { Button }   from "@/components/ui/button"
 import { Input }    from "@/components/ui/input"
 import { Label }    from "@/components/ui/label"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
 } from "@/components/ui/select"
-import { Loader2 }      from "lucide-react"
-import { reservasApi }  from "@/lib/api"
-import { useToast }     from "@/hooks/use-toast"
-import type { BackendReserva } from "@/types/seat"
+import { Loader2, Sun, Sunset, Moon, Mail } from "lucide-react"
+import { reservasApi }               from "@/lib/api"
+import { useToast }                  from "@/hooks/use-toast"
+import type { BackendReserva, Recepcion } from "@/types/seat"
+import { RECEPCION_LABELS }              from "@/types/seat"
 
-// ── Tipos de recepción alineados con el backend ───────────────────────────────
-type Recepcion = "MANANA" | "INTERMEDIO" | "TARDE"
-
-const RECEPCION_LABELS: Record<Recepcion, string> = {
-  MANANA:     "Mañana",
-  INTERMEDIO: "Intermedio",
-  TARDE:      "Tarde",
+const RECEPCION_ICONS: Record<Recepcion, React.ElementType> = {
+  MANANA:     Sun,
+  INTERMEDIO: Sunset,
+  TARDE:      Moon,
 }
 
 interface EditarReservaModalProps {
@@ -41,22 +32,22 @@ interface EditarReservaModalProps {
 }
 
 export function EditarReservaModal({
-  reserva,
-  open,
-  onOpenChange,
-  onSuccess,
+  reserva, open, onOpenChange, onSuccess,
 }: EditarReservaModalProps) {
   const { toast } = useToast()
 
   const [nombre,    setNombre]    = useState("")
+  const [gmail,     setGmail]     = useState("")
+  const [receptor,  setReceptor]  = useState("")
   const [detalles,  setDetalles]  = useState("")
   const [recepcion, setRecepcion] = useState<Recepcion>("MANANA")
   const [guardando, setGuardando] = useState(false)
 
-  // Sincronizar campos cuando cambia la reserva
   useEffect(() => {
     if (reserva) {
       setNombre(reserva.nombre ?? "")
+      setGmail(reserva.gmail ?? "")
+      setReceptor(reserva.receptor ?? "")
       setDetalles(reserva.detalles ?? "")
       setRecepcion((reserva.recepcion as Recepcion) ?? "MANANA")
     }
@@ -68,11 +59,12 @@ export function EditarReservaModal({
       toast({ variant: "destructive", title: "El nombre es obligatorio" })
       return
     }
-
     setGuardando(true)
     try {
       await reservasApi.update(reserva.id, {
         nombre:    nombre.trim(),
+        gmail:     gmail.trim()    || undefined,
+        receptor:  receptor.trim() || undefined,
         detalles:  detalles.trim() || undefined,
         recepcion,
       })
@@ -80,8 +72,7 @@ export function EditarReservaModal({
       onOpenChange(false)
       onSuccess?.()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al guardar"
-      toast({ variant: "destructive", title: "Error", description: msg })
+      toast({ variant: "destructive", title: "Error", description: err instanceof Error ? err.message : "Error al guardar" })
     } finally {
       setGuardando(false)
     }
@@ -101,9 +92,25 @@ export function EditarReservaModal({
 
         <div className="space-y-4 py-1">
 
-          {/* Nombre */}
+          {/* Gmail — arriba */}
           <div className="space-y-1.5">
-            <Label htmlFor="er-nombre" className="text-sm">Nombre</Label>
+            <Label htmlFor="er-gmail" className="text-sm flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5" />
+              Gmail <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Input
+              id="er-gmail"
+              type="email"
+              value={gmail}
+              onChange={(e) => setGmail(e.target.value)}
+              placeholder="cliente@gmail.com"
+              className="text-sm"
+            />
+          </div>
+
+          {/* Nombre del cliente */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-nombre" className="text-sm">Nombre del cliente</Label>
             <Input
               id="er-nombre"
               value={nombre}
@@ -113,24 +120,11 @@ export function EditarReservaModal({
             />
           </div>
 
-          {/* Turno de recepción */}
-          <div className="space-y-1.5">
-            <Label htmlFor="er-recepcion" className="text-sm">Turno de recepción</Label>
-            <Select value={recepcion} onValueChange={(v) => setRecepcion(v as Recepcion)}>
-              <SelectTrigger id="er-recepcion" className="text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(RECEPCION_LABELS) as Recepcion[]).map((key) => (
-                  <SelectItem key={key} value={key}>{RECEPCION_LABELS[key]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           {/* Detalles */}
           <div className="space-y-1.5">
-            <Label htmlFor="er-detalles" className="text-sm">Detalles <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+            <Label htmlFor="er-detalles" className="text-sm">
+              Detalles <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
             <Input
               id="er-detalles"
               value={detalles}
@@ -140,22 +134,48 @@ export function EditarReservaModal({
             />
           </div>
 
+          {/* Receptor — abajo */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-receptor" className="text-sm">
+              Nombre del receptor <span className="text-muted-foreground font-normal">(opcional)</span>
+            </Label>
+            <Input
+              id="er-receptor"
+              value={receptor}
+              onChange={(e) => setReceptor(e.target.value)}
+              placeholder="¿Quién lo recibe en recepción?"
+              className="text-sm"
+            />
+          </div>
+
+          {/* Turno — abajo */}
+          <div className="space-y-1.5">
+            <Label htmlFor="er-recepcion" className="text-sm">Turno de recepción</Label>
+            <Select value={recepcion} onValueChange={(v) => setRecepcion(v as Recepcion)}>
+              <SelectTrigger id="er-recepcion" className="text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(RECEPCION_LABELS) as Recepcion[]).map((key) => {
+                  const Icon = RECEPCION_ICONS[key]
+                  return (
+                    <SelectItem key={key} value={key}>
+                      <span className="flex items-center gap-2">
+                        <Icon className="w-3.5 h-3.5" />
+                        {RECEPCION_LABELS[key]}
+                      </span>
+                    </SelectItem>
+                  )
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+
         </div>
 
         <DialogFooter className="gap-2 flex-col-reverse sm:flex-row">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={guardando}
-            className="text-sm bg-transparent"
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={guardando} className="text-sm bg-transparent">
             Cancelar
           </Button>
-          <Button
-            onClick={handleGuardar}
-            disabled={guardando || !nombre.trim()}
-            className="text-sm gap-1.5"
-          >
+          <Button onClick={handleGuardar} disabled={guardando || !nombre.trim()} className="text-sm gap-1.5">
             {guardando && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             {guardando ? "Guardando..." : "Guardar cambios"}
           </Button>

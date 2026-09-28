@@ -1,6 +1,6 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
 
-import type { BackendArea, BackendReserva, BackendUsuario, BackendAdmin } from "@/types/seat"
+import type { BackendArea, BackendReserva, BackendUsuario, BackendAdmin, Recepcion } from "@/types/seat"
 
 const statusMap: Record<string, string> = {
   available: "LIBRE",
@@ -77,7 +77,7 @@ export const areasApi = {
   bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
     const estado = bloquear ? "OCUPADO" : "LIBRE"
     const areas  = await areasApi.getAll()
-    const results = await Promise.all(
+    return Promise.all(
       areas.map((area) =>
         fetch(`${API_BASE_URL}/areas/${area.id}/estado/${estado}`, { method: "PATCH" }).then((r) => {
           if (!r.ok) throw new Error(`Error al actualizar área ${area.id}`)
@@ -85,7 +85,6 @@ export const areasApi = {
         }),
       ),
     )
-    return results
   },
   delete: async (id: number): Promise<void> => {
     const res = await fetch(`${API_BASE_URL}/areas/${id}`, { method: "DELETE" })
@@ -93,12 +92,13 @@ export const areasApi = {
   },
 }
 
-// ── Payload tipado para actualizar reservas ───────────────────────────────────
 export interface UpdateReservaPayload {
   nombre?:    string
+  gmail?:     string
   detalles?:  string
   areaId?:    number
-  recepcion?: "MANANA" | "INTERMEDIO" | "TARDE"
+  recepcion?: Recepcion
+  receptor?:  string
 }
 
 export const reservasApi = {
@@ -114,10 +114,12 @@ export const reservasApi = {
   },
   create: async (data: {
     nombre:     string
+    gmail?:     string
     detalles?:  string
     usuarioId:  number
     areaId:     number
-    recepcion?: "MANANA" | "INTERMEDIO" | "TARDE"
+    recepcion?: Recepcion
+    receptor?:  string
   }): Promise<BackendReserva> => {
     const res = await fetch(`${API_BASE_URL}/reservas`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
@@ -165,12 +167,9 @@ export const adminsApi = {
   },
 }
 
-/**
- * Convierte BackendArea → Seat.
- * zone = letra del área (A1→"A", B3→"B") para mapear la imagen por zona.
- */
 export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendReserva[]) => {
   const activeReservas = reservas.filter((r) => r.areaId === area.id && r.fin === null)
+  const active         = activeReservas[0]
 
   const match  = area.nombre.match(/^([A-Za-z]+)(\d+)$/)
   const letra  = match ? match[1].toUpperCase() : "A"
@@ -181,10 +180,13 @@ export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendRes
     backendId:   area.id,
     row:         letra,
     number:      numero,
-    status:      (reverseStatusMap[area.estado] || "available") as "available" | "occupied",
-    userName:    activeReservas[0]?.nombre,
-    reservaId:   activeReservas[0]?.id,
-    occupiedAt:  activeReservas[0]?.inicio ? new Date(activeReservas[0].inicio) : undefined,
+    status:      ({ LIBRE: "available", OCUPADO: "occupied" }[area.estado] ?? "available") as "available" | "occupied",
+    userName:    active?.nombre,
+    gmail:       active?.gmail ?? undefined,
+    reservaId:   active?.id,
+    recepcion:   active?.recepcion,
+    receptor:    active?.receptor ?? undefined,
+    occupiedAt:  active?.inicio ? new Date(active.inicio) : undefined,
     peopleCount: activeReservas.length,
     zone:        letra,
     amenities:   area.descripcion ? [area.descripcion] : [],

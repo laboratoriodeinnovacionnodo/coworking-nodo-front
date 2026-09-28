@@ -1,29 +1,32 @@
 "use client"
 
 import { useState } from "react"
-import type { Seat, SeatStatus } from "@/types/seat"
-import { seatStatusLabels, canOccupySeat } from "@/lib/seat-utils"
+import type { Seat, SeatStatus, Recepcion } from "@/types/seat"
+import { RECEPCION_LABELS }                 from "@/types/seat"
+import { seatStatusLabels, canOccupySeat }  from "@/lib/seat-utils"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogDescription,
+  DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
+import { Button }    from "@/components/ui/button"
+import { Input }     from "@/components/ui/input"
+import { Label }     from "@/components/ui/label"
+import {
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
+} from "@/components/ui/select"
+import { Sun, Sunset, Moon, Mail } from "lucide-react"
 
-// ── Tipos de recepción alineados con el enum del backend ─────────────────────
-export type Recepcion = "MANANA" | "INTERMEDIO" | "TARDE"
+const RECEPCION_ICONS: Record<Recepcion, React.ElementType> = {
+  MANANA:     Sun,
+  INTERMEDIO: Sunset,
+  TARDE:      Moon,
+}
 
-const recepcionLabels: Record<Recepcion, string> = {
-  MANANA:     "Mañana",
-  INTERMEDIO: "Intermedio",
-  TARDE:      "Tarde",
+const RECEPCION_BADGE: Record<Recepcion, string> = {
+  MANANA:     "bg-yellow-100 text-yellow-700 border-yellow-200",
+  INTERMEDIO: "bg-orange-100 text-orange-700 border-orange-200",
+  TARDE:      "bg-indigo-100 text-indigo-700 border-indigo-200",
 }
 
 interface SeatStatusModalProps {
@@ -31,48 +34,52 @@ interface SeatStatusModalProps {
   open: boolean
   onClose: () => void
   onUpdateStatus: (
-    seatId: string,
-    status: SeatStatus,
-    userName?: string,
-    shareLimit?: number,
+    seatId:       string,
+    status:       SeatStatus,
+    userName?:    string,
+    shareLimit?:  number,
     peopleCount?: number,
-    recepcion?: Recepcion,
+    recepcion?:   Recepcion,
+    receptor?:    string,
+    gmail?:       string,
   ) => void
   isAdmin?: boolean
 }
 
-export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin = false }: SeatStatusModalProps) {
-  const [userName,      setUserName]      = useState("")
+export function SeatStatusModal({
+  seat, open, onClose, onUpdateStatus, isAdmin = false,
+}: SeatStatusModalProps) {
+  const [userName,       setUserName]       = useState("")
+  const [gmail,          setGmail]          = useState("")
+  const [receptor,       setReceptor]       = useState("")
   const [selectedStatus, setSelectedStatus] = useState<SeatStatus>("occupied")
-  const [shareLimit,    setShareLimit]    = useState("2")
-  const [peopleCount,   setPeopleCount]   = useState("1")
-  const [recepcion,     setRecepcion]     = useState<Recepcion>("MANANA")
+  const [shareLimit,     setShareLimit]     = useState("2")
+  const [peopleCount,    setPeopleCount]    = useState("1")
+  const [recepcion,      setRecepcion]      = useState<Recepcion>("MANANA")
 
   if (!seat) return null
 
   const handleOccupySeat = () => {
-    if (userName.trim()) {
-      const limit = selectedStatus === "for-share" ? Number.parseInt(shareLimit) : undefined
-      const count = Number.parseInt(peopleCount)
-      onUpdateStatus(seat.id, selectedStatus, userName, limit, count, recepcion)
-      setUserName("")
-      setSelectedStatus("occupied")
-      setShareLimit("2")
-      setPeopleCount("1")
-      setRecepcion("MANANA")
-      onClose()
-    }
-  }
-
-  const handleFreeSeat = () => {
-    onUpdateStatus(seat.id, "available")
+    if (!userName.trim()) return
+    const limit = selectedStatus === "for-share" ? Number.parseInt(shareLimit) : undefined
+    const count = Number.parseInt(peopleCount)
+    onUpdateStatus(
+      seat.id, selectedStatus, userName, limit, count,
+      recepcion,
+      receptor.trim() || undefined,
+      gmail.trim()    || undefined,
+    )
+    setUserName(""); setGmail(""); setReceptor("")
+    setSelectedStatus("occupied"); setShareLimit("2")
+    setPeopleCount("1"); setRecepcion("MANANA")
     onClose()
   }
 
-  const handleAdminUpdate = () => {
-    onUpdateStatus(seat.id, selectedStatus)
-    onClose()
-  }
+  const handleFreeSeat    = () => { onUpdateStatus(seat.id, "available"); onClose() }
+  const handleAdminUpdate = () => { onUpdateStatus(seat.id, selectedStatus); onClose() }
+
+  const turnoActivo = seat.recepcion as Recepcion | undefined
+  const TurnoIcon   = turnoActivo ? RECEPCION_ICONS[turnoActivo] : null
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -91,6 +98,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
             </div>
           )}
 
+          {/* Estado general */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 p-3 md:p-4 bg-muted/50 rounded-lg">
             <div>
               <div className="text-xs md:text-sm text-muted-foreground">Estado</div>
@@ -115,17 +123,25 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
               <h3 className="font-semibold text-sm md:text-base mb-2">Comodidades</h3>
               <div className="flex flex-wrap gap-2">
                 {seat.amenities.map((amenity, idx) => (
-                  <div key={idx} className="px-3 py-1 bg-primary/10 rounded-full text-xs md:text-sm">
-                    {amenity}
-                  </div>
+                  <div key={idx} className="px-3 py-1 bg-primary/10 rounded-full text-xs md:text-sm">{amenity}</div>
                 ))}
               </div>
             </div>
           )}
 
+          {/* ── Info de reserva activa ── */}
           {seat.status !== "available" && seat.status !== "out-of-service" && (
-            <div className="p-3 md:p-4 bg-primary/5 rounded-lg border border-primary/20">
-              <h3 className="font-semibold text-sm md:text-base mb-3">Información de Reserva</h3>
+            <div className="p-3 md:p-4 bg-primary/5 rounded-lg border border-primary/20 space-y-3">
+              <h3 className="font-semibold text-sm md:text-base">Información de Reserva</h3>
+
+              {/* Badge turno */}
+              {turnoActivo && TurnoIcon && (
+                <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold ${RECEPCION_BADGE[turnoActivo]}`}>
+                  <TurnoIcon className="w-3.5 h-3.5" />
+                  Turno {RECEPCION_LABELS[turnoActivo]}
+                </div>
+              )}
+
               <div className="space-y-2 text-sm md:text-base">
                 {seat.userName && (
                   <div className="flex justify-between">
@@ -133,38 +149,25 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                     <span className="font-medium">{seat.userName}</span>
                   </div>
                 )}
+                {seat.gmail && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Gmail:</span>
+                    <span className="font-medium">{seat.gmail}</span>
+                  </div>
+                )}
+                {seat.receptor && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Recibido por:</span>
+                    <span className="font-medium">{seat.receptor}</span>
+                  </div>
+                )}
                 {seat.occupiedAt && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Desde:</span>
                     <span className="font-medium">
-                      {seat.occupiedAt.toLocaleString("es-AR", {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })}
+                      {seat.occupiedAt.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}
                     </span>
                   </div>
-                )}
-                {(seat.status === "for-share" || seat.status === "shared") && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Personas:</span>
-                      <span className="font-medium">
-                        {seat.peopleCount || 0}/{seat.shareLimit || 0}
-                      </span>
-                    </div>
-                    {seat.sharedUsers && seat.sharedUsers.length > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Compartido por:</span>
-                        <div className="mt-1 space-y-1">
-                          {seat.sharedUsers.map((user, idx) => (
-                            <div key={idx} className="text-xs md:text-sm font-medium pl-2">
-                              • {user}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
                 )}
               </div>
             </div>
@@ -178,24 +181,40 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
             </Button>
           )}
 
-          {/* ── Formulario de registro (solo usuarios, área disponible) ──────── */}
+          {/* ── Formulario nueva reserva ── */}
           {!isAdmin && canOccupySeat(seat.status) && (
             <div className="space-y-4 p-3 md:p-4 bg-card border rounded-lg">
               <h3 className="font-semibold text-sm md:text-base">Crear Reserva</h3>
 
-              {/* Nombre */}
+              {/* 1. Gmail — arriba */}
               <div className="space-y-2">
-                <Label htmlFor="userName" className="text-xs md:text-sm">Tu nombre</Label>
+                <Label htmlFor="gmail" className="text-xs md:text-sm flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" />
+                  Gmail <span className="text-muted-foreground font-normal">(opcional)</span>
+                </Label>
+                <Input
+                  id="gmail"
+                  type="email"
+                  placeholder="cliente@gmail.com"
+                  value={gmail}
+                  onChange={(e) => setGmail(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* 2. Nombre del cliente */}
+              <div className="space-y-2">
+                <Label htmlFor="userName" className="text-xs md:text-sm">Nombre del cliente</Label>
                 <Input
                   id="userName"
-                  placeholder="Ingresa tu nombre"
+                  placeholder="Ingresá el nombre"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
                   className="text-sm"
                 />
               </div>
 
-              {/* Número de personas */}
+              {/* 3. Número de personas */}
               <div className="space-y-2">
                 <Label htmlFor="peopleCount" className="text-xs md:text-sm">Número de personas</Label>
                 <Input
@@ -209,30 +228,11 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                 />
               </div>
 
-              {/* ── NUEVO: Turno de recepción ────────────────────────────────── */}
-              <div className="space-y-2">
-                <Label htmlFor="recepcion" className="text-xs md:text-sm">Turno de recepción</Label>
-                <Select value={recepcion} onValueChange={(value) => setRecepcion(value as Recepcion)}>
-                  <SelectTrigger id="recepcion" className="text-sm">
-                    <SelectValue placeholder="Seleccioná un turno" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(recepcionLabels) as Recepcion[]).map((key) => (
-                      <SelectItem key={key} value={key}>
-                        {recepcionLabels[key]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Estado del área */}
+              {/* 4. Estado del área */}
               <div className="space-y-2">
                 <Label htmlFor="assignStatus" className="text-xs md:text-sm">Estado del área</Label>
-                <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as SeatStatus)}>
-                  <SelectTrigger className="text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as SeatStatus)}>
+                  <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="available">{seatStatusLabels["available"]}</SelectItem>
                     <SelectItem value="occupied">{seatStatusLabels["occupied"]}</SelectItem>
@@ -259,6 +259,43 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
                 </div>
               )}
 
+              {/* 5. Nombre del receptor — abajo */}
+              <div className="space-y-2">
+                <Label htmlFor="receptor" className="text-xs md:text-sm">
+                  Nombre del receptor <span className="text-muted-foreground font-normal">(opcional)</span>
+                </Label>
+                <Input
+                  id="receptor"
+                  placeholder="¿Quién lo recibe en recepción?"
+                  value={receptor}
+                  onChange={(e) => setReceptor(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+
+              {/* 6. Turno de recepción — abajo */}
+              <div className="space-y-2">
+                <Label htmlFor="recepcion" className="text-xs md:text-sm">Turno de recepción</Label>
+                <Select value={recepcion} onValueChange={(v) => setRecepcion(v as Recepcion)}>
+                  <SelectTrigger id="recepcion" className="text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(RECEPCION_LABELS) as Recepcion[]).map((key) => {
+                      const Icon = RECEPCION_ICONS[key]
+                      return (
+                        <SelectItem key={key} value={key}>
+                          <span className="flex items-center gap-2">
+                            <Icon className="w-3.5 h-3.5" />
+                            {RECEPCION_LABELS[key]}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <Button onClick={handleOccupySeat} className="w-full text-sm" disabled={!userName.trim()}>
                 Asignar asiento
               </Button>
@@ -276,22 +313,16 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
               <h3 className="font-semibold text-sm md:text-base">Modo Administrador</h3>
               <div className="space-y-2">
                 <Label htmlFor="status" className="text-xs md:text-sm">Cambiar estado del área</Label>
-                <Select value={selectedStatus} onValueChange={(value) => setSelectedStatus(value as SeatStatus)}>
-                  <SelectTrigger className="text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as SeatStatus)}>
+                  <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(seatStatusLabels).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={handleAdminUpdate} className="w-full text-sm">
-                Actualizar estado
-              </Button>
+              <Button onClick={handleAdminUpdate} className="w-full text-sm">Actualizar estado</Button>
             </div>
           )}
 
@@ -306,9 +337,7 @@ export function SeatStatusModal({ seat, open, onClose, onUpdateStatus, isAdmin =
         </div>
 
         <DialogFooter className="flex-col-reverse sm:flex-row gap-2">
-          <Button variant="outline" onClick={onClose} className="text-sm bg-transparent">
-            Cerrar
-          </Button>
+          <Button variant="outline" onClick={onClose} className="text-sm bg-transparent">Cerrar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

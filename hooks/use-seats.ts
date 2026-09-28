@@ -1,10 +1,9 @@
 "use client"
 
 import { useState, useCallback, useRef } from "react"
-import type { Seat } from "@/types/seat"
+import type { Seat, Recepcion } from "@/types/seat"
 import { areasApi, reservasApi, convertBackendAreaToSeat } from "@/lib/api"
 import { useToast } from "@/hooks/use-toast"
-import type { Recepcion } from "@/components/seat-status-modal"
 
 const POLLING_MS = 30_000
 
@@ -17,32 +16,28 @@ export function useSeats() {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState<string | null>(null)
 
-  // ── fetchSeats ────────────────────────────────────────────────────────────
   const fetchSeats = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const [areas, reservas] = await Promise.all([
-        areasApi.getAll(),
-        reservasApi.getAll(),
-      ])
+      const [areas, reservas] = await Promise.all([areasApi.getAll(), reservasApi.getAll()])
       setSeats(areas.map((area) => convertBackendAreaToSeat(area, reservas)))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Error al cargar áreas"
-      setError(msg)
+      setError(err instanceof Error ? err.message : "Error al cargar áreas")
     } finally {
       setLoading(false)
     }
   }, [])
 
-  // ── updateSeatStatus ──────────────────────────────────────────────────────
   const updateSeatStatus = useCallback(async (
-    seat: Seat,
-    newStatus: string,
-    userName?: string,
+    seat:         Seat,
+    newStatus:    string,
+    userName?:    string,
     peopleCount?: number,
-    shareLimit?: number,
-    recepcion?: Recepcion,
+    shareLimit?:  number,
+    recepcion?:   Recepcion,
+    receptor?:    string,
+    gmail?:       string,
   ) => {
     if (!seat.backendId) throw new Error("Asiento sin ID de backend")
 
@@ -74,6 +69,8 @@ export function useSeats() {
           usuarioId,
           areaId: seat.backendId,
           ...(recepcion && { recepcion }),
+          ...(receptor  && { receptor }),
+          ...(gmail     && { gmail }),
         })
 
         if (newStatus === "for-share") {
@@ -99,7 +96,6 @@ export function useSeats() {
     }
   }, [fetchSeats])
 
-  // ── toggleBlockAll ────────────────────────────────────────────────────────
   const toggleBlockAll = useCallback(async (block: boolean) => {
     try {
       setLoading(true)
