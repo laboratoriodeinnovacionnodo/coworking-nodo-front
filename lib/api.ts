@@ -1,173 +1,203 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://coworking-nodo-back.onrender.com"
+/**
+ * lib/api.ts
+ *
+ * Cliente HTTP para coworking-back.
+ *
+ * CAMBIO v34: fetchSeats() usa GET /areas/estado-actual en lugar de
+ * GET /areas.  El nuevo endpoint calcula el estado de cada área en
+ * tiempo real (sin depender del campo persistido area.estado), por lo
+ * que los asientos se liberan automáticamente cuando vence el horario
+ * de una ocupación — sin necesidad de recargar manualmente.
+ */
 
-import type { BackendArea, BackendReserva, BackendUsuario, BackendAdmin, Recepcion } from "@/types/seat"
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3550"
 
-const statusMap: Record<string, string> = {
-  available: "LIBRE",
-  occupied:  "OCUPADO",
-}
+// ── Tipos ────────────────────────────────────────────────────────────────────
 
-const reverseStatusMap: Record<string, string> = {
+export type AreaStatus = "LIBRE" | "OCUPADO"
+export type SeatStatus = "available" | "occupied"
+
+export const statusMap: Record<AreaStatus, SeatStatus> = {
   LIBRE:   "available",
   OCUPADO: "occupied",
 }
 
-export const usuariosApi = {
-  getAll: async (): Promise<BackendUsuario[]> => {
-    const res = await fetch(`${API_BASE_URL}/usuario`, { headers: { "Content-Type": "application/json" } })
-    if (!res.ok) throw new Error("Error al obtener usuarios")
-    return res.json()
-  },
-  getById: async (id: number): Promise<BackendUsuario> => {
-    const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { headers: { "Content-Type": "application/json" } })
-    if (!res.ok) throw new Error("Error al obtener usuario")
-    return res.json()
-  },
-  create: async (data: { nombre: string; email: string }): Promise<BackendUsuario> => {
-    const res = await fetch(`${API_BASE_URL}/usuario`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-    })
-    if (!res.ok) throw new Error("Error al crear usuario")
-    return res.json()
-  },
-  update: async (id: number, data: Partial<{ nombre: string; email: string }>): Promise<BackendUsuario> => {
-    const res = await fetch(`${API_BASE_URL}/usuario/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-    })
-    if (!res.ok) throw new Error("Error al actualizar usuario")
-    return res.json()
-  },
-  delete: async (id: number): Promise<void> => {
-    const res = await fetch(`${API_BASE_URL}/usuario/${id}`, { method: "DELETE" })
-    if (!res.ok) throw new Error("Error al eliminar usuario")
-  },
+export const reverseStatusMap: Record<SeatStatus, AreaStatus> = {
+  available: "LIBRE",
+  occupied:  "OCUPADO",
 }
 
+export interface BackendArea {
+  id:          number
+  nombre:      string
+  descripcion: string | null
+  estado:      AreaStatus
+  createdAt:   string
+}
+
+export interface BackendReserva {
+  id:        number
+  nombre:    string
+  gmail?:    string | null
+  detalles?: string | null
+  usuarioId: number
+  areaId:    number
+  recepcion?: string | null
+  receptor?:  string | null
+  inicio:    string
+  fin:       string | null
+  createdAt: string
+}
+
+export interface BackendAdmin {
+  id:        number
+  email:     string
+  createdAt: string
+}
+
+// ── Áreas ────────────────────────────────────────────────────────────────────
+
 export const areasApi = {
+  /** Lista todas las áreas (campo estado persistido). */
   getAll: async (): Promise<BackendArea[]> => {
-    const res = await fetch(`${API_BASE_URL}/areas`, { headers: { "Content-Type": "application/json" } })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const res = await fetch(`${API_BASE_URL}/areas`, { cache: "no-store" })
+    if (!res.ok) throw new Error("Error al obtener áreas")
     return res.json()
   },
-  getById: async (id: number): Promise<BackendArea> => {
-    const res = await fetch(`${API_BASE_URL}/areas/${id}`, { headers: { "Content-Type": "application/json" } })
-    if (!res.ok) throw new Error("Error al obtener área")
-    return res.json()
-  },
-  create: async (data: { nombre: string; descripcion?: string; estado?: string }): Promise<BackendArea> => {
-    const res = await fetch(`${API_BASE_URL}/areas`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+
+  /**
+   * Devuelve el estado de cada área calculado en tiempo real:
+   * considera ocupaciones activas AHORA y reservas de asiento vigentes.
+   * Usar este endpoint para mostrar el estado correcto en el grid de asientos.
+   */
+  getEstadoActual: async (): Promise<BackendArea[]> => {
+    const res = await fetch(`${API_BASE_URL}/areas/estado-actual`, {
+      cache: "no-store",
     })
-    if (!res.ok) throw new Error("Error al crear área")
+    if (!res.ok) throw new Error("Error al obtener estado actual de áreas")
     return res.json()
   },
+
   update: async (id: number, data: Partial<BackendArea>): Promise<BackendArea> => {
     const res = await fetch(`${API_BASE_URL}/areas/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
     })
     if (!res.ok) throw new Error("Error al actualizar área")
     return res.json()
   },
-  cambiarEstado: async (id: number, estado: string): Promise<BackendArea> => {
-    const backendEstado = statusMap[estado] || estado
-    const res = await fetch(`${API_BASE_URL}/areas/${id}/estado/${backendEstado}`, { method: "PATCH" })
-    if (!res.ok) throw new Error("Error al cambiar estado")
+
+  cambiarEstado: async (id: number, estado: AreaStatus): Promise<BackendArea> => {
+    const res = await fetch(`${API_BASE_URL}/areas/${id}/estado/${estado}`, {
+      method: "PATCH",
+    })
+    if (!res.ok) throw new Error("Error al cambiar estado del área")
     return res.json()
   },
-  bloquearTodas: async (bloquear: boolean): Promise<BackendArea[]> => {
-    const estado = bloquear ? "OCUPADO" : "LIBRE"
-    const areas  = await areasApi.getAll()
-    return Promise.all(
-      areas.map((area) =>
-        fetch(`${API_BASE_URL}/areas/${area.id}/estado/${estado}`, { method: "PATCH" }).then((r) => {
-          if (!r.ok) throw new Error(`Error al actualizar área ${area.id}`)
-          return r.json()
-        }),
-      ),
-    )
-  },
-  delete: async (id: number): Promise<void> => {
-    const res = await fetch(`${API_BASE_URL}/areas/${id}`, { method: "DELETE" })
-    if (!res.ok) throw new Error("Error al eliminar área")
+
+  bloquearTodas: async (estado: AreaStatus): Promise<BackendArea[]> => {
+    const res = await fetch(`${API_BASE_URL}/areas/bloquear-todas/${estado}`, {
+      method: "PATCH",
+    })
+    if (!res.ok) throw new Error("Error al bloquear áreas")
+    return res.json()
   },
 }
 
-export interface UpdateReservaPayload {
-  nombre?:    string
-  gmail?:     string
-  detalles?:  string
-  areaId?:    number
-  recepcion?: Recepcion
-  receptor?:  string
-}
+// ── Reservas ─────────────────────────────────────────────────────────────────
 
 export const reservasApi = {
   getAll: async (): Promise<BackendReserva[]> => {
-    const res = await fetch(`${API_BASE_URL}/reservas`, { headers: { "Content-Type": "application/json" } })
+    const res = await fetch(`${API_BASE_URL}/reservas`, { cache: "no-store" })
     if (!res.ok) throw new Error("Error al obtener reservas")
     return res.json()
   },
-  getById: async (id: number): Promise<BackendReserva> => {
-    const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { headers: { "Content-Type": "application/json" } })
-    if (!res.ok) throw new Error("Error al obtener reserva")
-    return res.json()
-  },
+
   create: async (data: {
-    nombre:     string
-    gmail?:     string
-    detalles?:  string
-    usuarioId:  number
-    areaId:     number
-    recepcion?: Recepcion
+    nombre:    string
+    gmail?:    string
+    detalles?: string
+    usuarioId: number
+    areaId:    number
+    recepcion?: string
     receptor?:  string
   }): Promise<BackendReserva> => {
     const res = await fetch(`${API_BASE_URL}/reservas`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
     })
-    if (!res.ok) { const e = await res.text(); throw new Error(`Error al crear reserva: ${e}`) }
+    if (!res.ok) {
+      const e = await res.text()
+      throw new Error(e || "Error al crear reserva")
+    }
     return res.json()
   },
-  update: async (id: number, data: UpdateReservaPayload): Promise<BackendReserva> => {
-    const res = await fetch(`${API_BASE_URL}/reservas/${id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
-    })
-    if (!res.ok) { const e = await res.text(); throw new Error(`Error al actualizar reserva: ${e}`) }
-    return res.json()
-  },
+
   completar: async (id: number): Promise<BackendReserva> => {
-    const res = await fetch(`${API_BASE_URL}/reservas/${id}/completar`, { method: "PATCH" })
+    const res = await fetch(`${API_BASE_URL}/reservas/${id}/completar`, {
+      method: "PATCH",
+    })
     if (!res.ok) throw new Error("Error al completar reserva")
     return res.json()
   },
+
+  update: async (id: number, data: Partial<BackendReserva>): Promise<BackendReserva> => {
+    const res = await fetch(`${API_BASE_URL}/reservas/${id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
+    })
+    if (!res.ok) throw new Error("Error al actualizar reserva")
+    return res.json()
+  },
+
   delete: async (id: number): Promise<void> => {
     const res = await fetch(`${API_BASE_URL}/reservas/${id}`, { method: "DELETE" })
     if (!res.ok) throw new Error("Error al eliminar reserva")
   },
 }
 
-export const adminsApi = {
+// ── Admins ───────────────────────────────────────────────────────────────────
+
+export const adminApi = {
   login: async (email: string, password: string): Promise<BackendAdmin> => {
     const res = await fetch(`${API_BASE_URL}/auth/login`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }),
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ email, password }),
     })
     if (!res.ok) { const e = await res.text(); throw new Error(e || "Credenciales inválidas") }
     return res.json()
   },
+
   getAll: async (): Promise<BackendAdmin[]> => {
-    const res = await fetch(`${API_BASE_URL}/admin`, { headers: { "Content-Type": "application/json" } })
+    const res = await fetch(`${API_BASE_URL}/admin`, {
+      headers: { "Content-Type": "application/json" },
+    })
     if (!res.ok) throw new Error("Error al obtener administradores")
     return res.json()
   },
+
   create: async (data: { nombre: string; email: string; password: string }): Promise<BackendAdmin> => {
     const res = await fetch(`${API_BASE_URL}/admin`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(data),
     })
     if (!res.ok) throw new Error("Error al crear administrador")
     return res.json()
   },
 }
 
-export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendReserva[]) => {
+// ── Convertidor área → seat ───────────────────────────────────────────────────
+
+export const convertBackendAreaToSeat = (
+  area: BackendArea,
+  reservas: BackendReserva[],
+) => {
   const activeReservas = reservas.filter((r) => r.areaId === area.id && r.fin === null)
   const active         = activeReservas[0]
 
@@ -180,7 +210,10 @@ export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendRes
     backendId:   area.id,
     row:         letra,
     number:      numero,
-    status:      ({ LIBRE: "available", OCUPADO: "occupied" }[area.estado] ?? "available") as "available" | "occupied",
+    // El estado ya viene calculado en tiempo real desde el endpoint estado-actual
+    status: ({ LIBRE: "available", OCUPADO: "occupied" }[area.estado] ?? "available") as
+      | "available"
+      | "occupied",
     userName:    active?.nombre,
     gmail:       active?.gmail ?? undefined,
     reservaId:   active?.id,
@@ -194,4 +227,7 @@ export const convertBackendAreaToSeat = (area: BackendArea, reservas: BackendRes
   }
 }
 
-export { statusMap, reverseStatusMap }
+export { statusMap as default, reverseStatusMap }
+
+// Alias de compatibilidad — auth-context.tsx usa adminsApi
+export const adminsApi = adminApi
