@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
-import { areasApi, reservasApi, type BackendReserva } from "@/lib/api"
 import type { Ocupacion, RecepcionTurno } from "@/types/ocupacion"
 import { RECEPCION_OC_LABELS, RECEPCION_OC_EMOJI } from "@/types/ocupacion"
 import { useToast } from "@/hooks/use-toast"
@@ -11,13 +10,11 @@ import { Badge }    from "@/components/ui/badge"
 import { Input }    from "@/components/ui/input"
 import {
   Loader2, History, Clock, Users, MapPin, RefreshCw, Inbox, Search,
-  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Mail, User, Link2, Armchair,
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Mail, User, Link2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const POR_PAGINA = 8
-
-type Vista = "agendadas" | "asientos"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,10 +62,7 @@ export function HistorialInline() {
   const toastRef  = useRef(toast)
   useEffect(() => { toastRef.current = toast }, [toast])
 
-  const [vista,       setVista]       = useState<Vista>("agendadas")
   const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([])
-  const [reservas,    setReservas]    = useState<BackendReserva[]>([])
-  const [areaNombre,  setAreaNombre]  = useState<Record<number, string>>({})
   const [loading,     setLoading]     = useState(false)
   const [busqueda,    setBusqueda]    = useState("")
   const [pagina,      setPagina]      = useState(1)
@@ -77,18 +71,8 @@ export function HistorialInline() {
   const cargar = useCallback(async () => {
     setLoading(true)
     try {
-      const [ocs, res, areas] = await Promise.all([
-        ocupacionesApi.getAll(),
-        reservasApi.getAll(),
-        areasApi.getAll(),
-      ])
+      const ocs = await ocupacionesApi.getAll()
       setOcupaciones(ocs.filter(ocupacionFinalizada).sort((a, b) => finDeOcupacion(b) - finDeOcupacion(a)))
-      setReservas(
-        res
-          .filter((r) => r.fin !== null)
-          .sort((a, b) => new Date(b.fin!).getTime() - new Date(a.fin!).getTime()),
-      )
-      setAreaNombre(Object.fromEntries(areas.map((a) => [a.id, a.nombre])))
     } catch {
       toastRef.current({ variant: "destructive", title: "Error", description: "No se pudo cargar el historial" })
     } finally {
@@ -97,7 +81,7 @@ export function HistorialInline() {
   }, [])
 
   useEffect(() => { cargar() }, [cargar])
-  useEffect(() => { setPagina(1); setExpandedId(null) }, [vista, busqueda])
+  useEffect(() => { setPagina(1); setExpandedId(null) }, [busqueda])
 
   const q = busqueda.trim().toLowerCase()
 
@@ -107,14 +91,7 @@ export function HistorialInline() {
         .some((v) => v?.toLowerCase().includes(q))),
     [ocupaciones, q],
   )
-  const reservasFiltradas = useMemo(
-    () => reservas.filter((r) =>
-      !q || [r.nombre, r.gmail, r.receptor, r.detalles, areaNombre[r.areaId]]
-        .some((v) => v?.toLowerCase().includes(q))),
-    [reservas, q, areaNombre],
-  )
-
-  const total        = vista === "agendadas" ? ocupacionesFiltradas.length : reservasFiltradas.length
+  const total        = ocupacionesFiltradas.length
   const totalPaginas = Math.max(1, Math.ceil(total / POR_PAGINA))
   const paginaActual = Math.min(pagina, totalPaginas)
   const inicio       = (paginaActual - 1) * POR_PAGINA
@@ -127,30 +104,11 @@ export function HistorialInline() {
         <h3 className="text-sm font-semibold flex items-center gap-1.5 text-muted-foreground uppercase tracking-wide">
           <History className="w-3.5 h-3.5" />
           Historial
+          {ocupaciones.length > 0 && <span className="ml-1 text-xs font-normal normal-case">({ocupaciones.length})</span>}
         </h3>
         <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" onClick={cargar} disabled={loading}>
           <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} /> Actualizar
         </Button>
-      </div>
-
-      {/* Selector de vista */}
-      <div className="inline-flex rounded-lg border border-border p-0.5 bg-muted/30">
-        {([
-          { id: "agendadas", label: "Agendadas", count: ocupaciones.length },
-          { id: "asientos",  label: "Asientos",  count: reservas.length },
-        ] as const).map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setVista(t.id)}
-            className={cn(
-              "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
-              vista === t.id ? "bg-white shadow-sm text-primary" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t.label} <span className="opacity-60">({t.count})</span>
-          </button>
-        ))}
       </div>
 
       {/* Búsqueda */}
@@ -159,7 +117,7 @@ export function HistorialInline() {
         <Input
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
-          placeholder={vista === "agendadas" ? "Buscar por título, organizador, zona..." : "Buscar por nombre, mail, asiento..."}
+          placeholder="Buscar por título, organizador, zona..."
           className="pl-9 h-9 text-sm"
         />
       </div>
@@ -176,8 +134,7 @@ export function HistorialInline() {
       ) : (
         <>
           <div className="space-y-2">
-            {vista === "agendadas"
-              ? ocupacionesFiltradas.slice(inicio, inicio + POR_PAGINA).map((oc) => {
+            {ocupacionesFiltradas.slice(inicio, inicio + POR_PAGINA).map((oc) => {
                   const expanded = expandedId === oc.id
                   return (
                     <div key={oc.id} className="rounded-xl border bg-card shadow-sm overflow-hidden">
@@ -233,27 +190,7 @@ export function HistorialInline() {
                       )}
                     </div>
                   )
-                })
-              : reservasFiltradas.slice(inicio, inicio + POR_PAGINA).map((r) => (
-                  <div key={r.id} className="rounded-xl border bg-card shadow-sm px-4 py-3 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Armchair className="w-3.5 h-3.5 text-muted-foreground" />
-                      <span className="font-semibold text-sm truncate">{r.nombre}</span>
-                      <Badge variant="secondary" className="text-xs">{areaNombre[r.areaId] ?? `Área ${r.areaId}`}</Badge>
-                      {r.recepcion && (
-                        <span className="text-[10px] font-medium text-muted-foreground">
-                          {RECEPCION_OC_EMOJI[r.recepcion as RecepcionTurno]} {RECEPCION_OC_LABELS[r.recepcion as RecepcionTurno]}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatFechaHora(r.inicio)} → {formatFechaHora(r.fin!)}</span>
-                      {r.receptor && <span>Receptor: {r.receptor}</span>}
-                      {r.gmail && <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{r.gmail}</span>}
-                    </div>
-                    {r.detalles && <p className="text-xs text-muted-foreground">{r.detalles}</p>}
-                  </div>
-                ))}
+                })}
           </div>
 
           {totalPaginas > 1 && (
