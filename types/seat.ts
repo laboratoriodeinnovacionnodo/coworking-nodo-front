@@ -59,6 +59,8 @@ export interface BackendArea {
   nombre:      string
   descripcion: string | null
   estado:      "LIBRE" | "OCUPADO"
+  codigo?:     string | null
+  zona?:       string | null
   reservas?:   BackendReserva[]
   createdAt:   string
 }

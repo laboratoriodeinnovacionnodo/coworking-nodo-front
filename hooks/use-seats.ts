@@ -64,5 +64,15 @@ export function useSeats() {
     [fetchSeats],
   )
 
-  return { seats, loading, fetchSeats, toggleBlockAll }
+  /** Bloquea o libera solo ciertos códigos (A1..C3) y refresca. */
+  const bloquearCodigos = useCallback(
+    async (block: boolean, codigos: string[]) => {
+      if (codigos.length === 0) return
+      await areasApi.bloquear(block ? "OCUPADO" : "LIBRE", codigos)
+      await fetchSeats()
+    },
+    [fetchSeats],
+  )
+
+  return { seats, loading, fetchSeats, toggleBlockAll, bloquearCodigos }
 }

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react"
 import { ocupacionesApi } from "@/lib/ocupacion-api"
 import { areasApi }       from "@/lib/api"
+import { codigosCoworking, codigoDeArea } from "@/lib/coworking-areas"
 import { getEventosActivosCoworking, type EventoCalendario } from "@/lib/eventos-api"
 import type { Ocupacion, CreateOcupacionPayload, RecepcionTurno } from "@/types/ocupacion"
 import { RECEPCION_OC_LABELS } from "@/types/ocupacion"
@@ -93,7 +94,11 @@ function calcularConflictos(
     const evD = ev.fechaDesde.split("T")[0]; const evH = ev.fechaHasta.split("T")[0]
     if (!rangoFechasSolapa(fechaDesde, fechaHasta, evD, evH)) continue
     if (!rangoHorarioSolapa(horaDesde, horaHasta, ev.horaDesde, ev.horaHasta)) continue
-    todasLasAreas.forEach((a) => areaIds.add(a.id)); eventosBloqueantes.push(ev)
+    // El evento solo bloquea las áreas que cubre (COWORKING = todas, zona, o códigos sueltos)
+    const codigosEvento = codigosCoworking(ev.areas)
+    const afectadas = todasLasAreas.filter((a) => codigosEvento.has(codigoDeArea(a)))
+    if (afectadas.length === 0) continue
+    afectadas.forEach((a) => areaIds.add(a.id)); eventosBloqueantes.push(ev)
   }
   return { areaIds, eventosBloqueantes }
 }
@@ -172,7 +177,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
     if (!form.horaHasta)            { toast({ variant: "destructive", title: "Falta la hora hasta" }); return }
     if (areaIds.length === 0)       { toast({ variant: "destructive", title: "Seleccioná al menos un área disponible" }); return }
     if (eventosBloqueantes.length > 0 && areaIds.every((id) => areasConConflicto.has(id))) {
-      toast({ variant: "destructive", title: "Horario no disponible", description: `Hay un evento ("${eventosBloqueantes[0].titulo}") que ocupa el coworking en ese horario.` }); return
+      toast({ variant: "destructive", title: "Horario no disponible", description: `Hay un evento ("${eventosBloqueantes[0].titulo}") que ocupa esas áreas del coworking en ese horario.` }); return
     }
     const payload: CreateOcupacionPayload = {
       titulo: form.titulo.trim(), requerimiento: form.requerimiento.trim(),
@@ -305,7 +310,7 @@ export function AgendarModal({ open, onOpenChange, onSuccess }: AgendarModalProp
             <div className="flex items-start gap-2.5 p-3 rounded-lg bg-orange-50 border border-orange-200 text-orange-800 text-sm">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" />
               <div className="space-y-1">
-                <p className="font-medium">El coworking no está disponible en ese horario</p>
+                <p className="font-medium">Hay áreas del coworking no disponibles en ese horario</p>
                 {eventosBloqueantes.map((ev) => (
                   <p key={ev.id} className="text-xs text-orange-700">
                     Evento: <span className="font-semibold">"{ev.titulo}"</span>{" "}· {ev.fechaDesde.split("T")[0]} {ev.horaDesde}–{ev.horaHasta}

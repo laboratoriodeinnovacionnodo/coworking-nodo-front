@@ -33,6 +33,8 @@ export interface BackendArea {
   nombre:      string
   descripcion: string | null
   estado:      AreaStatus
+  codigo?:     string | null
+  zona?:       string | null
   createdAt:   string
 }
 
@@ -100,6 +102,17 @@ export const areasApi = {
   bloquearTodas: async (estado: AreaStatus): Promise<BackendArea[]> => {
     const res = await fetch(`${API_BASE_URL}/areas/bloquear-todas/${estado}`, {
       method: "PATCH",
+    })
+    if (!res.ok) throw new Error("Error al bloquear áreas")
+    return res.json()
+  },
+
+  /** Bloquea/libera solo los códigos indicados (A1..C3). */
+  bloquear: async (estado: AreaStatus, codigos: string[]): Promise<BackendArea[]> => {
+    const res = await fetch(`${API_BASE_URL}/areas/bloquear`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ estado, codigos }),
     })
     if (!res.ok) throw new Error("Error al bloquear áreas")
     return res.json()

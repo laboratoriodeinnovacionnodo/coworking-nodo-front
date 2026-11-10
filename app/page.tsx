@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter }             from "next/navigation"
 import { useAuth }               from "@/contexts/auth-context"
 import { useSeats }              from "@/hooks/use-seats"
@@ -9,6 +9,7 @@ import { AdminPanel }            from "@/components/admin-panel"
 import { AgendarModal }          from "@/components/agendar-modal"
 import { AsientosMapaModal }     from "@/components/asientos-mapa-modal"
 import { DisponibilidadInline }  from "@/components/disponibilidad-inline"
+import { HistorialInline }        from "@/components/historial-inline"
 import { CalendarioCoworking }   from "@/components/calendario-coworking"
 import { EventoActivoBanner }    from "@/components/evento-activo-banner"
 import { Button }                from "@/components/ui/button"
@@ -18,16 +19,17 @@ import { cn }                    from "@/lib/utils"
 import { useToast }              from "@/hooks/use-toast"
 import {
   Loader2, RefreshCw, LogOut, Menu,
-  CalendarPlus, MapPin, LayoutGrid,
+  CalendarPlus, MapPin, LayoutGrid, History,
 } from "lucide-react"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 
-type Accion = "disponibilidad" | "asientos" | "agendar"
+type Accion = "disponibilidad" | "asientos" | "agendar" | "historial"
 
 const ACCIONES: { id: Accion; label: string; icon: React.ElementType; esModal: boolean }[] = [
   { id: "disponibilidad", label: "Disponibilidad",  icon: MapPin,       esModal: false },
   { id: "asientos",       label: "Asientos / Mapa", icon: LayoutGrid,   esModal: true  },
   { id: "agendar",        label: "Agendar",         icon: CalendarPlus, esModal: true  },
+  { id: "historial",      label: "Historial",       icon: History,      esModal: false },
 ]
 
 const POLLING_MS = 30_000
@@ -35,24 +37,23 @@ const POLLING_MS = 30_000
 export default function CoworkingSeatsPage() {
   const router  = useRouter()
   const { admin, isAdmin, logout, loading: authLoading } = useAuth()
-  const { seats, loading, fetchSeats, toggleBlockAll }   = useSeats()
-  const { eventoActivo, cargando: eventoCargando }       = useEventoActivo()
+  const { seats: seatsBackend, loading, fetchSeats, toggleBlockAll, bloquearCodigos } = useSeats()
+  const { eventoActivo, eventosActivos, codigosBloqueados, cargando: eventoCargando } = useEventoActivo()
   const { toast }              = useToast()
 
   const [isAdminMode,    setIsAdminMode]    = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [asientosOpen,   setAsientosOpen]   = useState(false)
   const [agendarOpen,    setAgendarOpen]    = useState(false)
+  const [vista,          setVista]          = useState<"disponibilidad" | "historial">("disponibilidad")
 
-  // ── Ref del último evento que disparó bloqueo ─────────────────────────────
-  // Guardamos el ID (string) o null.
-  // Usamos ref para no incluirlo como dep del useEffect de sync.
-  const bloqueadoPorEventoRef = useRef<string | null>(null)
+  // ── Códigos que este cliente ya bloqueó por eventos ───────────────────────
+  // Guardamos el Set anterior para bloquear/liberar solo la diferencia.
+  const bloqueadosRef = useRef<Set<string>>(new Set())
 
-  // ── Ref estable de toggleBlockAll — evita que el useEffect de sync
-  //    se re-ejecute cada vez que toggleBlockAll cambia de referencia.
-  const toggleBlockAllRef = useRef(toggleBlockAll)
-  useEffect(() => { toggleBlockAllRef.current = toggleBlockAll }, [toggleBlockAll])
+  // Ref estable de bloquearCodigos — evita re-ejecutar el efecto de sync.
+  const bloquearCodigosRef = useRef(bloquearCodigos)
+  useEffect(() => { bloquearCodigosRef.current = bloquearCodigos }, [bloquearCodigos])
 
   // ── Auth guard ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -68,35 +69,27 @@ export default function CoworkingSeatsPage() {
   }, [fetchSeats])
 
   // ── Sync bloqueo por evento ───────────────────────────────────────────────
-  // REGLA: no actuar hasta que useEventoActivo haya resuelto su primera
-  // consulta (cargando === false). Esto evita que el estado inicial null
-  // dispare un toggleBlockAll(false) prematuro cuando todavía no sabemos
-  // si hay evento.
+  // Cada evento bloquea SOLO los códigos/zonas del coworking que cubre
+  // (COWORKING = todo, COWORKING_ZONA_B = B1..B4, COWORKING_A1 = A1, etc.).
+  // No actuar hasta que useEventoActivo haya resuelto su primera consulta.
   useEffect(() => {
-    if (eventoCargando) return          // aún no sabemos → esperar
+    if (eventoCargando) return
 
-    const eventoId = eventoActivo?.id ?? null
+    const previos = bloqueadosRef.current
+    const aBloquear = [...codigosBloqueados].filter((c) => !previos.has(c))
+    const aLiberar  = [...previos].filter((c) => !codigosBloqueados.has(c))
+    if (aBloquear.length === 0 && aLiberar.length === 0) return
 
-    // Sin cambio real → no hacer nada
-    if (eventoId === bloqueadoPorEventoRef.current) return
+    bloqueadosRef.current = new Set(codigosBloqueados)
+    if (aBloquear.length) bloquearCodigosRef.current(true,  aBloquear).catch(() => {})
+    if (aLiberar.length)  bloquearCodigosRef.current(false, aLiberar).catch(() => {})
+  }, [codigosBloqueados, eventoCargando])
 
-    if (eventoId !== null && bloqueadoPorEventoRef.current === null) {
-      // Nuevo evento detectado → bloquear
-      bloqueadoPorEventoRef.current = eventoId
-      toggleBlockAllRef.current(true).catch(() => {})
-
-    } else if (eventoId === null && bloqueadoPorEventoRef.current !== null) {
-      // Evento terminó → liberar
-      bloqueadoPorEventoRef.current = null
-      toggleBlockAllRef.current(false).catch(() => {})
-
-    } else if (eventoId !== null && eventoId !== bloqueadoPorEventoRef.current) {
-      // Cambio de evento (raro) → actualizar ref sin re-bloquear
-      bloqueadoPorEventoRef.current = eventoId
-    }
-
-  // Solo eventoActivo y eventoCargando como deps — toggleBlockAll va por ref.
-  }, [eventoActivo, eventoCargando])
+  // Asientos tal como se muestran: los códigos bloqueados por evento figuran ocupados
+  const seats = useMemo(
+    () => seatsBackend.map((s) => (codigosBloqueados.has(s.id) ? { ...s, status: "occupied" as const } : s)),
+    [seatsBackend, codigosBloqueados],
+  )
 
   const handleRefresh = useCallback(async () => {
     await fetchSeats()
@@ -106,11 +99,11 @@ export default function CoworkingSeatsPage() {
   const handleAccion = (a: Accion) => {
     if (a === "asientos") { setAsientosOpen(true); return }
     if (a === "agendar")  { setAgendarOpen(true);  return }
+    setVista(a)
   }
 
-  const bloqueadoPorEvento = eventoActivo !== null
+  const bloqueadoPorEvento = codigosBloqueados.size > 0
   const bloqueadoManual    = !bloqueadoPorEvento && seats.length > 0 && seats.every((s) => s.status === "occupied")
-  const isBlocked          = bloqueadoPorEvento || bloqueadoManual
   const occupiedCount      = seats.filter((s) => s.status === "occupied").length
   const availableCount     = seats.filter((s) => s.status === "available").length
 
@@ -229,7 +222,7 @@ export default function CoworkingSeatsPage() {
         </div>
 
         {/* Banner evento activo */}
-        {eventoActivo && <EventoActivoBanner evento={eventoActivo} />}
+        {eventosActivos.map((ev) => <EventoActivoBanner key={ev.id} evento={ev} />)}
 
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3">
@@ -253,8 +246,8 @@ export default function CoworkingSeatsPage() {
         )}
         {isAdminMode && isAdmin && bloqueadoPorEvento && (
           <div className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-700">
-            El panel de administración está deshabilitado mientras haya un evento activo.
-            Las áreas se liberarán automáticamente cuando el evento termine.
+            El bloqueo general está deshabilitado mientras haya un evento activo.
+            Solo están bloqueadas las áreas del evento ({[...codigosBloqueados].sort().join(", ")}) y se liberarán automáticamente cuando termine.
           </div>
         )}
 
@@ -265,7 +258,7 @@ export default function CoworkingSeatsPage() {
           <div className="border-b border-border px-4 pt-4 pb-0">
             <div className="flex gap-1 overflow-x-auto scrollbar-none">
               {ACCIONES.map(({ id, label, icon: Icon, esModal }) => {
-                const isActive = !esModal && id === "disponibilidad"
+                const isActive = !esModal && id === vista
                 return (
                   <button
                     key={id}
@@ -286,8 +279,11 @@ export default function CoworkingSeatsPage() {
             </div>
           </div>
 
-          {/* Contenido fijo: Disponibilidad + Calendario */}
+          {/* Contenido según la pestaña activa */}
           <div className="p-4 md:p-6">
+            {vista === "historial" ? (
+              <HistorialInline />
+            ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-6 items-start">
               <div className="min-w-0">
                 <DisponibilidadInline onSuccess={fetchSeats} />
@@ -296,6 +292,7 @@ export default function CoworkingSeatsPage() {
                 <CalendarioCoworking />
               </div>
             </div>
+            )}
           </div>
 
         </div>
@@ -307,7 +304,8 @@ export default function CoworkingSeatsPage() {
         open={asientosOpen}
         onOpenChange={setAsientosOpen}
         seats={seats}
-        isBlocked={isBlocked && !isAdminMode}
+        isBlocked={bloqueadoManual && !isAdminMode}
+        codigosBloqueados={isAdminMode ? undefined : codigosBloqueados}
         eventoTitulo={eventoActivo?.titulo}
       />
       <AgendarModal

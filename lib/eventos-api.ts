@@ -4,6 +4,8 @@
  * Se usa únicamente para verificar conflictos al agendar ocupaciones.
  */
 
+import { esAreaCoworking } from "./coworking-areas"
+
 const EVENTOS_BASE =
   process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? ""
 
@@ -87,7 +89,7 @@ export async function getEventosActivosCoworking(
   return deduplicados.filter((e) => {
     // Solo eventos activos con área COWORKING
     if (ESTADOS_INACTIVOS.has(e.tipoEvento)) return false
-    if (!Array.isArray(e.areas) || !e.areas.includes("COWORKING")) return false
+    if (!Array.isArray(e.areas) || !e.areas.some(esAreaCoworking)) return false
 
     // Superposición de fechas con el rango pedido
     const evDesde = e.fechaDesde.split("T")[0]

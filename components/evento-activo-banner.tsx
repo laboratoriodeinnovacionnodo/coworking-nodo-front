@@ -1,7 +1,8 @@
 "use client"
 
 import type { EventoActivo } from "@/hooks/use-evento-activo"
-import { CalendarDays, Clock, Users, AlertTriangle } from "lucide-react"
+import { CalendarDays, Clock, Users, AlertTriangle, MapPin } from "lucide-react"
+import { CODIGOS_COWORKING, codigosCoworking, esAreaCoworking, etiquetaAreaEvento } from "@/lib/coworking-areas"
 import { Badge } from "@/components/ui/badge"
 
 const TIPO_LABEL: Record<string, string> = {
@@ -26,6 +27,8 @@ interface EventoActivoBannerProps {
 
 export function EventoActivoBanner({ evento }: EventoActivoBannerProps) {
   const mismaFecha = evento.fechaDesde.split("T")[0] === evento.fechaHasta.split("T")[0]
+  const areas      = evento.areas ?? []
+  const cubreTodo  = codigosCoworking(areas).size === CODIGOS_COWORKING.length
 
   return (
     <div
@@ -41,7 +44,7 @@ export function EventoActivoBanner({ evento }: EventoActivoBannerProps) {
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-orange-900">
-            Coworking no disponible — evento en curso
+            {cubreTodo ? "Coworking no disponible" : "Áreas del coworking no disponibles"} — evento en curso
           </p>
           <Badge
             variant="outline"
@@ -54,6 +57,22 @@ export function EventoActivoBanner({ evento }: EventoActivoBannerProps) {
         <p className="text-sm font-medium text-orange-800 truncate">
           {evento.titulo}
         </p>
+
+        {areas.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap text-xs text-orange-700">
+            <MapPin className="w-3 h-3" />
+            <span className="font-medium">{areas.length === 1 ? "Área:" : "Áreas:"}</span>
+            {areas.map((a) => (
+              <Badge
+                key={a}
+                variant="outline"
+                className={`text-[10px] px-1.5 py-0 border-orange-300 ${esAreaCoworking(a) ? "bg-orange-100 text-orange-800 font-semibold" : "bg-transparent text-orange-600"}`}
+              >
+                {etiquetaAreaEvento(a)}
+              </Badge>
+            ))}
+          </div>
+        )}
 
         <div className="flex items-center gap-3 flex-wrap text-xs text-orange-700">
           <span className="flex items-center gap-1">

@@ -30,10 +30,17 @@ interface AsientosMapaModalProps {
   onOpenChange:  (open: boolean) => void
   seats:         Seat[]
   isBlocked?:    boolean
+  /** Códigos (A1..C3) bloqueados por eventos activos: la zona se marca bloqueada solo si todos sus asientos lo están */
+  codigosBloqueados?: Set<string>
   eventoTitulo?: string
 }
 
-function agruparPorZona(seats: Seat[], isBlocked: boolean, eventoTitulo?: string): ZonaGroup[] {
+function agruparPorZona(
+  seats: Seat[],
+  isBlocked: boolean,
+  eventoTitulo?: string,
+  codigosBloqueados?: Set<string>,
+): ZonaGroup[] {
   const map = new Map<string, Seat[]>()
   for (const seat of seats) {
     const letra = seat.zone ?? "A"
@@ -42,12 +49,16 @@ function agruparPorZona(seats: Seat[], isBlocked: boolean, eventoTitulo?: string
   }
   return Array.from(map.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([letra, s]) => ({
-      letra,
-      seats:     s,
-      isBlocked,
-      eventName: isBlocked ? eventoTitulo : undefined,
-    }))
+    .map(([letra, s]) => {
+      const zonaBloqueada =
+        isBlocked || (!!codigosBloqueados && s.length > 0 && s.every((x) => codigosBloqueados.has(x.id)))
+      return {
+        letra,
+        seats:     s,
+        isBlocked: zonaBloqueada,
+        eventName: zonaBloqueada ? eventoTitulo : undefined,
+      }
+    })
 }
 
 export function AsientosMapaModal({
@@ -55,6 +66,7 @@ export function AsientosMapaModal({
   onOpenChange,
   seats,
   isBlocked = false,
+  codigosBloqueados,
   eventoTitulo,
 }: AsientosMapaModalProps) {
 
@@ -65,7 +77,7 @@ export function AsientosMapaModal({
     if (!open) { setZonaSeleccionada(null); setImgError(false) }
   }, [open])
 
-  const zonas    = agruparPorZona(seats, isBlocked, eventoTitulo)
+  const zonas    = agruparPorZona(seats, isBlocked, eventoTitulo, codigosBloqueados)
   const libres   = zonaSeleccionada?.seats.filter((s) => s.status === "available").length ?? 0
   const ocupados = zonaSeleccionada?.seats.filter((s) => s.status === "occupied").length  ?? 0
   const imagen   = zonaSeleccionada ? getAreaImage(zonaSeleccionada.letra) : null
@@ -93,7 +105,7 @@ export function AsientosMapaModal({
 
             <SeatLegend />
 
-            {isBlocked && eventoTitulo && (
+            {(isBlocked || (codigosBloqueados?.size ?? 0) > 0) && eventoTitulo && (
               <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-sm">
                 <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
                 <span><span className="font-semibold">Evento activo:</span> {eventoTitulo}</span>

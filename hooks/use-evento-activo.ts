@@ -10,7 +10,8 @@
  * fetches en vuelo al desmontar — evita race conditions al navegar.
  */
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
+import { esAreaCoworking, codigosCoworking } from "@/lib/coworking-areas"
 
 const EVENTOS_BASE    = process.env.NEXT_PUBLIC_EVENTOS_API_URL ?? ""
 const INTERVALO_MS    = 60_000
@@ -44,7 +45,7 @@ function ahoraArgentina(): { fecha: string; minutos: number } {
 
 function estaActivoAhora(ev: EventoActivo): boolean {
   if (ESTADOS_INACTIVOS.has(ev.tipoEvento)) return false
-  if (!Array.isArray(ev.areas) || !ev.areas.includes("COWORKING")) return false
+  if (!Array.isArray(ev.areas) || !ev.areas.some(esAreaCoworking)) return false
 
   const { fecha, minutos } = ahoraArgentina()
   const evDesde = ev.fechaDesde.split("T")[0]
@@ -61,8 +62,8 @@ function estaActivoAhora(ev: EventoActivo): boolean {
   return true
 }
 
-async function fetchEventoActivo(signal: AbortSignal): Promise<EventoActivo | null> {
-  if (!EVENTOS_BASE) return null
+async function fetchEventosActivos(signal: AbortSignal): Promise<EventoActivo[] | null> {
+  if (!EVENTOS_BASE) return []
 
   try {
     const { fecha } = ahoraArgentina()
@@ -102,18 +103,18 @@ async function fetchEventoActivo(signal: AbortSignal): Promise<EventoActivo | nu
       return true
     })
 
-    return unicos.find(estaActivoAhora) ?? null
+    return unicos.filter(estaActivoAhora)
   } catch (err) {
     // AbortError es esperado al desmontar — ignorar silenciosamente
     if (err instanceof DOMException && err.name === "AbortError") return null
-    return null
+    return []
   }
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useEventoActivo() {
-  const [eventoActivo, setEventoActivo] = useState<EventoActivo | null>(null)
+  const [eventosActivos, setEventosActivos] = useState<EventoActivo[]>([])
   const [cargando,     setCargando]     = useState(true)
 
   // Ref para el AbortController activo y el intervalo
@@ -128,13 +129,15 @@ export function useEventoActivo() {
       if (abortRef.current) abortRef.current.abort()
       abortRef.current = new AbortController()
 
-      const activo = await fetchEventoActivo(abortRef.current.signal)
+      const activos = await fetchEventosActivos(abortRef.current.signal)
 
       // Solo actualizar estado si el componente sigue montado
-      if (montado) {
-        setEventoActivo(activo)
-        setCargando(false)
+      if (montado && activos !== null) {
+        setEventosActivos((prev) =>
+          JSON.stringify(prev.map((e) => e.id)) === JSON.stringify(activos.map((e) => e.id)) ? prev : activos,
+        )
       }
+      if (montado) setCargando(false)
     }
 
     // Ejecución inmediata
@@ -157,5 +160,17 @@ export function useEventoActivo() {
     }
   }, []) // sin dependencias → solo monta/desmonta una vez
 
-  return { eventoActivo, cargando }
+  // Códigos del coworking (A1..C3) cubiertos por los eventos activos ahora.
+  const codigosKey = [...codigosCoworking(eventosActivos.flatMap((e) => e.areas ?? []))].sort().join(",")
+  const codigosBloqueados = useMemo(
+    () => new Set(codigosKey ? codigosKey.split(",") : []),
+    [codigosKey],
+  )
+
+  return {
+    eventoActivo: eventosActivos[0] ?? null, // para el banner
+    eventosActivos,
+    codigosBloqueados,
+    cargando,
+  }
 }

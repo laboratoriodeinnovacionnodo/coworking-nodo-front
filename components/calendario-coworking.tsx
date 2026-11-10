@@ -13,8 +13,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
+  MapPin,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { esAreaCoworking, etiquetaAreaEvento } from "@/lib/coworking-areas"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -63,16 +65,16 @@ const TIPO_LABELS: Record<TipoEvento, string> = {
 }
 
 const TIPO_STYLES: Record<TipoEvento, string> = {
-  PENDIENTE:  "bg-amber-50  text-amber-700  border-amber-200  ring-amber-100",
-  EN_CURSO:   "bg-blue-50   text-blue-700   border-blue-200   ring-blue-100",
-  FINALIZADO: "bg-emerald-50 text-emerald-700 border-emerald-200 ring-emerald-100",
-  CANCELADO:  "bg-red-50    text-red-700    border-red-200    ring-red-100",
-  MASIVO:     "bg-purple-50 text-purple-700 border-purple-200 ring-purple-100",
-  ESCOLAR:    "bg-pink-50   text-pink-700   border-pink-200   ring-pink-100",
+  PENDIENTE:  "bg-amber-100  text-amber-800  border-amber-200",
+  EN_CURSO:   "bg-blue-100   text-blue-800   border-blue-200",
+  FINALIZADO: "bg-slate-100  text-slate-600  border-slate-200",
+  CANCELADO:  "bg-red-100    text-red-800    border-red-200",
+  MASIVO:     "bg-purple-100 text-purple-800 border-purple-200",
+  ESCOLAR:    "bg-pink-100   text-pink-800   border-pink-200",
 }
 
 const TIPO_DOT: Record<TipoEvento, string> = {
-  PENDIENTE:  "bg-amber-400",
+  PENDIENTE:  "bg-amber-500",
   EN_CURSO:   "bg-blue-500",
   FINALIZADO: "bg-emerald-500",
   CANCELADO:  "bg-red-500",
@@ -81,7 +83,7 @@ const TIPO_DOT: Record<TipoEvento, string> = {
 }
 
 const TIPO_BORDER: Record<TipoEvento, string> = {
-  PENDIENTE:  "border-l-amber-400",
+  PENDIENTE:  "border-l-amber-500",
   EN_CURSO:   "border-l-blue-500",
   FINALIZADO: "border-l-emerald-500",
   CANCELADO:  "border-l-red-500",
@@ -151,7 +153,7 @@ export function CalendarioCoworking() {
       const filtrados = (data.events ?? []).filter(
         (e) =>
           Array.isArray(e.areas) &&
-          e.areas.includes("COWORKING") &&
+          e.areas.some(esAreaCoworking) &&
           esHoyOFuturo(e.fechaDesde),
       )
 
@@ -341,6 +343,29 @@ export function CalendarioCoworking() {
                       <div className="min-w-0">
                         <p className="text-[10px] text-muted-foreground leading-none mb-0.5">Organizador</p>
                         <p className="text-xs text-foreground truncate">{evento.organizadorSolicitante}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Áreas */}
+                  {Array.isArray(evento.areas) && evento.areas.length > 0 && (
+                    <div className="flex items-start gap-2 col-span-2">
+                      <MapPin className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground leading-none mb-1">
+                          {evento.areas.length === 1 ? "Área" : "Áreas"}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {evento.areas.map((a) => (
+                            <Badge
+                              key={a}
+                              variant={esAreaCoworking(a) ? "secondary" : "outline"}
+                              className="text-[10px] px-1.5 py-0 font-medium"
+                            >
+                              {etiquetaAreaEvento(a)}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   )}
